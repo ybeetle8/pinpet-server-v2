@@ -14,8 +14,8 @@ program_id = "HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw"
 # 事件监听器配置 / Event listener configuration
 enable_event_listener = true
 commitment = "processed"  # processed/confirmed/finalized
-reconnect_interval = 1  # 重连间隔(秒) / Reconnect interval in seconds
-max_reconnect_attempts = 20
+reconnect_interval = 5  # 重连间隔(秒) - 现在固定为5秒 / Reconnect interval in seconds - now fixed at 5 seconds
+max_reconnect_attempts = 0  # 不再使用，现在是永久循环 / No longer used, now loops forever
 # 事件处理配置 / Event processing configuration
 event_buffer_size = 1000
 event_batch_size = 100

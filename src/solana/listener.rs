@@ -4,7 +4,6 @@ use super::events::{EventParser, PinpetEvent};
 use crate::config::SolanaConfig;
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
-use rand;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -298,27 +297,14 @@ impl SolanaEventListener {
                         let mut attempts = reconnect_attempts.write().await;
                         *attempts += 1;
 
-                        if *attempts > config.max_reconnect_attempts {
-                            error!(
-                                "❌ 超过最大重连次数 / Max reconnection attempts ({}) exceeded",
-                                config.max_reconnect_attempts
-                            );
-                            *connection_state.write().await = ConnectionState::Disconnected;
-                            break;
-                        }
-
                         *connection_state.write().await = ConnectionState::Reconnecting;
 
-                        // 指数退避与抖动 / Exponential backoff with jitter
-                        let base_delay = config.reconnect_interval;
-                        let exponential_delay =
-                            std::cmp::min(base_delay * 2_u64.pow((*attempts - 1).min(5)), 60);
-                        let jitter = (rand::random::<f64>() * 2.0) as u64;
-                        let delay = exponential_delay + jitter;
+                        // 固定5秒重连间隔，永久循环 / Fixed 5 seconds reconnect interval, loop forever
+                        let delay = 5;
 
                         warn!(
-                            "🔄 重连尝试 / Reconnection attempt {} of {} in {} seconds",
-                            *attempts, config.max_reconnect_attempts, delay
+                            "🔄 重连尝试 #{} / Reconnection attempt #{} in {} seconds (永久循环 / looping forever)",
+                            *attempts, *attempts, delay
                         );
 
                         drop(attempts);
