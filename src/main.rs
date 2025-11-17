@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod docs;
 mod router;
+mod solana;
 mod util;
 
 use axum::Router;
@@ -43,6 +44,46 @@ async fn main() {
         }
     };
     tracing::info!("✅ RocksDB 初始化成功");
+
+    // 初始化 Solana 事件监听器 / Initialize Solana event listener
+    if config.solana.enable_event_listener {
+        tracing::info!("🚀 初始化 Solana 事件监听器 / Initializing Solana event listener");
+
+        // 创建 Solana 客户端 / Create Solana client
+        let solana_client = match solana::SolanaClient::new(config.solana.rpc_url.clone()) {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!("❌ Solana 客户端创建失败 / Failed to create Solana client: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        // 创建默认事件处理器 / Create default event handler
+        let event_handler = Arc::new(solana::DefaultEventHandler);
+
+        // 创建事件监听器管理器 / Create event listener manager
+        let mut listener_manager = solana::EventListenerManager::new();
+
+        if let Err(e) = listener_manager.initialize(
+            config.solana.clone(),
+            solana_client,
+            event_handler,
+        ) {
+            tracing::error!("❌ 事件监听器初始化失败 / Failed to initialize event listener: {}", e);
+            std::process::exit(1);
+        }
+
+        // 在后台启动事件监听器 / Start event listener in background
+        tokio::spawn(async move {
+            if let Err(e) = listener_manager.start().await {
+                tracing::error!("❌ 事件监听器启动失败 / Failed to start event listener: {}", e);
+            }
+        });
+
+        tracing::info!("✅ Solana 事件监听器已启动 / Solana event listener started");
+    } else {
+        tracing::info!("⏭️ Solana 事件监听器已禁用 / Solana event listener disabled");
+    }
 
     // 创建 CORS 层
     let cors = CorsLayer::new()

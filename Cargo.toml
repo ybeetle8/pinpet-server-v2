@@ -32,3 +32,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # 异步运行时
 tokio = { version = "1.0", features = ["full"] }
+
+# Solana 相关 / Solana related
+solana-sdk = "1.18"
+borsh = "1.5"
+base64 = "0.22"
+
+# WebSocket
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+
+# HTTP 客户端 / HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# 其他工具 / Other utilities
+uuid = { version = "1.11", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+async-trait = "0.1"
+serde_with = "3.11"
