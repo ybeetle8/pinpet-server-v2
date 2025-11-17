@@ -11,7 +11,7 @@ pub struct RocksDbStorage {
 }
 
 impl RocksDbStorage {
-    /// 创建新的 RocksDB 存储实例 (照抄老项目配置)
+    /// 创建新的 RocksDB 存储实例 (照抄老项目配置) 
     pub fn new(config: &Config) -> Result<Self> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
