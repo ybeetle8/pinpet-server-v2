@@ -20,6 +20,12 @@ anyhow = "1.0"
 utoipa = { version = "5.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "8.0", features = ["axum"] }
 
+# RocksDB
+rocksdb = "0.22"
+
+# 配置文件
+config = "0.14"
+
 # 日志
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -62,17 +62,24 @@ pub struct ErrorApiResponse {
     paths(
         // 路由函数列表
         crate::router::health::health,
+        crate::router::db::db_put,
+        crate::router::db::db_get,
+        crate::router::db::db_delete,
+        crate::router::db::db_stats,
     ),
     components(
         schemas(
             // 响应结构体列表
             crate::router::health::HealthResponse,
+            crate::router::db::DbRequest,
+            crate::router::db::DbResponse,
             EmptyResponse,
             ErrorApiResponse,
         )
     ),
     tags(
         (name = "system", description = "系统相关接口"),
+        (name = "database", description = "数据库相关接口"),
     ),
     info(
         title = "Pinpet Server API",

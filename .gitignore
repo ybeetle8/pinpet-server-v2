@@ -1,1 +1,16 @@
 /target
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+/data
+/docs
+/.claude
+/CLAUDE.md
+
+notes/
+old/
+logs/
