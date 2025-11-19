@@ -69,10 +69,14 @@ impl EventStorage {
                 (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.user.clone()))
             },
             PinpetEvent::FullClose(e) => {
-                (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.payer.clone()))
+                // 使用 user_sol_account 作为用户索引，因为 payer 可能是清算机器人而非订单所有者
+                // Use user_sol_account for user index, as payer may be liquidator bot instead of order owner
+                (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.user_sol_account.clone()))
             },
             PinpetEvent::PartialClose(e) => {
-                (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.user.clone()))
+                // 使用 user_sol_account 作为用户索引，因为 payer 可能是清算机器人而非订单所有者
+                // Use user_sol_account for user index, as payer may be liquidator bot instead of order owner
+                (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.user_sol_account.clone()))
             },
             PinpetEvent::MilestoneDiscount(e) => {
                 (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.payer.clone()))
@@ -397,16 +401,20 @@ impl EventStorage {
         let key_count = self.get_total_key_count()?;
         let db_size_bytes = self.get_estimated_db_size()?;
 
-        // 统计各类型的事件数量 / Count events by type
+        // 统计各类型的事件数量和键值总大小 / Count events by type and total KV size
         let mut event_counts = HashMap::new();
         let mut mint_count = 0;
         let mut user_count = 0;
         let mut signature_count = 0;
         let mut slot_count = 0;
+        let mut total_kv_size: u64 = 0;
 
         let iter = self.db.iterator(IteratorMode::Start);
         for item in iter {
-            if let Ok((key, _)) = item {
+            if let Ok((key, value)) = item {
+                // 累加键值大小 / Accumulate key-value size
+                total_kv_size += key.len() as u64 + value.len() as u64;
+
                 let key_str = String::from_utf8_lossy(&key);
 
                 if key_str.starts_with("event:") {
@@ -430,6 +438,8 @@ impl EventStorage {
 
         Ok(DatabaseStats {
             total_keys: key_count,
+            total_kv_size_bytes: total_kv_size,
+            total_kv_size_mb: total_kv_size as f64 / (1024.0 * 1024.0),
             database_size_bytes: db_size_bytes,
             database_size_mb: db_size_bytes as f64 / (1024.0 * 1024.0),
             event_counts,
@@ -447,13 +457,24 @@ impl EventStorage {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(title = "DatabaseStats", description = "数据库键值统计信息")]
 pub struct DatabaseStats {
+    /// 总键数量 / Total number of keys
     #[schema(example = 10000)]
     pub total_keys: u64,
+    /// 键值总大小（字节）/ Total size of all keys and values (bytes)
+    #[schema(example = 2097152)]
+    pub total_kv_size_bytes: u64,
+    /// 键值总大小（MB）/ Total size of all keys and values (MB)
+    #[schema(example = 2.0)]
+    pub total_kv_size_mb: f64,
+    /// 数据库文件大小（字节）/ Database file size (bytes)
     #[schema(example = 1048576)]
     pub database_size_bytes: u64,
+    /// 数据库文件大小（MB）/ Database file size (MB)
     #[schema(example = 1.0)]
     pub database_size_mb: f64,
+    /// 各事件类型计数 / Event counts by type
     pub event_counts: HashMap<String, u64>,
+    /// 索引计数 / Index counts
     pub index_counts: IndexCounts,
 }
 
