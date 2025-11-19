@@ -140,6 +140,7 @@ pub struct PartialCloseEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格 / Latest price
     pub order_id: u64,                   // 平仓订单的唯一编号 / Order ID
+    pub liquidate_id: u16,               // order_id的索引编号，方便中心化服务器读取 / Index number of order_id for centralized server
     // 部分平仓订单的参数(修改后的值) / Partial close order parameters (modified values)
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
     pub mint: String,                    // 关联的代币铸造账户 / Associated mint account
@@ -420,6 +421,7 @@ impl EventParser {
                     user_close_profit: event.user_close_profit,
                     latest_price: event.latest_price,
                     order_id: event.order_id,
+                    liquidate_id: event.liquidate_id,
                     order_type: event.order_type,
                     mint: event.mint.to_string(),
                     user: event.user.to_string(),
@@ -544,6 +546,7 @@ struct PartialCloseRaw {
     user_close_profit: u64,
     latest_price: u128,
     order_id: u64,
+    liquidate_id: u16,
     order_type: u8,
     mint: Pubkey,
     user: Pubkey,

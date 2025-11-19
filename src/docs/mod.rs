@@ -67,6 +67,9 @@ pub struct ErrorApiResponse {
         crate::router::db::db_delete,
         crate::router::db::db_stats,
         crate::router::db::db_event_stats,
+        crate::router::db::query_events_by_mint,
+        crate::router::db::query_events_by_user,
+        crate::router::db::query_events_by_signature,
     ),
     components(
         schemas(
@@ -74,8 +77,18 @@ pub struct ErrorApiResponse {
             crate::router::health::HealthResponse,
             crate::router::db::DbRequest,
             crate::router::db::DbResponse,
+            crate::router::db::SortOrder,
+            crate::router::db::PaginatedEvents,
+            crate::router::db::EventList,
             crate::db::DatabaseStats,
             crate::db::event_storage::IndexCounts,
+            crate::solana::events::PinpetEvent,
+            crate::solana::events::TokenCreatedEvent,
+            crate::solana::events::BuySellEvent,
+            crate::solana::events::LongShortEvent,
+            crate::solana::events::FullCloseEvent,
+            crate::solana::events::PartialCloseEvent,
+            crate::solana::events::MilestoneDiscountEvent,
             EmptyResponse,
             ErrorApiResponse,
         )
@@ -83,6 +96,7 @@ pub struct ErrorApiResponse {
     tags(
         (name = "system", description = "系统相关接口"),
         (name = "database", description = "数据库相关接口"),
+        (name = "events", description = "事件查询接口"),
     ),
     info(
         title = "Pinpet Server API",

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::solana::events::PinpetEvent;
+use crate::router::db::PaginatedEvents;
 
 /// 事件引用结构 - 用于索引 / Event reference structure - for indexing
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -357,6 +358,173 @@ impl EventStorage {
         });
 
         Ok(all_events)
+    }
+
+    /// 按mint_account查询事件（分页）/ Query events by mint_account (paginated)
+    pub async fn query_by_mint_paginated(
+        &self,
+        mint: &str,
+        page: u32,
+        page_size: u32,
+        ascending: bool,
+    ) -> Result<PaginatedEvents> {
+        let prefix = format!("idx_mint:{}:", mint);
+        let mut all_keys: Vec<String> = Vec::new();
+
+        // 收集所有匹配的索引键 / Collect all matching index keys
+        let iter = self.db.iterator(IteratorMode::From(
+            prefix.as_bytes(),
+            Direction::Forward
+        ));
+
+        for item in iter {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key).to_string();
+
+            // 检查是否仍在prefix范围内 / Check if still within prefix range
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            all_keys.push(key_str);
+        }
+
+        // 按slot排序（从键中提取slot）/ Sort by slot (extract slot from key)
+        // idx_mint:{mint}:{slot:010}:{sig8}:{type}:{idx3}
+        all_keys.sort_by(|a, b| {
+            let slot_a = a.split(':').nth(2).unwrap_or("0");
+            let slot_b = b.split(':').nth(2).unwrap_or("0");
+            if ascending {
+                slot_a.cmp(slot_b)
+            } else {
+                slot_b.cmp(slot_a)
+            }
+        });
+
+        let total = all_keys.len() as u64;
+        let total_pages = ((total as f64) / (page_size as f64)).ceil() as u32;
+
+        // 计算分页偏移 / Calculate pagination offset
+        let start = ((page - 1) * page_size) as usize;
+        let end = (start + page_size as usize).min(all_keys.len());
+
+        // 获取当前页的事件 / Get events for current page
+        let mut events = Vec::new();
+        for key_str in all_keys.get(start..end).unwrap_or(&[]) {
+            let parts: Vec<&str> = key_str.split(':').collect();
+            if parts.len() >= 6 {
+                let slot = parts[2];
+                let sig8 = parts[3];
+                let event_type = parts[4];
+                let idx = parts[5];
+
+                let event_key = format!("event:{}:{}:{}:{}:{}",
+                                       slot, mint, sig8, event_type, idx);
+
+                if let Ok(Some(data)) = self.db.get(event_key.as_bytes()) {
+                    if let Ok(event) = serde_json::from_slice::<PinpetEvent>(&data) {
+                        events.push(event);
+                    }
+                }
+            }
+        }
+
+        Ok(PaginatedEvents {
+            events,
+            total,
+            page,
+            page_size,
+            total_pages,
+        })
+    }
+
+    /// 按user查询事件（分页）/ Query events by user (paginated)
+    pub async fn query_by_user_paginated(
+        &self,
+        user: &str,
+        mint: Option<&str>,
+        page: u32,
+        page_size: u32,
+        ascending: bool,
+    ) -> Result<PaginatedEvents> {
+        let prefix = format!("idx_user:{}:", user);
+        let mut all_keys: Vec<String> = Vec::new();
+
+        // 收集所有匹配的索引键 / Collect all matching index keys
+        let iter = self.db.iterator(IteratorMode::From(
+            prefix.as_bytes(),
+            Direction::Forward
+        ));
+
+        for item in iter {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key).to_string();
+
+            // 检查是否仍在prefix范围内 / Check if still within prefix range
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            // 如果指定了mint，进行过滤 / Filter by mint if specified
+            // idx_user:{user}:{slot:010}:{mint}:{sig8}:{type}:{idx3}
+            if let Some(filter_mint) = mint {
+                let parts: Vec<&str> = key_str.split(':').collect();
+                if parts.len() >= 4 && parts[3] != filter_mint {
+                    continue;
+                }
+            }
+
+            all_keys.push(key_str);
+        }
+
+        // 按slot排序（从键中提取slot）/ Sort by slot (extract slot from key)
+        // idx_user:{user}:{slot:010}:{mint}:{sig8}:{type}:{idx3}
+        all_keys.sort_by(|a, b| {
+            let slot_a = a.split(':').nth(2).unwrap_or("0");
+            let slot_b = b.split(':').nth(2).unwrap_or("0");
+            if ascending {
+                slot_a.cmp(slot_b)
+            } else {
+                slot_b.cmp(slot_a)
+            }
+        });
+
+        let total = all_keys.len() as u64;
+        let total_pages = ((total as f64) / (page_size as f64)).ceil() as u32;
+
+        // 计算分页偏移 / Calculate pagination offset
+        let start = ((page - 1) * page_size) as usize;
+        let end = (start + page_size as usize).min(all_keys.len());
+
+        // 获取当前页的事件 / Get events for current page
+        let mut events = Vec::new();
+        for key_str in all_keys.get(start..end).unwrap_or(&[]) {
+            let parts: Vec<&str> = key_str.split(':').collect();
+            if parts.len() >= 7 {
+                let slot = parts[2];
+                let mint = parts[3];
+                let sig8 = parts[4];
+                let event_type = parts[5];
+                let idx = parts[6];
+
+                let event_key = format!("event:{}:{}:{}:{}:{}",
+                                       slot, mint, sig8, event_type, idx);
+
+                if let Ok(Some(data)) = self.db.get(event_key.as_bytes()) {
+                    if let Ok(event) = serde_json::from_slice::<PinpetEvent>(&data) {
+                        events.push(event);
+                    }
+                }
+            }
+        }
+
+        Ok(PaginatedEvents {
+            events,
+            total,
+            page,
+            page_size,
+            total_pages,
+        })
     }
 
     /// 获取数据库中的总键值对数量 / Get total key-value count in database

@@ -3852,6 +3852,10 @@
             "type": "u64"
           },
           {
+            "name": "liquidate_id",
+            "type": "u16"
+          },
+          {
             "name": "order_type",
             "type": "u8"
           },
