@@ -2257,6 +2257,7 @@ dependencies = [
  "serde_json",
  "serde_with 3.16.0",
  "solana-sdk",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite",
  "tower",

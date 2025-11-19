@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::util::{ok_result, ApiResult};
+use crate::db::DatabaseStats;
 
 /// 数据库操作请求
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -169,6 +170,44 @@ pub async fn db_stats(State(db): State<std::sync::Arc<crate::db::RocksDbStorage>
     }
 }
 
+/// 获取数据库键值统计信息 - 调试接口 / Get database key-value statistics - debug interface
+#[utoipa::path(
+    get,
+    path = "/db/event_stats",
+    tag = "database",
+    summary = "获取数据库键值统计信息",
+    description = "获取 RocksDB 中所有键值对的数量和大小统计（调试功能）",
+    responses(
+        (status = 200, description = "获取成功",
+         body = crate::docs::ApiResponse<DatabaseStats>),
+        (status = 500, description = "服务器内部错误",
+         body = crate::docs::ErrorApiResponse)
+    )
+)]
+pub async fn db_event_stats(State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>) -> ApiResult {
+    // 创建事件存储实例 / Create event storage instance
+    let event_storage = match db.create_event_storage() {
+        Ok(storage) => storage,
+        Err(e) => {
+            return Ok(ok_result::<DatabaseStats>(Err(
+                crate::util::result::ApiError::InternalError(
+                    format!("创建事件存储失败 / Failed to create event storage: {}", e)
+                ),
+            )))
+        }
+    };
+
+    // 获取数据库统计信息 / Get database statistics
+    let result = event_storage.get_db_stats();
+
+    match result {
+        Ok(stats) => Ok(ok_result::<DatabaseStats>(Ok(stats))),
+        Err(e) => Ok(ok_result::<DatabaseStats>(Err(
+            crate::util::result::ApiError::InternalError(e.to_string()),
+        ))),
+    }
+}
+
 /// 创建数据库路由
 pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
     Router::new()
@@ -176,4 +215,5 @@ pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
         .route("/db/get", post(db_get))
         .route("/db/delete", post(db_delete))
         .route("/db/stats", get(db_stats))
+        .route("/db/event_stats", get(db_event_stats))
 }

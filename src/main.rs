@@ -58,8 +58,17 @@ async fn main() {
             }
         };
 
-        // 创建默认事件处理器 / Create default event handler
-        let event_handler = Arc::new(solana::DefaultEventHandler);
+        // 创建事件存储实例 / Create event storage instance
+        let event_storage = match db_storage.create_event_storage() {
+            Ok(storage) => Arc::new(storage),
+            Err(e) => {
+                tracing::error!("❌ 事件存储创建失败 / Failed to create event storage: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        // 创建存储事件处理器 / Create storage event handler
+        let event_handler = Arc::new(solana::StorageEventHandler::new(event_storage));
 
         // 创建事件监听器管理器 / Create event listener manager
         let mut listener_manager = solana::EventListenerManager::new();

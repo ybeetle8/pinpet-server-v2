@@ -7,7 +7,7 @@ use crate::config::Config;
 
 /// RocksDB 存储服务
 pub struct RocksDbStorage {
-    db: Arc<DB>,
+    pub(crate) db: Arc<DB>,
 }
 
 impl RocksDbStorage {
@@ -107,5 +107,10 @@ impl RocksDbStorage {
     pub fn get_stats(&self) -> Result<String> {
         let stats = self.db.property_value("rocksdb.stats")?;
         Ok(stats.unwrap_or_else(|| "No stats available".to_string()))
+    }
+
+    /// 创建事件存储实例 / Create event storage instance
+    pub fn create_event_storage(&self) -> Result<crate::db::EventStorage> {
+        crate::db::EventStorage::new(Arc::clone(&self.db))
     }
 }

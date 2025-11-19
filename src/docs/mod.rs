@@ -66,6 +66,7 @@ pub struct ErrorApiResponse {
         crate::router::db::db_get,
         crate::router::db::db_delete,
         crate::router::db::db_stats,
+        crate::router::db::db_event_stats,
     ),
     components(
         schemas(
@@ -73,6 +74,8 @@ pub struct ErrorApiResponse {
             crate::router::health::HealthResponse,
             crate::router::db::DbRequest,
             crate::router::db::DbResponse,
+            crate::db::DatabaseStats,
+            crate::db::event_storage::IndexCounts,
             EmptyResponse,
             ErrorApiResponse,
         )
