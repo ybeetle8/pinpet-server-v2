@@ -91,10 +91,6 @@ pub struct ActiveOrdersByUserQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ClosedOrdersQuery {
-    /// 开始时间戳（Unix秒）/ Start timestamp (Unix seconds)
-    pub start_time: Option<u32>,
-    /// 结束时间戳（Unix秒）/ End timestamp (Unix seconds)
-    pub end_time: Option<u32>,
     /// 页码（从1开始）/ Page number (starts from 1)
     #[param(example = 1, minimum = 1)]
     #[serde(default = "default_page")]
@@ -103,6 +99,10 @@ pub struct ClosedOrdersQuery {
     #[param(example = 20, minimum = 1)]
     #[serde(default = "default_page_size")]
     pub page_size: u32,
+    /// 排序方向: asc=升序(close_time从小到大), desc=降序(close_time从大到小)，默认降序 / Sort order: asc=ascending(close_time low to high), desc=descending(close_time high to low), default desc
+    #[param(example = "desc")]
+    #[serde(default)]
+    pub sort: SortOrder,
 }
 
 /// 带 mint 的订单数据 / Order data with mint
@@ -401,8 +401,8 @@ pub async fn get_active_order_by_id(
 
 /// 按 user 查询已关闭订单 / Query closed orders by user
 ///
-/// 查询指定用户的已关闭订单，可按时间范围过滤。
-/// Query closed orders for specified user, with optional time range filter.
+/// 查询指定用户的已关闭订单，支持按 close_time 排序（默认降序）。
+/// Query closed orders for specified user, supports sorting by close_time (default descending).
 #[utoipa::path(
     get,
     path = "/api/orderbook/closed/user/{user}",
@@ -426,15 +426,35 @@ pub async fn get_closed_orders_by_user(
 
     match state
         .orderbook_storage
-        .get_closed_orders_by_user(&user, params.start_time, params.end_time, Some(state.max_limit))
+        .get_closed_orders_by_user(&user, None, None, Some(state.max_limit))
         .await
     {
         Ok(all_orders) => {
             // 转换为 OrderDataWithMint
-            let orders_with_mint: Vec<OrderDataWithMint> = all_orders
+            let mut orders_with_mint: Vec<OrderDataWithMint> = all_orders
                 .into_iter()
                 .map(|(mint, order)| OrderDataWithMint { mint, order })
                 .collect();
+
+            // 按 close_time 排序 / Sort by close_time
+            match params.sort {
+                SortOrder::Asc => {
+                    // 升序：close_time 从小到大 / Ascending: close_time from low to high
+                    orders_with_mint.sort_by(|a, b| {
+                        let time_a = a.order.close_time.unwrap_or(0);
+                        let time_b = b.order.close_time.unwrap_or(0);
+                        time_a.cmp(&time_b)
+                    });
+                },
+                SortOrder::Desc => {
+                    // 降序：close_time 从大到小 / Descending: close_time from high to low
+                    orders_with_mint.sort_by(|a, b| {
+                        let time_a = a.order.close_time.unwrap_or(0);
+                        let time_b = b.order.close_time.unwrap_or(0);
+                        time_b.cmp(&time_a)
+                    });
+                }
+            }
 
             // 计算分页
             let total = orders_with_mint.len() as u64;
