@@ -97,8 +97,8 @@ pub struct OrderData {
     /// Close timestamp (closed orders only)
     pub close_time: Option<u32>,
 
-    /// 关闭类型: 0=未关闭, 1=正常平仓, 2=强制平仓 - 1 byte
-    /// Close type: 0=Not closed, 1=Normal close, 2=Force liquidation
+    /// 关闭类型: 0=未关闭, 1=正常平仓, 2=强制平仓, 3=到期后第三方平仓 - 1 byte
+    /// Close type: 0=Not closed, 1=Normal close, 2=Force liquidation 3=other liquidation
     pub close_type: u8,
 }
 

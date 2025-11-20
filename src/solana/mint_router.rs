@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
-use tracing::{info, error, warn};
+use tracing::{info, error};
 
 use async_trait::async_trait;
 use super::events::PinpetEvent;
@@ -131,15 +131,15 @@ impl MintEventTask {
             return Ok(());
         }
 
-        let direction = super::liquidation::get_liquidation_direction_for_fullclose(event);
-
         info!(
-            "FullClose 事件清算 / FullClose liquidation: mint={}, dir={}, indices={:?}",
-            event.mint_account, direction, event.liquidate_indices
+            "FullClose 事件清算 / FullClose liquidation: mint={}, order_id={}, indices={:?}",
+            event.mint_account, event.order_id, event.liquidate_indices
         );
 
+        // 使用专门的 FullClose 清算处理，会根据 order_id 和 user_sol_account 判断 close_type
+        // Use specialized FullClose liquidation handler, which determines close_type based on order_id and user_sol_account
         self.liquidation_processor
-            .process_liquidation(&event.mint_account, direction, &event.liquidate_indices)
+            .process_fullclose_liquidation(event)
             .await
     }
 

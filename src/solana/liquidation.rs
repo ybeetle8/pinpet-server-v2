@@ -3,7 +3,7 @@ use anyhow::{Result, Context};
 use rocksdb::WriteBatch;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, error, warn};
+use tracing::{info, error};
 
 use crate::db::{OrderBookStorage, OrderData};
 use super::events::{BuySellEvent, LongShortEvent, FullCloseEvent, PartialCloseEvent};
@@ -179,6 +179,120 @@ impl LiquidationProcessor {
 
         info!(
             "✅ 清算完成 / Liquidation completed: mint={}, dir={}, count={}",
+            mint, direction, sorted_indices.len()
+        );
+
+        Ok(())
+    }
+
+    /// 处理 FullCloseEvent 的清算（带特殊 close_type 处理）/ Process liquidation for FullCloseEvent (with special close_type handling)
+    ///
+    /// 特殊处理逻辑 / Special handling logic:
+    /// - 如果事件上的 order_id 与数据库中的订单 order_id 不同，则 close_type = 2（强制平仓）
+    /// - 如果相同且 user_sol_account == user（payer），则 close_type = 1（正常平仓）
+    /// - 如果相同但 user_sol_account != user（payer），则 close_type = 3（第三方平仓）
+    pub async fn process_fullclose_liquidation(
+        &self,
+        event: &FullCloseEvent,
+    ) -> Result<()> {
+        if event.liquidate_indices.is_empty() {
+            return Ok(());
+        }
+
+        let mint = &event.mint_account;
+        let direction = get_liquidation_direction_for_fullclose(event);
+
+        info!(
+            "开始 FullClose 清算 / Starting FullClose liquidation: mint={}, dir={}, order_id={}, indices={:?}",
+            mint, direction, event.order_id, event.liquidate_indices
+        );
+
+        // 1. 查询所有激活订单 / Query all active orders
+        let mut orders = self
+            .orderbook_storage
+            .get_active_orders_by_mint(mint, direction, None)
+            .await
+            .context("查询激活订单失败 / Failed to query active orders")?;
+
+        // 2. 排序 / Sort
+        sort_orders_by_price(&mut orders, direction);
+
+        // 3. 验证索引 / Validate indices
+        let max_index = orders.len();
+        for &idx in &event.liquidate_indices {
+            if idx as usize >= max_index {
+                error!(
+                    "❌ 清算索引无效 / Invalid liquidation index: idx={}, max={}, mint={}, dir={}",
+                    idx, max_index, mint, direction
+                );
+                return Err(anyhow::anyhow!(
+                    "清算索引超出范围 / Liquidation index out of range: idx={}, max={}",
+                    idx, max_index
+                ));
+            }
+        }
+
+        // 4. 对 indices 从大到小排序（避免索引错位）/ Sort indices descending (avoid index shift)
+        let mut sorted_indices: Vec<u16> = event.liquidate_indices.to_vec();
+        sorted_indices.sort_by(|a, b| b.cmp(a));
+
+        // 5. 获取当前时间戳作为关闭时间 / Get current timestamp as close time
+        let close_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as u32;
+
+        // 6. 在一个事务中执行所有删除操作 / Execute all deletions in one transaction
+        let db = self.orderbook_storage.get_db();
+        let mut batch = WriteBatch::default();
+
+        for &idx in &sorted_indices {
+            let (mint_str, mut order) = orders[idx as usize].clone();
+
+            // 设置关闭信息 / Set close information
+            order.close_time = Some(close_time);
+
+            // 根据 FullCloseEvent 的 order_id 和 user_sol_account 判断 close_type
+            // Determine close_type based on FullCloseEvent's order_id and user_sol_account
+            if event.order_id != order.order_id {
+                // order_id 不同，强制平仓 / Different order_id, force liquidation
+                order.close_type = 2;
+                info!(
+                    "清算订单（强制平仓，order_id不同）/ Liquidating order (force liquidation, different order_id): idx={}, db_order_id={}, event_order_id={}, user={}",
+                    idx, order.order_id, event.order_id, order.user
+                );
+            } else {
+                // order_id 相同，检查 user_sol_account / Same order_id, check user_sol_account
+                if event.user_sol_account == order.user {
+                    // 用户自己平仓 / User closes own position
+                    order.close_type = 1;
+                    info!(
+                        "清算订单（正常平仓）/ Liquidating order (normal close): idx={}, order_id={}, user={}",
+                        idx, order.order_id, order.user
+                    );
+                } else {
+                    // 第三方平仓 / Third party closes position
+                    order.close_type = 3;
+                    info!(
+                        "清算订单（第三方平仓）/ Liquidating order (third party close): idx={}, order_id={}, user={}, closer={}",
+                        idx, order.order_id, order.user, event.user_sol_account
+                    );
+                }
+            }
+
+            // 删除激活订单的所有键 / Delete all keys for active order
+            self.delete_active_order_keys(&mut batch, &mint_str, direction, &order);
+
+            // 添加已关闭订单的所有键 / Add all keys for closed order
+            self.add_closed_order_keys(&mut batch, &mint_str, &order)?;
+        }
+
+        // 7. 原子提交 / Atomic commit
+        db.write(batch)
+            .context("FullClose 清算事务提交失败 / FullClose liquidation transaction commit failed")?;
+
+        info!(
+            "✅ FullClose 清算完成 / FullClose liquidation completed: mint={}, dir={}, count={}",
             mint, direction, sorted_indices.len()
         );
 
