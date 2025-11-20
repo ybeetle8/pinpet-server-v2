@@ -83,8 +83,9 @@ pub struct LongShortEvent {
     pub order_id: u64,                   // 开仓的订单的唯一编号 / Unique order ID
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格 / Latest price
+    #[serde_as(as = "DisplayFromStr")]
+    pub open_price: u128,                // 开仓价格 / Open price
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
-    pub mint: String,                    // 关联的代币铸造账户 / Associated mint account
     pub user: String,                    // 开仓用户 / User who opened position
     #[serde_as(as = "DisplayFromStr")]
     pub lock_lp_start_price: u128,       // 锁定流动池区间开始价 / LP lock range start price
@@ -142,7 +143,6 @@ pub struct PartialCloseEvent {
     pub order_id: u64,                   // 平仓订单的唯一编号 / Order ID
     // 部分平仓订单的参数(修改后的值) / Partial close order parameters (modified values)
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
-    pub mint: String,                    // 关联的代币铸造账户 / Associated mint account
     pub user: String,                    // 开仓用户 / User who opened position
     #[serde_as(as = "DisplayFromStr")]
     pub lock_lp_start_price: u128,       // 锁定流动池区间开始价 / LP lock range start price
@@ -369,8 +369,8 @@ impl EventParser {
                     mint_account: event.mint_account.to_string(),
                     order_id: event.order_id,
                     latest_price: event.latest_price,
+                    open_price: event.open_price,
                     order_type: event.order_type,
-                    mint: event.mint.to_string(),
                     user: event.user.to_string(),
                     lock_lp_start_price: event.lock_lp_start_price,
                     lock_lp_end_price: event.lock_lp_end_price,
@@ -421,7 +421,6 @@ impl EventParser {
                     latest_price: event.latest_price,
                     order_id: event.order_id,
                     order_type: event.order_type,
-                    mint: event.mint.to_string(),
                     user: event.user.to_string(),
                     lock_lp_start_price: event.lock_lp_start_price,
                     lock_lp_end_price: event.lock_lp_end_price,
@@ -503,8 +502,8 @@ struct LongShortRaw {
     mint_account: Pubkey,
     order_id: u64,
     latest_price: u128,
+    open_price: u128,
     order_type: u8,
-    mint: Pubkey,
     user: Pubkey,
     lock_lp_start_price: u128,
     lock_lp_end_price: u128,
@@ -545,7 +544,6 @@ struct PartialCloseRaw {
     latest_price: u128,
     order_id: u64,
     order_type: u8,
-    mint: Pubkey,
     user: Pubkey,
     lock_lp_start_price: u128,
     lock_lp_end_price: u128,
