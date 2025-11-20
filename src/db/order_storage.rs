@@ -251,6 +251,35 @@ impl OrderBookStorage {
         }
     }
 
+    /// 更新激活订单（原子操作）/ Update active order (atomic operation)
+    /// 仅更新主存储的订单数据，不修改索引键
+    /// Only updates order data in primary storage, doesn't modify index keys
+    pub async fn update_active_order(
+        &self,
+        mint: &str,
+        direction: &str,
+        updated_order: &OrderData,
+    ) -> Result<()> {
+        // 使用 WriteBatch 保证原子性 / Use WriteBatch to ensure atomicity
+        let mut batch = WriteBatch::default();
+
+        // 只更新主存储 / Only update primary storage
+        let main_key = format!(
+            "active_order:{}:{}:{:010}:{:010}",
+            mint, direction, updated_order.slot, updated_order.order_id
+        );
+        batch.put(main_key.as_bytes(), &updated_order.to_bytes()?);
+
+        // 原子提交 / Atomic commit
+        self.db.write(batch)?;
+
+        info!(
+            "更新激活订单 / Updated active order: mint={}, dir={}, order_id={}",
+            mint, direction, updated_order.order_id
+        );
+        Ok(())
+    }
+
     // ==================== 订单关闭操作 / Order Close Operations ====================
 
     /// 关闭订单（从激活状态移动到关闭状态）/ Close order (move from active to closed state)
