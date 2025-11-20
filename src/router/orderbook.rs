@@ -15,6 +15,27 @@ use crate::db::{OrderBookStorage, OrderData};
 use crate::router::db::SortOrder;
 use crate::util::result::CommonResult as ApiResponse;
 
+/// 订单方向 / Order direction
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Copy, PartialEq)]
+pub enum OrderDirection {
+    /// 做空订单簿 / Short orderbook
+    #[serde(rename = "up")]
+    Up,
+    /// 做多订单簿 / Long orderbook
+    #[serde(rename = "dn")]
+    Dn,
+}
+
+impl OrderDirection {
+    /// 转换为字符串 / Convert to string
+    pub fn as_str(&self) -> &str {
+        match self {
+            OrderDirection::Up => "up",
+            OrderDirection::Dn => "dn",
+        }
+    }
+}
+
 /// 创建 OrderBook 路由 / Create OrderBook routes
 pub fn routes() -> Router<OrderBookState> {
     Router::new()
@@ -72,7 +93,7 @@ pub struct ActiveOrdersByUserQuery {
     pub mint: Option<String>,
     /// 订单方向: up=做空, dn=做多（可选）/ Order direction: up=short, dn=long (optional)
     #[param(example = "up")]
-    pub direction: Option<String>,
+    pub direction: Option<OrderDirection>,
     /// 页码（从1开始）/ Page number (starts from 1)
     #[param(example = 1, minimum = 1)]
     #[serde(default = "default_page")]
@@ -153,7 +174,7 @@ pub struct PaginatedOrdersResponse {
     path = "/api/orderbook/active/{mint}/{direction}",
     params(
         ("mint" = String, Path, description = "代币地址 / Token address", example = "So11111111111111111111111111111111111111112"),
-        ("direction" = String, Path, description = "订单方向: up=做空订单簿, dn=做多订单簿 / Order direction: up=short orderbook, dn=long orderbook", example = "up"),
+        ("direction" = OrderDirection, Path, description = "订单方向: up=做空订单簿, dn=做多订单簿 / Order direction: up=short orderbook, dn=long orderbook", example = "up"),
         ActiveOrdersByMintQuery
     ),
     responses(
@@ -164,27 +185,15 @@ pub struct PaginatedOrdersResponse {
 )]
 pub async fn get_active_orders_by_mint(
     State(state): State<OrderBookState>,
-    Path((mint, direction)): Path<(String, String)>,
+    Path((mint, direction)): Path<(String, OrderDirection)>,
     Query(params): Query<ActiveOrdersByMintQuery>,
 ) -> impl IntoResponse {
-    // 验证方向参数 / Validate direction parameter
-    if direction != "up" && direction != "dn" {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::<PaginatedOrdersResponse>::error(
-                400,
-                "无效的方向参数，必须是 'up' 或 'dn' / Invalid direction parameter, must be 'up' or 'dn'".to_string(),
-            )),
-        )
-            .into_response();
-    }
-
     // 限制 page_size 不超过 max_limit
     let page_size = params.page_size.min(state.max_limit as u32);
 
     match state
         .orderbook_storage
-        .get_active_orders_by_mint(&mint, &direction, Some(state.max_limit))
+        .get_active_orders_by_mint(&mint, direction.as_str(), Some(state.max_limit))
         .await
     {
         Ok(all_orders) => {
@@ -259,20 +268,6 @@ pub async fn get_active_orders_by_user(
     Path(user): Path<String>,
     Query(params): Query<ActiveOrdersByUserQuery>,
 ) -> impl IntoResponse {
-    // 验证方向参数（如果提供）/ Validate direction parameter (if provided)
-    if let Some(ref dir) = params.direction {
-        if dir != "up" && dir != "dn" {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ApiResponse::<PaginatedOrdersResponse>::error(
-                    400,
-                    "无效的方向参数，必须是 'up' 或 'dn' / Invalid direction parameter, must be 'up' or 'dn'".to_string(),
-                )),
-            )
-                .into_response();
-        }
-    }
-
     // 限制 page_size 不超过 max_limit
     let page_size = params.page_size.min(state.max_limit as u32);
 
@@ -281,7 +276,7 @@ pub async fn get_active_orders_by_user(
         .get_active_orders_by_user_mint(
             &user,
             params.mint.as_deref(),
-            params.direction.as_deref(),
+            params.direction.as_ref().map(|d| d.as_str()),
             Some(state.max_limit),
         )
         .await
@@ -345,7 +340,7 @@ pub async fn get_active_orders_by_user(
     path = "/api/orderbook/active/order/{mint}/{direction}/{order_id}",
     params(
         ("mint" = String, Path, description = "代币地址 / Token address", example = "So11111111111111111111111111111111111111112"),
-        ("direction" = String, Path, description = "订单方向: up=做空, dn=做多 / Order direction: up=short, dn=long", example = "up"),
+        ("direction" = OrderDirection, Path, description = "订单方向: up=做空, dn=做多 / Order direction: up=short, dn=long", example = "up"),
         ("order_id" = u64, Path, description = "订单ID / Order ID", example = 1)
     ),
     responses(
@@ -357,23 +352,11 @@ pub async fn get_active_orders_by_user(
 )]
 pub async fn get_active_order_by_id(
     State(state): State<OrderBookState>,
-    Path((mint, direction, order_id)): Path<(String, String, u64)>,
+    Path((mint, direction, order_id)): Path<(String, OrderDirection, u64)>,
 ) -> impl IntoResponse {
-    // 验证方向参数 / Validate direction parameter
-    if direction != "up" && direction != "dn" {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::<OrderDataWithMint>::error(
-                400,
-                "无效的方向参数，必须是 'up' 或 'dn' / Invalid direction parameter, must be 'up' or 'dn'".to_string(),
-            )),
-        )
-            .into_response();
-    }
-
     match state
         .orderbook_storage
-        .get_active_order_by_id(&mint, &direction, order_id)
+        .get_active_order_by_id(&mint, direction.as_str(), order_id)
         .await
     {
         Ok(Some((mint, order))) => {
