@@ -79,7 +79,16 @@ async fn main() {
         };
 
         // 创建存储事件处理器 / Create storage event handler
-        let event_handler = Arc::new(solana::StorageEventHandler::new(event_storage, orderbook_storage.clone()));
+        let storage_handler = Arc::new(solana::StorageEventHandler::new(event_storage, orderbook_storage.clone()));
+
+        // 创建清算处理器 / Create liquidation processor
+        let liquidation_processor = Arc::new(solana::LiquidationProcessor::new(orderbook_storage.clone()));
+
+        // 创建 MintEventRouter 作为事件处理器 / Create MintEventRouter as event handler
+        let event_handler = Arc::new(solana::MintEventRouter::new(
+            liquidation_processor,
+            storage_handler,
+        ));
 
         // 创建事件监听器管理器 / Create event listener manager
         let mut listener_manager = solana::EventListenerManager::new();

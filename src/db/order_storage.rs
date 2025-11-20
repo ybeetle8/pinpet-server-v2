@@ -134,6 +134,11 @@ impl OrderBookStorage {
         Self { db }
     }
 
+    /// 获取数据库引用 / Get database reference
+    pub fn get_db(&self) -> &Arc<DB> {
+        &self.db
+    }
+
     // ==================== 激活订单操作 / Active Order Operations ====================
 
     /// 添加新的激活订单 / Add new active order
