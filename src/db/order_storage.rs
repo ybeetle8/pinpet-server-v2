@@ -172,24 +172,31 @@ impl OrderBookStorage {
     }
 
     /// 查询 mint + direction 的所有激活订单 / Query all active orders for mint + direction
+    /// 返回 (mint, order) 元组列表，按 slot 降序排序 / Returns (mint, order) tuples, sorted by slot descending
     pub async fn get_active_orders_by_mint(
         &self,
         mint: &str,
         direction: &str,
         limit: Option<usize>,
-    ) -> Result<Vec<OrderData>> {
+    ) -> Result<Vec<(String, OrderData)>> {
         let prefix = format!("active_order:{}:{}:", mint, direction);
-        self.scan_orders(&prefix, limit).await
+        let mut orders = self.scan_orders_with_mint(&prefix, limit).await?;
+
+        // 按 slot 降序排序 / Sort by slot descending
+        orders.sort_by(|a, b| b.1.slot.cmp(&a.1.slot));
+
+        Ok(orders)
     }
 
     /// 查询用户在指定 mint 上的所有激活订单 / Query all active orders for user on specific mint
+    /// 返回 (mint, order) 元组列表，按 slot 降序排序 / Returns (mint, order) tuples, sorted by slot descending
     pub async fn get_active_orders_by_user_mint(
         &self,
         user: &str,
         mint: Option<&str>,
         direction: Option<&str>,
         limit: Option<usize>,
-    ) -> Result<Vec<OrderData>> {
+    ) -> Result<Vec<(String, OrderData)>> {
         let prefix = match (mint, direction) {
             (Some(m), Some(d)) => format!("active_user:{}:{}:{}:", user, m, d),
             (Some(m), None) => format!("active_user:{}:{}:", user, m),
@@ -202,21 +209,25 @@ impl OrderBookStorage {
         // 根据引用获取完整订单数据 / Get complete order data from references
         let mut orders = Vec::new();
         for key in order_keys {
-            if let Some(order) = self.get_order_from_user_index(&key).await? {
-                orders.push(order);
+            if let Some((mint, order)) = self.get_order_from_user_index(&key).await? {
+                orders.push((mint, order));
             }
         }
+
+        // 按 slot 降序排序 / Sort by slot descending
+        orders.sort_by(|a, b| b.1.slot.cmp(&a.1.slot));
 
         Ok(orders)
     }
 
     /// 通过 order_id 获取激活订单 / Get active order by order_id
+    /// 返回 (mint, order) 元组 / Returns (mint, order) tuple
     pub async fn get_active_order_by_id(
         &self,
         mint: &str,
         direction: &str,
         order_id: u64,
-    ) -> Result<Option<OrderData>> {
+    ) -> Result<Option<(String, OrderData)>> {
         // 1. 通过 ID 映射获取 slot / Get slot through ID mapping
         let id_map_key = format!("active_id:{}:{}:{:010}", mint, direction, order_id);
 
@@ -235,7 +246,7 @@ impl OrderBookStorage {
         );
 
         match self.db.get(main_key.as_bytes())? {
-            Some(data) => Ok(Some(OrderData::from_bytes(&data)?)),
+            Some(data) => Ok(Some((mint.to_string(), OrderData::from_bytes(&data)?))),
             None => Ok(None),
         }
     }
@@ -260,8 +271,8 @@ impl OrderBookStorage {
             dir = "dn";
         }
 
-        let mut order = match order {
-            Some(o) => o,
+        let (mint_str, mut order_data) = match order {
+            Some((m, o)) => (m, o),
             None => {
                 return Err(anyhow::anyhow!(
                     "订单不存在 / Order not found: mint={}, order_id={}",
@@ -271,16 +282,16 @@ impl OrderBookStorage {
         };
 
         // 3. 更新订单状态 / Update order state
-        order.close_time = Some(close_time);
-        order.close_type = close_type;
+        order_data.close_time = Some(close_time);
+        order_data.close_type = close_type;
 
         let mut batch = WriteBatch::default();
 
         // 4. 删除激活订单的所有键 / Delete all keys for active order
-        self.delete_active_order_keys(&mut batch, mint, dir, &order);
+        self.delete_active_order_keys(&mut batch, &mint_str, dir, &order_data);
 
         // 5. 添加已关闭订单的所有键 / Add all keys for closed order
-        self.add_closed_order_keys(&mut batch, mint, &order)?;
+        self.add_closed_order_keys(&mut batch, &mint_str, &order_data)?;
 
         // 6. 原子提交 / Atomic commit
         self.db.write(batch)?;
@@ -342,13 +353,14 @@ impl OrderBookStorage {
     // ==================== 已关闭订单查询 / Closed Order Queries ====================
 
     /// 查询用户的已关闭订单 / Query user's closed orders
+    /// 返回 (mint, order) 元组列表，按 slot 降序排序 / Returns (mint, order) tuples, sorted by slot descending
     pub async fn get_closed_orders_by_user(
         &self,
         user: &str,
         start_time: Option<u32>,
         end_time: Option<u32>,
         limit: Option<usize>,
-    ) -> Result<Vec<OrderData>> {
+    ) -> Result<Vec<(String, OrderData)>> {
         let start_prefix = match start_time {
             Some(t) => format!("closed_order:{}:{:010}:", user, t),
             None => format!("closed_order:{}:0000000000:", user),
@@ -379,25 +391,35 @@ impl OrderBookStorage {
                 break;
             }
 
-            // 解析订单数据 / Parse order data
-            if let Ok(order) = OrderData::from_bytes(&value) {
-                orders.push(order);
+            // 解析键提取 mint / Parse key to extract mint
+            // 键格式: closed_order:{user}:{close_time:010}:{mint}:{dir}:{order_id:010}
+            let parts: Vec<&str> = key_str.split(':').collect();
+            if parts.len() >= 4 {
+                let mint = parts[3].to_string();
 
-                if let Some(limit) = limit {
-                    if orders.len() >= limit {
-                        break;
+                // 解析订单数据 / Parse order data
+                if let Ok(order) = OrderData::from_bytes(&value) {
+                    orders.push((mint, order));
+
+                    if let Some(limit) = limit {
+                        if orders.len() >= limit {
+                            break;
+                        }
                     }
                 }
             }
         }
+
+        // 按 slot 降序排序 / Sort by slot descending
+        orders.sort_by(|a, b| b.1.slot.cmp(&a.1.slot));
 
         Ok(orders)
     }
 
     // ==================== 辅助方法 / Helper Methods ====================
 
-    /// 扫描并返回订单列表 / Scan and return order list
-    async fn scan_orders(&self, prefix: &str, limit: Option<usize>) -> Result<Vec<OrderData>> {
+    /// 扫描并返回订单列表（带 mint）/ Scan and return order list with mint
+    async fn scan_orders_with_mint(&self, prefix: &str, limit: Option<usize>) -> Result<Vec<(String, OrderData)>> {
         let mut orders = Vec::new();
         let iter = self.db.iterator(IteratorMode::From(
             prefix.as_bytes(),
@@ -406,18 +428,25 @@ impl OrderBookStorage {
 
         for item in iter {
             let (key, value) = item?;
-            let key_str = String::from_utf8_lossy(&key);
+            let key_str = String::from_utf8_lossy(&key).to_string();
 
             if !key_str.starts_with(prefix) {
                 break;
             }
 
-            if let Ok(order) = OrderData::from_bytes(&value) {
-                orders.push(order);
+            // 解析键提取 mint / Parse key to extract mint
+            // 键格式: active_order:{mint}:{dir}:{slot:010}:{order_id:010}
+            let parts: Vec<&str> = key_str.split(':').collect();
+            if parts.len() >= 2 {
+                let mint = parts[1].to_string();
 
-                if let Some(limit) = limit {
-                    if orders.len() >= limit {
-                        break;
+                if let Ok(order) = OrderData::from_bytes(&value) {
+                    orders.push((mint, order));
+
+                    if let Some(limit) = limit {
+                        if orders.len() >= limit {
+                            break;
+                        }
                     }
                 }
             }
@@ -454,8 +483,8 @@ impl OrderBookStorage {
         Ok(keys)
     }
 
-    /// 从用户索引获取订单 / Get order from user index
-    async fn get_order_from_user_index(&self, index_key: &str) -> Result<Option<OrderData>> {
+    /// 从用户索引获取订单（带 mint）/ Get order from user index with mint
+    async fn get_order_from_user_index(&self, index_key: &str) -> Result<Option<(String, OrderData)>> {
         // 解析: active_user:{user}:{mint}:{dir}:{slot:010}:{order_id:010}
         // Parse: active_user:{user}:{mint}:{dir}:{slot:010}:{order_id:010}
         let parts: Vec<&str> = index_key.split(':').collect();
@@ -463,7 +492,7 @@ impl OrderBookStorage {
             return Ok(None);
         }
 
-        let mint = parts[2];
+        let mint = parts[2].to_string();
         let dir = parts[3];
         let slot = parts[4];
         let order_id = parts[5];
@@ -471,7 +500,7 @@ impl OrderBookStorage {
         let main_key = format!("active_order:{}:{}:{}:{}", mint, dir, slot, order_id);
 
         match self.db.get(main_key.as_bytes())? {
-            Some(data) => Ok(Some(OrderData::from_bytes(&data)?)),
+            Some(data) => Ok(Some((mint, OrderData::from_bytes(&data)?))),
             None => Ok(None),
         }
     }

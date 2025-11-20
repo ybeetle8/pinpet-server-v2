@@ -39,15 +39,24 @@ pub fn routes() -> Router<OrderBookState> {
 #[derive(Clone)]
 pub struct OrderBookState {
     pub orderbook_storage: Arc<OrderBookStorage>,
+    pub max_limit: usize,  // 最大返回数量限制 / Max result limit
 }
+
+fn default_page() -> u32 { 1 }
+fn default_page_size() -> u32 { 20 }
 
 /// 查询激活订单的请求参数（按 mint + direction）/ Query parameters for active orders (by mint + direction)
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ActiveOrdersByMintQuery {
-    /// 结果数量限制 / Result limit
-    #[param(example = 100)]
-    pub limit: Option<usize>,
+    /// 页码（从1开始）/ Page number (starts from 1)
+    #[param(example = 1, minimum = 1)]
+    #[serde(default = "default_page")]
+    pub page: u32,
+    /// 每页数量 / Page size
+    #[param(example = 20, minimum = 1)]
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
 }
 
 /// 查询用户激活订单的请求参数 / Query parameters for user's active orders
@@ -59,9 +68,14 @@ pub struct ActiveOrdersByUserQuery {
     /// 订单方向: up=做空, dn=做多（可选）/ Order direction: up=short, dn=long (optional)
     #[param(example = "up")]
     pub direction: Option<String>,
-    /// 结果数量限制 / Result limit
-    #[param(example = 100)]
-    pub limit: Option<usize>,
+    /// 页码（从1开始）/ Page number (starts from 1)
+    #[param(example = 1, minimum = 1)]
+    #[serde(default = "default_page")]
+    pub page: u32,
+    /// 每页数量 / Page size
+    #[param(example = 20, minimum = 1)]
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
 }
 
 /// 查询已关闭订单的请求参数 / Query parameters for closed orders
@@ -72,18 +86,53 @@ pub struct ClosedOrdersQuery {
     pub start_time: Option<u32>,
     /// 结束时间戳（Unix秒）/ End timestamp (Unix seconds)
     pub end_time: Option<u32>,
-    /// 结果数量限制 / Result limit
-    #[param(example = 100)]
-    pub limit: Option<usize>,
+    /// 页码（从1开始）/ Page number (starts from 1)
+    #[param(example = 1, minimum = 1)]
+    #[serde(default = "default_page")]
+    pub page: u32,
+    /// 每页数量 / Page size
+    #[param(example = 20, minimum = 1)]
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+}
+
+/// 带 mint 的订单数据 / Order data with mint
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct OrderDataWithMint {
+    /// 代币地址 / Token mint address
+    #[schema(example = "So11111111111111111111111111111111111111112")]
+    pub mint: String,
+    /// 订单数据 / Order data
+    #[serde(flatten)]
+    pub order: OrderData,
 }
 
 /// 订单列表响应 / Order list response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct OrderListResponse {
     /// 订单列表 / Order list
-    pub orders: Vec<OrderData>,
+    pub orders: Vec<OrderDataWithMint>,
     /// 订单数量 / Order count
     pub count: usize,
+}
+
+/// 分页订单响应 / Paginated order response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PaginatedOrdersResponse {
+    /// 订单列表 / Order list
+    pub orders: Vec<OrderDataWithMint>,
+    /// 总数量 / Total count
+    #[schema(example = 100)]
+    pub total: u64,
+    /// 当前页码 / Current page
+    #[schema(example = 1)]
+    pub page: u32,
+    /// 每页数量 / Page size
+    #[schema(example = 20)]
+    pub page_size: u32,
+    /// 总页数 / Total pages
+    #[schema(example = 5)]
+    pub total_pages: u32,
 }
 
 /// 按 mint + direction 查询激活订单 / Query active orders by mint + direction
@@ -99,7 +148,7 @@ pub struct OrderListResponse {
         ActiveOrdersByMintQuery
     ),
     responses(
-        (status = 200, description = "查询成功 / Query successful", body = OrderListResponse),
+        (status = 200, description = "查询成功 / Query successful", body = PaginatedOrdersResponse),
         (status = 500, description = "服务器错误 / Server error")
     ),
     tag = "OrderBook"
@@ -113,7 +162,7 @@ pub async fn get_active_orders_by_mint(
     if direction != "up" && direction != "dn" {
         return (
             StatusCode::BAD_REQUEST,
-            Json(ApiResponse::<OrderListResponse>::error(
+            Json(ApiResponse::<PaginatedOrdersResponse>::error(
                 400,
                 "无效的方向参数，必须是 'up' 或 'dn' / Invalid direction parameter, must be 'up' or 'dn'".to_string(),
             )),
@@ -121,22 +170,44 @@ pub async fn get_active_orders_by_mint(
             .into_response();
     }
 
+    // 限制 page_size 不超过 max_limit
+    let page_size = params.page_size.min(state.max_limit as u32);
+
     match state
         .orderbook_storage
-        .get_active_orders_by_mint(&mint, &direction, params.limit)
+        .get_active_orders_by_mint(&mint, &direction, Some(state.max_limit))
         .await
     {
-        Ok(orders) => {
-            let count = orders.len();
+        Ok(all_orders) => {
+            // 转换为 OrderDataWithMint
+            let orders_with_mint: Vec<OrderDataWithMint> = all_orders
+                .into_iter()
+                .map(|(mint, order)| OrderDataWithMint { mint, order })
+                .collect();
+
+            // 计算分页
+            let total = orders_with_mint.len() as u64;
+            let total_pages = ((total as f64) / (page_size as f64)).ceil() as u32;
+            let start = ((params.page - 1) * page_size) as usize;
+            let end = (start + page_size as usize).min(orders_with_mint.len());
+
+            let page_orders = orders_with_mint[start..end].to_vec();
+
             (
                 StatusCode::OK,
-                Json(ApiResponse::ok(OrderListResponse { orders, count })),
+                Json(ApiResponse::ok(PaginatedOrdersResponse {
+                    orders: page_orders,
+                    total,
+                    page: params.page,
+                    page_size,
+                    total_pages,
+                })),
             )
                 .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::<OrderListResponse>::error(
+            Json(ApiResponse::<PaginatedOrdersResponse>::error(
                 500,
                 format!("查询失败 / Query failed: {}", e)
             )),
@@ -157,7 +228,7 @@ pub async fn get_active_orders_by_mint(
         ActiveOrdersByUserQuery
     ),
     responses(
-        (status = 200, description = "查询成功 / Query successful", body = OrderListResponse),
+        (status = 200, description = "查询成功 / Query successful", body = PaginatedOrdersResponse),
         (status = 500, description = "服务器错误 / Server error")
     ),
     tag = "OrderBook"
@@ -172,7 +243,7 @@ pub async fn get_active_orders_by_user(
         if dir != "up" && dir != "dn" {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(ApiResponse::<OrderListResponse>::error(
+                Json(ApiResponse::<PaginatedOrdersResponse>::error(
                     400,
                     "无效的方向参数，必须是 'up' 或 'dn' / Invalid direction parameter, must be 'up' or 'dn'".to_string(),
                 )),
@@ -181,27 +252,49 @@ pub async fn get_active_orders_by_user(
         }
     }
 
+    // 限制 page_size 不超过 max_limit
+    let page_size = params.page_size.min(state.max_limit as u32);
+
     match state
         .orderbook_storage
         .get_active_orders_by_user_mint(
             &user,
             params.mint.as_deref(),
             params.direction.as_deref(),
-            params.limit,
+            Some(state.max_limit),
         )
         .await
     {
-        Ok(orders) => {
-            let count = orders.len();
+        Ok(all_orders) => {
+            // 转换为 OrderDataWithMint
+            let orders_with_mint: Vec<OrderDataWithMint> = all_orders
+                .into_iter()
+                .map(|(mint, order)| OrderDataWithMint { mint, order })
+                .collect();
+
+            // 计算分页
+            let total = orders_with_mint.len() as u64;
+            let total_pages = ((total as f64) / (page_size as f64)).ceil() as u32;
+            let start = ((params.page - 1) * page_size) as usize;
+            let end = (start + page_size as usize).min(orders_with_mint.len());
+
+            let page_orders = orders_with_mint[start..end].to_vec();
+
             (
                 StatusCode::OK,
-                Json(ApiResponse::ok(OrderListResponse { orders, count })),
+                Json(ApiResponse::ok(PaginatedOrdersResponse {
+                    orders: page_orders,
+                    total,
+                    page: params.page,
+                    page_size,
+                    total_pages,
+                })),
             )
                 .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::<OrderListResponse>::error(
+            Json(ApiResponse::<PaginatedOrdersResponse>::error(
                 500,
                 format!("查询失败 / Query failed: {}", e)
             )),
@@ -223,7 +316,7 @@ pub async fn get_active_orders_by_user(
         ("order_id" = u64, Path, description = "订单ID / Order ID", example = 1)
     ),
     responses(
-        (status = 200, description = "查询成功 / Query successful", body = OrderData),
+        (status = 200, description = "查询成功 / Query successful", body = OrderDataWithMint),
         (status = 404, description = "订单不存在 / Order not found"),
         (status = 500, description = "服务器错误 / Server error")
     ),
@@ -237,7 +330,7 @@ pub async fn get_active_order_by_id(
     if direction != "up" && direction != "dn" {
         return (
             StatusCode::BAD_REQUEST,
-            Json(ApiResponse::<OrderData>::error(
+            Json(ApiResponse::<OrderDataWithMint>::error(
                 400,
                 "无效的方向参数，必须是 'up' 或 'dn' / Invalid direction parameter, must be 'up' or 'dn'".to_string(),
             )),
@@ -250,10 +343,13 @@ pub async fn get_active_order_by_id(
         .get_active_order_by_id(&mint, &direction, order_id)
         .await
     {
-        Ok(Some(order)) => (StatusCode::OK, Json(ApiResponse::ok(order))).into_response(),
+        Ok(Some((mint, order))) => {
+            let order_with_mint = OrderDataWithMint { mint, order };
+            (StatusCode::OK, Json(ApiResponse::ok(order_with_mint))).into_response()
+        },
         Ok(None) => (
             StatusCode::NOT_FOUND,
-            Json(ApiResponse::<OrderData>::error(
+            Json(ApiResponse::<OrderDataWithMint>::error(
                 404,
                 "订单不存在 / Order not found".to_string(),
             )),
@@ -261,7 +357,7 @@ pub async fn get_active_order_by_id(
             .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::<OrderData>::error(
+            Json(ApiResponse::<OrderDataWithMint>::error(
                 500,
                 format!("查询失败 / Query failed: {}", e)
             )),
@@ -282,7 +378,7 @@ pub async fn get_active_order_by_id(
         ClosedOrdersQuery
     ),
     responses(
-        (status = 200, description = "查询成功 / Query successful", body = OrderListResponse),
+        (status = 200, description = "查询成功 / Query successful", body = PaginatedOrdersResponse),
         (status = 500, description = "服务器错误 / Server error")
     ),
     tag = "OrderBook"
@@ -292,22 +388,44 @@ pub async fn get_closed_orders_by_user(
     Path(user): Path<String>,
     Query(params): Query<ClosedOrdersQuery>,
 ) -> impl IntoResponse {
+    // 限制 page_size 不超过 max_limit
+    let page_size = params.page_size.min(state.max_limit as u32);
+
     match state
         .orderbook_storage
-        .get_closed_orders_by_user(&user, params.start_time, params.end_time, params.limit)
+        .get_closed_orders_by_user(&user, params.start_time, params.end_time, Some(state.max_limit))
         .await
     {
-        Ok(orders) => {
-            let count = orders.len();
+        Ok(all_orders) => {
+            // 转换为 OrderDataWithMint
+            let orders_with_mint: Vec<OrderDataWithMint> = all_orders
+                .into_iter()
+                .map(|(mint, order)| OrderDataWithMint { mint, order })
+                .collect();
+
+            // 计算分页
+            let total = orders_with_mint.len() as u64;
+            let total_pages = ((total as f64) / (page_size as f64)).ceil() as u32;
+            let start = ((params.page - 1) * page_size) as usize;
+            let end = (start + page_size as usize).min(orders_with_mint.len());
+
+            let page_orders = orders_with_mint[start..end].to_vec();
+
             (
                 StatusCode::OK,
-                Json(ApiResponse::ok(OrderListResponse { orders, count })),
+                Json(ApiResponse::ok(PaginatedOrdersResponse {
+                    orders: page_orders,
+                    total,
+                    page: params.page,
+                    page_size,
+                    total_pages,
+                })),
             )
                 .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::<OrderListResponse>::error(
+            Json(ApiResponse::<PaginatedOrdersResponse>::error(
                 500,
                 format!("查询失败 / Query failed: {}", e)
             )),

@@ -96,7 +96,9 @@ pub struct ErrorApiResponse {
             crate::solana::events::MilestoneDiscountEvent,
             // OrderBook 结构体
             crate::db::OrderData,
+            crate::router::orderbook::OrderDataWithMint,
             crate::router::orderbook::OrderListResponse,
+            crate::router::orderbook::PaginatedOrdersResponse,
             EmptyResponse,
             ErrorApiResponse,
         )

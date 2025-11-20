@@ -17,6 +17,12 @@ pub struct ServerConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
     pub rocksdb_path: String,
+    #[serde(default = "default_orderbook_max_limit")]
+    pub orderbook_max_limit: usize,  // OrderBook查询最大返回数量 / OrderBook query max limit
+}
+
+fn default_orderbook_max_limit() -> usize {
+    60000
 }
 
 #[derive(Debug, Deserialize, Clone)]

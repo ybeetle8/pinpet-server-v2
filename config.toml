@@ -4,6 +4,8 @@ port = 3000
 
 [database]
 rocksdb_path = "./data/rocksdb"
+# OrderBook查询最大返回数量(默认60000) / OrderBook query max limit (default 60000)
+orderbook_max_limit = 60000
 
 [solana]
 # Solana节点配置 / Solana node configuration

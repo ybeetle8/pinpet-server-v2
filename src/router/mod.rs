@@ -9,10 +9,12 @@ use std::sync::Arc;
 pub fn create_router(
     db: Arc<crate::db::RocksDbStorage>,
     orderbook_storage: Arc<crate::db::OrderBookStorage>,
+    orderbook_max_limit: usize,
 ) -> Router {
     // 创建 OrderBook 状态
     let orderbook_state = orderbook::OrderBookState {
         orderbook_storage: orderbook_storage.clone(),
+        max_limit: orderbook_max_limit,
     };
 
     Router::new()

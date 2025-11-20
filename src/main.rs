@@ -112,7 +112,11 @@ async fn main() {
         .allow_headers(Any);
 
     // 创建路由
-    let api_router = router::create_router(db_storage, orderbook_storage);
+    let api_router = router::create_router(
+        db_storage,
+        orderbook_storage,
+        config.database.orderbook_max_limit
+    );
 
     // 创建 Swagger UI
     let swagger_ui = SwaggerUi::new("/swagger-ui")
