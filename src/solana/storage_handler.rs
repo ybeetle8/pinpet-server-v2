@@ -96,7 +96,7 @@ impl StorageEventHandler {
         let order = OrderData {
             slot: event.slot,
             order_id: event.order_id,
-            user: event.user.clone(),
+            user: event.payer.clone(),  // payer 就是 user / payer is the user
             lock_lp_start_price: event.lock_lp_start_price,
             lock_lp_end_price: event.lock_lp_end_price,
             open_price: event.open_price,

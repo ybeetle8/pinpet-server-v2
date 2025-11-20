@@ -78,7 +78,7 @@ pub struct BuySellEvent {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LongShortEvent {
-    pub payer: String,
+    pub payer: String,                   // 开仓用户 (payer 就是 user) / User who opened position (payer is the user)
     pub mint_account: String,
     pub order_id: u64,                   // 开仓的订单的唯一编号 / Unique order ID
     #[serde_as(as = "DisplayFromStr")]
@@ -86,7 +86,6 @@ pub struct LongShortEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub open_price: u128,                // 开仓价格 / Open price
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
-    pub user: String,                    // 开仓用户 / User who opened position
     #[serde_as(as = "DisplayFromStr")]
     pub lock_lp_start_price: u128,       // 锁定流动池区间开始价 / LP lock range start price
     #[serde_as(as = "DisplayFromStr")]
@@ -371,7 +370,6 @@ impl EventParser {
                     latest_price: event.latest_price,
                     open_price: event.open_price,
                     order_type: event.order_type,
-                    user: event.user.to_string(),
                     lock_lp_start_price: event.lock_lp_start_price,
                     lock_lp_end_price: event.lock_lp_end_price,
                     lock_lp_sol_amount: event.lock_lp_sol_amount,
@@ -504,7 +502,6 @@ struct LongShortRaw {
     latest_price: u128,
     open_price: u128,
     order_type: u8,
-    user: Pubkey,
     lock_lp_start_price: u128,
     lock_lp_end_price: u128,
     lock_lp_sol_amount: u64,

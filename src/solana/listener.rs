@@ -71,7 +71,6 @@ impl EventHandler for DefaultEventHandler {
                     "📈 多空事件 / Long/Short event: {} {} 代币 / on token {} (订单ID / order ID: {})",
                     e.payer, direction, e.mint_account, e.order_id
                 );
-                info!("   - 用户 / User: {}", e.user);
                 info!("   - 保证金SOL数量 / Margin SOL amount: {}", e.margin_sol_amount);
                 info!("   - 借款数量 / Borrow amount: {}", e.borrow_amount);
                 info!("   - 锁定LP开始价 / Lock LP start price: {}", e.lock_lp_start_price);

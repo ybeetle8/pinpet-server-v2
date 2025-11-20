@@ -67,7 +67,7 @@ impl EventStorage {
                 (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.payer.clone()))
             },
             PinpetEvent::LongShort(e) => {
-                (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.user.clone()))
+                (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.payer.clone()))
             },
             PinpetEvent::FullClose(e) => {
                 // 使用 user_sol_account 作为用户索引，因为 payer 可能是清算机器人而非订单所有者
