@@ -113,4 +113,9 @@ impl RocksDbStorage {
     pub fn create_event_storage(&self) -> Result<crate::db::EventStorage> {
         crate::db::EventStorage::new(Arc::clone(&self.db))
     }
+
+    /// 创建 OrderBook 存储实例 / Create OrderBook storage instance
+    pub fn create_orderbook_storage(&self) -> Result<crate::db::OrderBookStorage> {
+        Ok(crate::db::OrderBookStorage::new(Arc::clone(&self.db)))
+    }
 }

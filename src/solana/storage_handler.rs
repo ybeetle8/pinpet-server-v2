@@ -2,19 +2,23 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::{info, error};
-use crate::db::EventStorage;
+use crate::db::{EventStorage, OrderBookStorage, OrderData};
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
 /// 存储事件处理器 - 将接收到的事件存储到RocksDB / Storage event handler - stores received events to RocksDB
 pub struct StorageEventHandler {
     event_storage: Arc<EventStorage>,
+    orderbook_storage: Arc<OrderBookStorage>,
 }
 
 impl StorageEventHandler {
     /// 创建新的存储事件处理器 / Create new storage event handler
-    pub fn new(event_storage: Arc<EventStorage>) -> Self {
-        Self { event_storage }
+    pub fn new(event_storage: Arc<EventStorage>, orderbook_storage: Arc<OrderBookStorage>) -> Self {
+        Self {
+            event_storage,
+            orderbook_storage,
+        }
     }
 }
 
@@ -44,6 +48,14 @@ impl EventHandler for StorageEventHandler {
         info!("📝 存储事件 / Storing event: 类型/type={}, 签名/signature={}",
               event_type, &signature[..8]);
 
+        // 如果是 LongShortEvent，同时存储到 OrderBook / If LongShortEvent, also store to OrderBook
+        if let PinpetEvent::LongShort(ref ls_event) = event {
+            if let Err(e) = self.store_long_short_to_orderbook(ls_event).await {
+                error!("❌ 存储 LongShortEvent 到 OrderBook 失败 / Failed to store LongShortEvent to OrderBook: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
         // 目前我们一次只处理一个事件，但store_events支持批量存储
         // Currently we process one event at a time, but store_events supports batch storage
         let events = vec![event];
@@ -63,6 +75,49 @@ impl EventHandler for StorageEventHandler {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+impl StorageEventHandler {
+    /// 将 LongShortEvent 转换并存储到 OrderBook / Convert and store LongShortEvent to OrderBook
+    async fn store_long_short_to_orderbook(
+        &self,
+        event: &super::events::LongShortEvent,
+    ) -> anyhow::Result<()> {
+        // 将 LongShortEvent 转换为 OrderData / Convert LongShortEvent to OrderData
+        let order = OrderData {
+            slot: event.slot,
+            order_id: event.order_id,
+            user: event.user.clone(),
+            lock_lp_start_price: event.lock_lp_start_price,
+            lock_lp_end_price: event.lock_lp_end_price,
+            open_price: event.open_price,
+            lock_lp_sol_amount: event.lock_lp_sol_amount,
+            lock_lp_token_amount: event.lock_lp_token_amount,
+            margin_init_sol_amount: 0,  // 填0 / Fill with 0
+            margin_sol_amount: event.margin_sol_amount,
+            borrow_amount: event.borrow_amount,
+            position_asset_amount: event.position_asset_amount,
+            realized_sol_amount: 0,  // 填0 / Fill with 0
+            start_time: event.start_time,
+            end_time: event.end_time,
+            borrow_fee: event.borrow_fee,
+            order_type: event.order_type,
+            close_time: None,
+            close_type: 0,
+        };
+
+        // 存储到 OrderBook / Store to OrderBook
+        self.orderbook_storage
+            .add_active_order(&event.mint_account, &order)
+            .await?;
+
+        info!(
+            "✅ LongShortEvent 已存储到 OrderBook / LongShortEvent stored to OrderBook: mint={}, order_id={}",
+            event.mint_account, event.order_id
+        );
+
+        Ok(())
     }
 }
 

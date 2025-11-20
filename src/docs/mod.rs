@@ -70,6 +70,11 @@ pub struct ErrorApiResponse {
         crate::router::db::query_events_by_mint,
         crate::router::db::query_events_by_user,
         crate::router::db::query_events_by_signature,
+        // OrderBook 路由
+        crate::router::orderbook::get_active_orders_by_mint,
+        crate::router::orderbook::get_active_orders_by_user,
+        crate::router::orderbook::get_active_order_by_id,
+        crate::router::orderbook::get_closed_orders_by_user,
     ),
     components(
         schemas(
@@ -89,19 +94,23 @@ pub struct ErrorApiResponse {
             crate::solana::events::FullCloseEvent,
             crate::solana::events::PartialCloseEvent,
             crate::solana::events::MilestoneDiscountEvent,
+            // OrderBook 结构体
+            crate::db::OrderData,
+            crate::router::orderbook::OrderListResponse,
             EmptyResponse,
             ErrorApiResponse,
         )
     ),
     tags(
-        (name = "system", description = "系统相关接口"),
-        (name = "database", description = "数据库相关接口"),
-        (name = "events", description = "事件查询接口"),
+        (name = "system", description = "系统相关接口 / System related APIs"),
+        (name = "database", description = "数据库相关接口 / Database related APIs"),
+        (name = "events", description = "事件查询接口 / Event query APIs"),
+        (name = "OrderBook", description = "OrderBook 订单簿接口 / OrderBook APIs"),
     ),
     info(
         title = "Pinpet Server API",
         version = "0.1.0",
-        description = "Pinpet Server API 文档"
+        description = "Pinpet Server API 文档 / Pinpet Server API Documentation"
     )
 )]
 pub struct ApiDoc;

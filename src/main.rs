@@ -45,6 +45,17 @@ async fn main() {
     };
     tracing::info!("✅ RocksDB 初始化成功");
 
+    // 创建 OrderBook 存储实例（无论事件监听器是否启用都需要）
+    // Create OrderBook storage instance (needed regardless of event listener status)
+    let orderbook_storage = match db_storage.create_orderbook_storage() {
+        Ok(storage) => Arc::new(storage),
+        Err(e) => {
+            tracing::error!("❌ OrderBook 存储创建失败 / Failed to create OrderBook storage: {}", e);
+            std::process::exit(1);
+        }
+    };
+    tracing::info!("✅ OrderBook 存储初始化成功");
+
     // 初始化 Solana 事件监听器 / Initialize Solana event listener
     if config.solana.enable_event_listener {
         tracing::info!("🚀 初始化 Solana 事件监听器 / Initializing Solana event listener");
@@ -68,7 +79,7 @@ async fn main() {
         };
 
         // 创建存储事件处理器 / Create storage event handler
-        let event_handler = Arc::new(solana::StorageEventHandler::new(event_storage));
+        let event_handler = Arc::new(solana::StorageEventHandler::new(event_storage, orderbook_storage.clone()));
 
         // 创建事件监听器管理器 / Create event listener manager
         let mut listener_manager = solana::EventListenerManager::new();
@@ -101,7 +112,7 @@ async fn main() {
         .allow_headers(Any);
 
     // 创建路由
-    let api_router = router::create_router(db_storage);
+    let api_router = router::create_router(db_storage, orderbook_storage);
 
     // 创建 Swagger UI
     let swagger_ui = SwaggerUi::new("/swagger-ui")
