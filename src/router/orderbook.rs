@@ -12,6 +12,7 @@ use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::db::{OrderBookStorage, OrderData};
+use crate::router::db::SortOrder;
 use crate::util::result::CommonResult as ApiResponse;
 
 /// 创建 OrderBook 路由 / Create OrderBook routes
@@ -57,6 +58,10 @@ pub struct ActiveOrdersByMintQuery {
     #[param(example = 20, minimum = 1)]
     #[serde(default = "default_page_size")]
     pub page_size: u32,
+    /// 排序方向: asc=升序(slot从小到大), desc=降序(slot从大到小)，默认降序 / Sort order: asc=ascending(slot low to high), desc=descending(slot high to low), default desc
+    #[param(example = "desc")]
+    #[serde(default)]
+    pub sort: SortOrder,
 }
 
 /// 查询用户激活订单的请求参数 / Query parameters for user's active orders
@@ -76,6 +81,10 @@ pub struct ActiveOrdersByUserQuery {
     #[param(example = 20, minimum = 1)]
     #[serde(default = "default_page_size")]
     pub page_size: u32,
+    /// 排序方向: asc=升序(slot从小到大), desc=降序(slot从大到小)，默认降序 / Sort order: asc=ascending(slot low to high), desc=descending(slot high to low), default desc
+    #[param(example = "desc")]
+    #[serde(default)]
+    pub sort: SortOrder,
 }
 
 /// 查询已关闭订单的请求参数 / Query parameters for closed orders
@@ -137,8 +146,8 @@ pub struct PaginatedOrdersResponse {
 
 /// 按 mint + direction 查询激活订单 / Query active orders by mint + direction
 ///
-/// 查询指定代币和方向的所有激活订单。
-/// Query all active orders for specified token and direction.
+/// 查询指定代币和方向的所有激活订单，支持按 slot 排序（默认降序）。
+/// Query all active orders for specified token and direction, supports sorting by slot (default descending).
 #[utoipa::path(
     get,
     path = "/api/orderbook/active/{mint}/{direction}",
@@ -180,10 +189,22 @@ pub async fn get_active_orders_by_mint(
     {
         Ok(all_orders) => {
             // 转换为 OrderDataWithMint
-            let orders_with_mint: Vec<OrderDataWithMint> = all_orders
+            let mut orders_with_mint: Vec<OrderDataWithMint> = all_orders
                 .into_iter()
                 .map(|(mint, order)| OrderDataWithMint { mint, order })
                 .collect();
+
+            // 按 slot 排序 / Sort by slot
+            match params.sort {
+                SortOrder::Asc => {
+                    // 升序：slot 从小到大 / Ascending: slot from low to high
+                    orders_with_mint.sort_by(|a, b| a.order.slot.cmp(&b.order.slot));
+                },
+                SortOrder::Desc => {
+                    // 降序：slot 从大到小 / Descending: slot from high to low
+                    orders_with_mint.sort_by(|a, b| b.order.slot.cmp(&a.order.slot));
+                }
+            }
 
             // 计算分页
             let total = orders_with_mint.len() as u64;
@@ -218,8 +239,8 @@ pub async fn get_active_orders_by_mint(
 
 /// 按 user 查询激活订单 / Query active orders by user
 ///
-/// 查询指定用户的所有激活订单，可选择性过滤 mint 和方向。
-/// Query all active orders for specified user, with optional mint and direction filters.
+/// 查询指定用户的所有激活订单，可选择性过滤 mint 和方向，支持按 slot 排序（默认降序）。
+/// Query all active orders for specified user, with optional mint and direction filters, supports sorting by slot (default descending).
 #[utoipa::path(
     get,
     path = "/api/orderbook/active/user/{user}",
@@ -267,10 +288,22 @@ pub async fn get_active_orders_by_user(
     {
         Ok(all_orders) => {
             // 转换为 OrderDataWithMint
-            let orders_with_mint: Vec<OrderDataWithMint> = all_orders
+            let mut orders_with_mint: Vec<OrderDataWithMint> = all_orders
                 .into_iter()
                 .map(|(mint, order)| OrderDataWithMint { mint, order })
                 .collect();
+
+            // 按 slot 排序 / Sort by slot
+            match params.sort {
+                SortOrder::Asc => {
+                    // 升序：slot 从小到大 / Ascending: slot from low to high
+                    orders_with_mint.sort_by(|a, b| a.order.slot.cmp(&b.order.slot));
+                },
+                SortOrder::Desc => {
+                    // 降序：slot 从大到小 / Descending: slot from high to low
+                    orders_with_mint.sort_by(|a, b| b.order.slot.cmp(&a.order.slot));
+                }
+            }
 
             // 计算分页
             let total = orders_with_mint.len() as u64;
