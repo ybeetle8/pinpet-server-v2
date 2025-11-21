@@ -52,3 +52,6 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 async-trait = "0.1"
 serde_with = "3.11"
+
+# Socket.IO / Socket.IO for K-line real-time push
+socketioxide = { version = "0.17", features = ["state"] }

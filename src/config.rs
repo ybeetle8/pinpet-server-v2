@@ -7,6 +7,8 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub solana: SolanaConfig,
     pub ipfs: IpfsConfig,
+    #[serde(default)]
+    pub kline: KlineServiceConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -48,6 +50,59 @@ pub struct IpfsConfig {
     pub request_timeout_seconds: u64,       // 请求超时时间(秒) / Request timeout (seconds)
     pub max_retries: u32,                   // 最大重试次数 / Max retries
     pub retry_delay_seconds: u64,           // 重试延迟(秒) / Retry delay (seconds)
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct KlineServiceConfig {
+    #[serde(default = "default_kline_enable")]
+    pub enable_kline_service: bool,         // 是否启用K线服务 / Enable K-line service
+    #[serde(default = "default_connection_timeout")]
+    pub connection_timeout_secs: u64,       // 连接超时时间(秒) / Connection timeout (seconds)
+    #[serde(default = "default_max_subscriptions")]
+    pub max_subscriptions_per_client: usize, // 每客户端最大订阅数 / Max subscriptions per client
+    #[serde(default = "default_history_limit")]
+    pub history_data_limit: usize,          // 历史数据默认条数 / History data default limit
+    #[serde(default = "default_ping_interval")]
+    pub ping_interval_secs: u64,            // 心跳间隔(秒) / Ping interval (seconds)
+    #[serde(default = "default_ping_timeout")]
+    pub ping_timeout_secs: u64,             // 心跳超时(秒) / Ping timeout (seconds)
+}
+
+impl Default for KlineServiceConfig {
+    fn default() -> Self {
+        Self {
+            enable_kline_service: true,
+            connection_timeout_secs: 60,
+            max_subscriptions_per_client: 100,
+            history_data_limit: 100,
+            ping_interval_secs: 25,
+            ping_timeout_secs: 60,
+        }
+    }
+}
+
+fn default_kline_enable() -> bool {
+    true
+}
+
+fn default_connection_timeout() -> u64 {
+    60
+}
+
+fn default_max_subscriptions() -> usize {
+    100
+}
+
+fn default_history_limit() -> usize {
+    100
+}
+
+fn default_ping_interval() -> u64 {
+    25
+}
+
+fn default_ping_timeout() -> u64 {
+    60
 }
 
 impl Config {

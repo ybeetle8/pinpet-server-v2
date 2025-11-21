@@ -1,0 +1,13 @@
+{
+  "name": "pinpet-server-v2-test",
+  "version": "1.0.0",
+  "description": "Test scripts for pinpet-server-v2",
+  "scripts": {
+    "test:event": "node test/test_auto_event.js",
+    "test:kline": "node test/test_auto_kline.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "socket.io-client": "^4.8.1"
+  }
+}

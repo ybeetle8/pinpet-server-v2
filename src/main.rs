@@ -1,6 +1,7 @@
 mod config;
 mod db;
 mod docs;
+mod kline;
 mod router;
 mod solana;
 mod util;
@@ -56,6 +57,50 @@ async fn main() {
     };
     tracing::info!("✅ OrderBook 存储初始化成功");
 
+    // 初始化 K线推送服务 (如果启用) / Initialize K-line WebSocket service (if enabled)
+    let (kline_socket_service, socketio_layer) = if config.kline.enable_kline_service {
+        tracing::info!("🚀 初始化 K线 WebSocket 服务 / Initializing K-line WebSocket service");
+
+        // 创建K线配置 / Create K-line config
+        let kline_config = kline::KlineConfig {
+            connection_timeout_secs: config.kline.connection_timeout_secs,
+            max_subscriptions_per_client: config.kline.max_subscriptions_per_client,
+            history_data_limit: config.kline.history_data_limit,
+            ping_interval_secs: config.kline.ping_interval_secs,
+            ping_timeout_secs: config.kline.ping_timeout_secs,
+        };
+
+        // 创建事件存储实例 (用于K线服务查询历史数据) / Create event storage instance (for K-line service to query history)
+        let event_storage_for_kline = match db_storage.create_event_storage() {
+            Ok(storage) => Arc::new(storage),
+            Err(e) => {
+                tracing::error!("❌ 事件存储创建失败(K线) / Failed to create event storage (K-line): {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        // 创建K线推送服务 / Create K-line socket service
+        let (kline_service, layer) = match kline::KlineSocketService::new(
+            event_storage_for_kline,
+            kline_config,
+        ) {
+            Ok((service, layer)) => (Arc::new(service), Some(layer)),
+            Err(e) => {
+                tracing::error!("❌ K线 Socket 服务创建失败 / Failed to create K-line socket service: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        // 设置事件处理器 / Setup event handlers
+        kline_service.setup_socket_handlers();
+
+        tracing::info!("✅ K线 WebSocket 服务初始化成功 / K-line WebSocket service initialized");
+        (Some(kline_service), layer)
+    } else {
+        tracing::info!("ℹ️ K线 WebSocket 服务已禁用 / K-line WebSocket service disabled");
+        (None, None)
+    };
+
     // 初始化 Solana 事件监听器 / Initialize Solana event listener
     if config.solana.enable_event_listener {
         tracing::info!("🚀 初始化 Solana 事件监听器 / Initializing Solana event listener");
@@ -97,11 +142,26 @@ async fn main() {
         // 创建清算处理器 / Create liquidation processor
         let liquidation_processor = Arc::new(solana::LiquidationProcessor::new(orderbook_storage.clone()));
 
-        // 创建 MintEventRouter 作为事件处理器 / Create MintEventRouter as event handler
-        let event_handler = Arc::new(solana::MintEventRouter::new(
-            liquidation_processor,
-            storage_handler,
-        ));
+        // 如果启用了K线服务,创建K线事件处理器包装器 / If K-line service is enabled, create K-line event handler wrapper
+        let event_handler: Arc<dyn solana::EventHandler> = if let Some(ref kline_service) = kline_socket_service {
+            // 创建 MintEventRouter / Create MintEventRouter
+            let mint_router = Arc::new(solana::MintEventRouter::new(
+                liquidation_processor,
+                storage_handler,
+            ));
+
+            // 创建K线事件处理器,包装MintEventRouter / Create K-line event handler wrapping MintEventRouter
+            Arc::new(kline::KlineEventHandler::new(
+                mint_router,
+                kline_service.clone(),
+            ))
+        } else {
+            // 不使用K线服务,直接使用 MintEventRouter / Without K-line service, use MintEventRouter directly
+            Arc::new(solana::MintEventRouter::new(
+                liquidation_processor,
+                storage_handler,
+            ))
+        };
 
         // 创建事件监听器管理器 / Create event listener manager
         let mut listener_manager = solana::EventListenerManager::new();
@@ -154,11 +214,21 @@ async fn main() {
     let swagger_ui = SwaggerUi::new("/swagger-ui")
         .url("/api-docs/openapi.json", docs::ApiDoc::openapi());
 
-    // 组合所有路由
-    let app = Router::new()
-        .merge(swagger_ui)
-        .merge(api_router)
-        .layer(cors);
+    // 组合所有路由 / Combine all routes
+    let app = if let Some(layer) = socketio_layer {
+        // 如果有Socket.IO层,添加到路由 / If Socket.IO layer exists, add to router
+        Router::new()
+            .merge(swagger_ui)
+            .merge(api_router)
+            .layer(cors)
+            .layer(layer)
+    } else {
+        // 没有Socket.IO层 / No Socket.IO layer
+        Router::new()
+            .merge(swagger_ui)
+            .merge(api_router)
+            .layer(cors)
+    };
 
     // 绑定地址
     let addr = format!("{}:{}", config.server.host, config.server.port);
@@ -168,6 +238,13 @@ async fn main() {
     tracing::info!("访问 http://localhost:{}/health 测试接口", config.server.port);
     tracing::info!("访问 http://localhost:{}/swagger-ui 查看 API 文档", config.server.port);
     tracing::info!("访问 http://localhost:{}/db/* 测试数据库接口", config.server.port);
+
+    if config.kline.enable_kline_service {
+        tracing::info!("📊 K线 WebSocket 服务:");
+        tracing::info!("  WS   ws://{}:{}/kline - 实时K线数据订阅 / Real-time K-line data subscription", config.server.host, config.server.port);
+        tracing::info!("  事件 / Events: subscribe, unsubscribe, history, kline_data, event_data");
+        tracing::info!("  支持间隔 / Supported intervals: s1, s30, m5");
+    }
 
     // 启动服务器
     axum::serve(listener, app).await.unwrap();

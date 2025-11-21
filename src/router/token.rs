@@ -14,7 +14,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::db::TokenStorage;
 use crate::util::CommonResult;
 
-/// Token查询的共享状态 / Shared state for token queries
+/// Token查询的共享状态 / Shared state for token queries 
 #[derive(Clone)]
 pub struct TokenState {
     pub token_storage: Arc<TokenStorage>,
