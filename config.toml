@@ -27,3 +27,10 @@ ping_interval_seconds = 15
 process_failed_transactions = false
 # 是否记录原始Solana消息到单独文件用于调试 / Log raw Solana messages for debugging
 enable_raw_message_logging = true
+
+[ipfs]
+# IPFS网关配置 / IPFS gateway configuration
+gateway_url = "https://crimson-binding-tarantula-509.mypinata.cloud/ipfs/"
+request_timeout_seconds = 30
+max_retries = 3
+retry_delay_seconds = 5

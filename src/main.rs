@@ -78,8 +78,21 @@ async fn main() {
             }
         };
 
+        // 创建 Token 存储实例 / Create token storage instance
+        let token_storage = match db_storage.create_token_storage() {
+            Ok(storage) => Arc::new(storage),
+            Err(e) => {
+                tracing::error!("❌ Token 存储创建失败 / Failed to create Token storage: {}", e);
+                std::process::exit(1);
+            }
+        };
+
         // 创建存储事件处理器 / Create storage event handler
-        let storage_handler = Arc::new(solana::StorageEventHandler::new(event_storage, orderbook_storage.clone()));
+        let storage_handler = Arc::new(solana::StorageEventHandler::new(
+            event_storage,
+            orderbook_storage.clone(),
+            token_storage.clone(),
+        ));
 
         // 创建清算处理器 / Create liquidation processor
         let liquidation_processor = Arc::new(solana::LiquidationProcessor::new(orderbook_storage.clone()));
@@ -120,10 +133,20 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // 创建 Token 存储实例 (用于API查询) / Create token storage instance (for API queries)
+    let token_storage_for_api = match db_storage.create_token_storage() {
+        Ok(storage) => Arc::new(storage),
+        Err(e) => {
+            tracing::error!("❌ Token 存储创建失败(API) / Failed to create Token storage (API): {}", e);
+            std::process::exit(1);
+        }
+    };
+
     // 创建路由
     let api_router = router::create_router(
         db_storage,
         orderbook_storage,
+        token_storage_for_api,
         config.database.orderbook_max_limit
     );
 

@@ -2,7 +2,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::{info, error};
-use crate::db::{EventStorage, OrderBookStorage, OrderData};
+use crate::db::{EventStorage, OrderBookStorage, OrderData, TokenStorage};
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
@@ -10,14 +10,20 @@ use super::listener::EventHandler;
 pub struct StorageEventHandler {
     event_storage: Arc<EventStorage>,
     orderbook_storage: Arc<OrderBookStorage>,
+    token_storage: Arc<TokenStorage>,
 }
 
 impl StorageEventHandler {
     /// 创建新的存储事件处理器 / Create new storage event handler
-    pub fn new(event_storage: Arc<EventStorage>, orderbook_storage: Arc<OrderBookStorage>) -> Self {
+    pub fn new(
+        event_storage: Arc<EventStorage>,
+        orderbook_storage: Arc<OrderBookStorage>,
+        token_storage: Arc<TokenStorage>,
+    ) -> Self {
         Self {
             event_storage,
             orderbook_storage,
+            token_storage,
         }
     }
 }
@@ -47,6 +53,14 @@ impl EventHandler for StorageEventHandler {
 
         info!("📝 存储事件 / Storing event: 类型/type={}, 签名/signature={}",
               event_type, &signature[..8]);
+
+        // 如果是 TokenCreatedEvent，同时存储到 TokenStorage / If TokenCreatedEvent, also store to TokenStorage
+        if let PinpetEvent::TokenCreated(ref tc_event) = event {
+            if let Err(e) = self.store_token_created(tc_event).await {
+                error!("❌ 存储 TokenCreatedEvent 到 TokenStorage 失败 / Failed to store TokenCreatedEvent to TokenStorage: {}", e);
+                // 继续存储事件，不因 TokenStorage 失败而中断 / Continue storing event, don't fail due to TokenStorage error
+            }
+        }
 
         // 如果是 LongShortEvent，同时存储到 OrderBook / If LongShortEvent, also store to OrderBook
         if let PinpetEvent::LongShort(ref ls_event) = event {
@@ -87,6 +101,27 @@ impl EventHandler for StorageEventHandler {
 }
 
 impl StorageEventHandler {
+    /// 将 TokenCreatedEvent 存储到 TokenStorage / Store TokenCreatedEvent to TokenStorage
+    async fn store_token_created(
+        &self,
+        event: &super::events::TokenCreatedEvent,
+    ) -> anyhow::Result<()> {
+        info!(
+            "🪙 处理TokenCreated事件 / Processing TokenCreated event: mint={}, symbol={}",
+            event.mint_account, event.symbol
+        );
+
+        // 异步保存token（包括IPFS元数据获取）/ Save token asynchronously (including IPFS metadata fetch)
+        self.token_storage.save_token_from_event(event).await?;
+
+        info!(
+            "✅ TokenCreatedEvent 已存储到 TokenStorage / TokenCreatedEvent stored to TokenStorage: mint={}",
+            event.mint_account
+        );
+
+        Ok(())
+    }
+
     /// 将 LongShortEvent 转换并存储到 OrderBook / Convert and store LongShortEvent to OrderBook
     async fn store_long_short_to_orderbook(
         &self,

@@ -8,6 +8,7 @@ use crate::config::Config;
 /// RocksDB 存储服务
 pub struct RocksDbStorage {
     pub(crate) db: Arc<DB>,
+    config: Config,
 }
 
 impl RocksDbStorage {
@@ -80,6 +81,7 @@ impl RocksDbStorage {
 
         Ok(Self {
             db: Arc::new(db),
+            config: config.clone(),
         })
     }
 
@@ -117,5 +119,10 @@ impl RocksDbStorage {
     /// 创建 OrderBook 存储实例 / Create OrderBook storage instance
     pub fn create_orderbook_storage(&self) -> Result<crate::db::OrderBookStorage> {
         Ok(crate::db::OrderBookStorage::new(Arc::clone(&self.db)))
+    }
+
+    /// 创建 Token 存储实例 / Create Token storage instance
+    pub fn create_token_storage(&self) -> Result<crate::db::TokenStorage> {
+        crate::db::TokenStorage::new(Arc::clone(&self.db), self.config.clone())
     }
 }

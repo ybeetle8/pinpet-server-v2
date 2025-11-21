@@ -6,6 +6,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub solana: SolanaConfig,
+    pub ipfs: IpfsConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -39,6 +40,14 @@ pub struct SolanaConfig {
     pub ping_interval_seconds: u64,         // WebSocket ping间隔(秒) / WebSocket ping interval
     pub process_failed_transactions: bool,  // 是否处理失败的交易 / Process failed transactions
     pub enable_raw_message_logging: bool,   // 是否记录原始消息 / Enable raw message logging
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct IpfsConfig {
+    pub gateway_url: String,                // IPFS网关URL / IPFS gateway URL
+    pub request_timeout_seconds: u64,       // 请求超时时间(秒) / Request timeout (seconds)
+    pub max_retries: u32,                   // 最大重试次数 / Max retries
+    pub retry_delay_seconds: u64,           // 重试延迟(秒) / Retry delay (seconds)
 }
 
 impl Config {

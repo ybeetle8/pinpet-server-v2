@@ -75,6 +75,12 @@ pub struct ErrorApiResponse {
         crate::router::orderbook::get_active_orders_by_user,
         crate::router::orderbook::get_active_order_by_id,
         crate::router::orderbook::get_closed_orders_by_user,
+        // Token 路由 / Token routes
+        crate::router::token::get_token_by_mint,
+        crate::router::token::get_tokens_by_symbol,
+        crate::router::token::get_latest_tokens,
+        crate::router::token::get_tokens_by_slot_range,
+        crate::router::token::get_token_stats,
     ),
     components(
         schemas(
@@ -99,6 +105,12 @@ pub struct ErrorApiResponse {
             crate::router::orderbook::OrderDataWithMint,
             crate::router::orderbook::OrderListResponse,
             crate::router::orderbook::PaginatedOrdersResponse,
+            // Token 结构体 / Token structures
+            crate::db::TokenDetail,
+            crate::db::TokenUriData,
+            crate::db::TokenStats,
+            crate::router::token::TokenListResponse,
+            crate::router::token::TokenStatsResponse,
             EmptyResponse,
             ErrorApiResponse,
         )
@@ -108,6 +120,7 @@ pub struct ErrorApiResponse {
         (name = "database", description = "数据库相关接口 / Database related APIs"),
         (name = "events", description = "事件查询接口 / Event query APIs"),
         (name = "OrderBook", description = "OrderBook 订单簿接口 / OrderBook APIs"),
+        (name = "tokens", description = "Token代币查询接口 / Token query APIs"),
     ),
     info(
         title = "Pinpet Server API",
