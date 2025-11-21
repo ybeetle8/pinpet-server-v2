@@ -9,22 +9,44 @@ mod util;
 use axum::Router;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, fmt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
 async fn main() {
-    // 初始化日志
+    // 初始化日志 / Initialize logging
+    // 创建日志目录(如果不存在) / Create logs directory if it doesn't exist
+    std::fs::create_dir_all("logs").expect("无法创建 logs 目录 / Cannot create logs directory");
+
+    // 配置文件日志输出 / Configure file logging
+    let file_appender = tracing_appender::rolling::daily("logs", "pinpet-server.log");
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // 配置控制台日志输出 / Configure console logging
+    let (non_blocking_stdout, _guard2) = tracing_appender::non_blocking(std::io::stdout());
+
+    // 环境过滤器 / Environment filter
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "pinpet_server_v2=debug,tower_http=debug".into());
+
+    // 初始化订阅器,同时输出到文件和控制台 / Initialize subscriber with both file and console output
     tracing_subscriber::registry()
+        .with(env_filter)
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "pinpet_server_v2=debug,tower_http=debug".into()),
+            fmt::layer()
+                .with_writer(non_blocking_file)
+                .with_ansi(false) // 文件输出不使用颜色 / No colors for file output
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            fmt::layer()
+                .with_writer(non_blocking_stdout)
+                .with_ansi(true) // 控制台输出使用颜色 / Colors for console output
+        )
         .init();
 
     tracing::info!("启动 Pinpet Server v2...");
+    tracing::info!("📝 日志输出到: logs/pinpet-server.log.* / Logging to: logs/pinpet-server.log.*");
 
     // 加载配置
     let config = match config::Config::new() {

@@ -111,7 +111,7 @@ impl LiquidationProcessor {
         }
 
         info!(
-            "开始清算 / Starting liquidation: mint={}, dir={}, indices={:?}",
+            "🔍 开始清算 / Starting liquidation: mint={}, dir={}, indices={:?}",
             mint, direction, liquidate_indices
         );
 
@@ -122,8 +122,29 @@ impl LiquidationProcessor {
             .await
             .context("查询激活订单失败 / Failed to query active orders")?;
 
+        info!(
+            "📊 查询到订单数量 / Queried orders count: total={}, mint={}, dir={}",
+            orders.len(), mint, direction
+        );
+
+        // 打印所有订单的详细信息 / Print all orders details
+        for (i, (_, order)) in orders.iter().enumerate() {
+            info!(
+                "  订单[{}] / Order[{}]: order_id={}, user={}, lock_lp_start_price={}, slot={}",
+                i, i, order.order_id, order.user, order.lock_lp_start_price, order.slot
+            );
+        }
+
         // 2. 排序 / Sort
         sort_orders_by_price(&mut orders, direction);
+
+        info!("📋 排序后的订单列表 / Sorted orders:");
+        for (i, (_, order)) in orders.iter().enumerate() {
+            info!(
+                "  排序后[{}] / After sort[{}]: order_id={}, lock_lp_start_price={}",
+                i, i, order.order_id, order.lock_lp_start_price
+            );
+        }
 
         // 3. 验证索引 / Validate indices
         let max_index = orders.len();
@@ -144,6 +165,11 @@ impl LiquidationProcessor {
         let mut sorted_indices: Vec<u16> = liquidate_indices.to_vec();
         sorted_indices.sort_by(|a, b| b.cmp(a));
 
+        info!(
+            "🎯 待清算索引（已排序）/ Liquidation indices (sorted): {:?}",
+            sorted_indices
+        );
+
         // 5. 获取当前时间戳作为关闭时间 / Get current timestamp as close time
         let close_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -162,20 +188,50 @@ impl LiquidationProcessor {
             order.close_type = 2; // 2=强制平仓 / 2=Force liquidation
 
             info!(
-                "清算订单 / Liquidating order: idx={}, order_id={}, user={}, lock_lp_start_price={}",
-                idx, order.order_id, order.user, order.lock_lp_start_price
+                "🔨 正在清算订单 / Liquidating order: idx={}, order_id={}, user={}, lock_lp_start_price={}, slot={}",
+                idx, order.order_id, order.user, order.lock_lp_start_price, order.slot
             );
 
             // 删除激活订单的所有键 / Delete all keys for active order
             self.delete_active_order_keys(&mut batch, &mint_str, direction, &order);
 
             // 添加已关闭订单的所有键 / Add all keys for closed order
-            self.add_closed_order_keys(&mut batch, &mint_str, &order)?;
+            match self.add_closed_order_keys(&mut batch, &mint_str, &order) {
+                Ok(_) => {
+                    info!(
+                        "  ✓ 订单键准备完成 / Order keys prepared: order_id={}, mint={}",
+                        order.order_id, mint_str
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "  ✗ 添加关闭订单键失败 / Failed to add closed order keys: order_id={}, error={}",
+                        order.order_id, e
+                    );
+                    return Err(e.into());
+                }
+            }
         }
 
         // 7. 原子提交 / Atomic commit
-        db.write(batch)
-            .context("清算事务提交失败 / Liquidation transaction commit failed")?;
+        match db.write(batch) {
+            Ok(_) => {
+                info!(
+                    "✅ 清算事务提交成功 / Liquidation transaction committed: mint={}, dir={}, count={}",
+                    mint, direction, sorted_indices.len()
+                );
+            }
+            Err(e) => {
+                error!(
+                    "❌ 清算事务提交失败 / Liquidation transaction commit failed: mint={}, dir={}, error={}",
+                    mint, direction, e
+                );
+                return Err(anyhow::anyhow!(
+                    "清算事务提交失败 / Liquidation transaction commit failed: {}",
+                    e
+                ));
+            }
+        }
 
         info!(
             "✅ 清算完成 / Liquidation completed: mint={}, dir={}, count={}",
@@ -203,7 +259,7 @@ impl LiquidationProcessor {
         let direction = get_liquidation_direction_for_fullclose(event);
 
         info!(
-            "开始 FullClose 清算 / Starting FullClose liquidation: mint={}, dir={}, order_id={}, indices={:?}",
+            "🔍 开始 FullClose 清算 / Starting FullClose liquidation: mint={}, dir={}, order_id={}, indices={:?}",
             mint, direction, event.order_id, event.liquidate_indices
         );
 
@@ -214,8 +270,29 @@ impl LiquidationProcessor {
             .await
             .context("查询激活订单失败 / Failed to query active orders")?;
 
+        info!(
+            "📊 查询到订单数量 / Queried orders count: total={}, mint={}, dir={}",
+            orders.len(), mint, direction
+        );
+
+        // 打印所有订单的详细信息 / Print all orders details
+        for (i, (_, order)) in orders.iter().enumerate() {
+            info!(
+                "  订单[{}] / Order[{}]: order_id={}, user={}, lock_lp_start_price={}, slot={}",
+                i, i, order.order_id, order.user, order.lock_lp_start_price, order.slot
+            );
+        }
+
         // 2. 排序 / Sort
         sort_orders_by_price(&mut orders, direction);
+
+        info!("📋 排序后的订单列表 / Sorted orders:");
+        for (i, (_, order)) in orders.iter().enumerate() {
+            info!(
+                "  排序后[{}] / After sort[{}]: order_id={}, lock_lp_start_price={}",
+                i, i, order.order_id, order.lock_lp_start_price
+            );
+        }
 
         // 3. 验证索引 / Validate indices
         let max_index = orders.len();
@@ -235,6 +312,11 @@ impl LiquidationProcessor {
         // 4. 对 indices 从大到小排序（避免索引错位）/ Sort indices descending (avoid index shift)
         let mut sorted_indices: Vec<u16> = event.liquidate_indices.to_vec();
         sorted_indices.sort_by(|a, b| b.cmp(a));
+
+        info!(
+            "🎯 待清算索引（已排序）/ Liquidation indices (sorted): {:?}",
+            sorted_indices
+        );
 
         // 5. 获取当前时间戳作为关闭时间 / Get current timestamp as close time
         let close_time = SystemTime::now()
@@ -258,8 +340,8 @@ impl LiquidationProcessor {
                 // order_id 不同，强制平仓 / Different order_id, force liquidation
                 order.close_type = 2;
                 info!(
-                    "清算订单（强制平仓，order_id不同）/ Liquidating order (force liquidation, different order_id): idx={}, db_order_id={}, event_order_id={}, user={}",
-                    idx, order.order_id, event.order_id, order.user
+                    "🔨 清算订单（强制平仓，order_id不同）/ Liquidating order (force liquidation, different order_id): idx={}, db_order_id={}, event_order_id={}, user={}, slot={}",
+                    idx, order.order_id, event.order_id, order.user, order.slot
                 );
             } else {
                 // order_id 相同，检查 user_sol_account / Same order_id, check user_sol_account
@@ -267,15 +349,15 @@ impl LiquidationProcessor {
                     // 用户自己平仓 / User closes own position
                     order.close_type = 1;
                     info!(
-                        "清算订单（正常平仓）/ Liquidating order (normal close): idx={}, order_id={}, user={}",
-                        idx, order.order_id, order.user
+                        "🔨 清算订单（正常平仓）/ Liquidating order (normal close): idx={}, order_id={}, user={}, slot={}",
+                        idx, order.order_id, order.user, order.slot
                     );
                 } else {
                     // 第三方平仓 / Third party closes position
                     order.close_type = 3;
                     info!(
-                        "清算订单（第三方平仓）/ Liquidating order (third party close): idx={}, order_id={}, user={}, closer={}",
-                        idx, order.order_id, order.user, event.user_sol_account
+                        "🔨 清算订单（第三方平仓）/ Liquidating order (third party close): idx={}, order_id={}, user={}, closer={}, slot={}",
+                        idx, order.order_id, order.user, event.user_sol_account, order.slot
                     );
                 }
             }
@@ -284,12 +366,42 @@ impl LiquidationProcessor {
             self.delete_active_order_keys(&mut batch, &mint_str, direction, &order);
 
             // 添加已关闭订单的所有键 / Add all keys for closed order
-            self.add_closed_order_keys(&mut batch, &mint_str, &order)?;
+            match self.add_closed_order_keys(&mut batch, &mint_str, &order) {
+                Ok(_) => {
+                    info!(
+                        "  ✓ 订单键准备完成 / Order keys prepared: order_id={}, mint={}",
+                        order.order_id, mint_str
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "  ✗ 添加关闭订单键失败 / Failed to add closed order keys: order_id={}, error={}",
+                        order.order_id, e
+                    );
+                    return Err(e.into());
+                }
+            }
         }
 
         // 7. 原子提交 / Atomic commit
-        db.write(batch)
-            .context("FullClose 清算事务提交失败 / FullClose liquidation transaction commit failed")?;
+        match db.write(batch) {
+            Ok(_) => {
+                info!(
+                    "✅ FullClose 清算事务提交成功 / FullClose liquidation transaction committed: mint={}, dir={}, count={}",
+                    mint, direction, sorted_indices.len()
+                );
+            }
+            Err(e) => {
+                error!(
+                    "❌ FullClose 清算事务提交失败 / FullClose liquidation transaction commit failed: mint={}, dir={}, error={}",
+                    mint, direction, e
+                );
+                return Err(anyhow::anyhow!(
+                    "FullClose 清算事务提交失败 / FullClose liquidation transaction commit failed: {}",
+                    e
+                ));
+            }
+        }
 
         info!(
             "✅ FullClose 清算完成 / FullClose liquidation completed: mint={}, dir={}, count={}",
@@ -312,6 +424,10 @@ impl LiquidationProcessor {
             "active_order:{}:{}:{:010}:{:010}",
             mint, dir, order.slot, order.order_id
         );
+        info!(
+            "  🗑️  删除主存储键 / Deleting main key: {}",
+            main_key
+        );
         batch.delete(main_key.as_bytes());
 
         // 用户索引 / User index
@@ -319,10 +435,18 @@ impl LiquidationProcessor {
             "active_user:{}:{}:{}:{:010}:{:010}",
             order.user, mint, dir, order.slot, order.order_id
         );
+        info!(
+            "  🗑️  删除用户索引键 / Deleting user index key: {}",
+            user_idx_key
+        );
         batch.delete(user_idx_key.as_bytes());
 
         // 订单ID映射 / Order ID mapping
         let id_map_key = format!("active_id:{}:{}:{:010}", mint, dir, order.order_id);
+        info!(
+            "  🗑️  删除订单ID映射键 / Deleting order ID mapping key: {}",
+            id_map_key
+        );
         batch.delete(id_map_key.as_bytes());
     }
 
@@ -340,6 +464,10 @@ impl LiquidationProcessor {
         let main_key = format!(
             "closed_order:{}:{:010}:{}:{}:{:010}",
             order.user, close_time, mint, dir, order.order_id
+        );
+        info!(
+            "  ➕ 添加关闭订单键 / Adding closed order key: {}",
+            main_key
         );
         batch.put(main_key.as_bytes(), &order.to_bytes()?);
 
