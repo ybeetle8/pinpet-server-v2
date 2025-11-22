@@ -1,8 +1,10 @@
 // 订单清算模块 / Order liquidation module
 use anyhow::{Result, Context};
 use rocksdb::WriteBatch;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
 use tracing::{info, error};
 
 use crate::db::{OrderBookStorage, OrderData};
@@ -79,12 +81,27 @@ fn sort_orders_by_price(orders: &mut Vec<(String, OrderData)>, direction: &str) 
 /// 清算处理器 / Liquidation processor
 pub struct LiquidationProcessor {
     orderbook_storage: Arc<OrderBookStorage>,
+    // 每个 mint+direction 组合一个锁，防止并发清算导致索引错位
+    // One lock per mint+direction combination to prevent concurrent liquidation index misalignment
+    locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl LiquidationProcessor {
     /// 创建新的清算处理器 / Create new liquidation processor
     pub fn new(orderbook_storage: Arc<OrderBookStorage>) -> Self {
-        Self { orderbook_storage }
+        Self {
+            orderbook_storage,
+            locks: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// 获取或创建 mint+direction 的锁 / Get or create lock for mint+direction
+    async fn get_lock(&self, mint: &str, direction: &str) -> Arc<Mutex<()>> {
+        let lock_key = format!("{}:{}", mint, direction);
+        let mut locks = self.locks.lock().await;
+        locks.entry(lock_key)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     /// 处理清算（事务内完成）/ Process liquidation (within transaction)
@@ -109,6 +126,11 @@ impl LiquidationProcessor {
         if liquidate_indices.is_empty() {
             return Ok(());
         }
+
+        // 获取 mint+direction 锁，防止并发清算导致索引错位
+        // Acquire mint+direction lock to prevent concurrent liquidation index misalignment
+        let lock = self.get_lock(mint, direction).await;
+        let _guard = lock.lock().await;
 
         info!(
             "🔍 开始清算 / Starting liquidation: mint={}, dir={}, indices={:?}",
@@ -257,6 +279,11 @@ impl LiquidationProcessor {
 
         let mint = &event.mint_account;
         let direction = get_liquidation_direction_for_fullclose(event);
+
+        // 获取 mint+direction 锁，防止并发清算导致索引错位
+        // Acquire mint+direction lock to prevent concurrent liquidation index misalignment
+        let lock = self.get_lock(mint, direction).await;
+        let _guard = lock.lock().await;
 
         info!(
             "🔍 开始 FullClose 清算 / Starting FullClose liquidation: mint={}, dir={}, order_id={}, indices={:?}",
