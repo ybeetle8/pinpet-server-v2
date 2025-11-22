@@ -189,10 +189,21 @@ pub async fn get_latest_tokens(
     {
         Ok(tokens) => {
             let total = tokens.len();
+
+            // 计算下一页游标 / Calculate next cursor
+            // 如果返回了完整的一页，使用最后一个token的created_at作为游标
+            // If a full page is returned, use the last token's created_at as cursor
+            let next_cursor = if total >= limit {
+                tokens.last().map(|t| t.created_at.to_string())
+            } else {
+                // 如果少于limit，说明已经是最后一页 / Less than limit means last page
+                None
+            };
+
             Ok(Json(CommonResult::ok(TokenListResponse {
                 tokens,
                 total,
-                next_cursor: None,
+                next_cursor,
             })))
         }
         Err(e) => Err((
