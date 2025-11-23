@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod docs;
 mod kline;
+mod orderbook;
 mod router;
 mod solana;
 mod util;
