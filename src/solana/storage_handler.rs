@@ -204,7 +204,7 @@ impl StorageEventHandler {
         order.lock_lp_end_price = event.lock_lp_end_price;
         order.lock_lp_sol_amount = event.lock_lp_sol_amount;
         order.lock_lp_token_amount = event.lock_lp_token_amount;
-        order.margin_init_sol_amount = event.margin_init_sol_amount;
+        // margin_init_sol_amount 不更新，保留初始值 / margin_init_sol_amount is not updated, keep initial value
         order.margin_sol_amount = event.margin_sol_amount;
         order.borrow_amount = event.borrow_amount;
         order.position_asset_amount = event.position_asset_amount;

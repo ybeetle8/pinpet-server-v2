@@ -151,7 +151,6 @@ pub struct PartialCloseEvent {
     pub lock_lp_token_amount: u64,       // 锁定流动池区间token数量 / Locked LP token amount
     pub start_time: u32,                 // 订单开始时间戳(秒) / Order start timestamp
     pub end_time: u32,                   // 贷款到期时间戳(秒) / Loan expiry timestamp
-    pub margin_init_sol_amount: u64,     // 初始保证金SOL数量 / Initial margin SOL amount
     pub margin_sol_amount: u64,          // 保证金SOL数量 / Margin SOL amount
     pub borrow_amount: u64,              // 贷款数量 / Borrowed amount
     pub position_asset_amount: u64,      // 当前持仓数量 / Current position amount
@@ -426,7 +425,6 @@ impl EventParser {
                     lock_lp_token_amount: event.lock_lp_token_amount,
                     start_time: event.start_time,
                     end_time: event.end_time,
-                    margin_init_sol_amount: event.margin_init_sol_amount,
                     margin_sol_amount: event.margin_sol_amount,
                     borrow_amount: event.borrow_amount,
                     position_asset_amount: event.position_asset_amount,
@@ -548,7 +546,6 @@ struct PartialCloseRaw {
     lock_lp_token_amount: u64,
     start_time: u32,
     end_time: u32,
-    margin_init_sol_amount: u64,
     margin_sol_amount: u64,
     borrow_amount: u64,
     position_asset_amount: u64,
