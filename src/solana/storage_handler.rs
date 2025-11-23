@@ -137,7 +137,7 @@ impl StorageEventHandler {
             open_price: event.open_price,
             lock_lp_sol_amount: event.lock_lp_sol_amount,
             lock_lp_token_amount: event.lock_lp_token_amount,
-            margin_init_sol_amount: 0,  // 填0 / Fill with 0
+            margin_init_sol_amount: event.margin_sol_amount,  // 初始保证金等于开仓时的保证金 / Initial margin equals margin at opening
             margin_sol_amount: event.margin_sol_amount,
             borrow_amount: event.borrow_amount,
             position_asset_amount: event.position_asset_amount,
