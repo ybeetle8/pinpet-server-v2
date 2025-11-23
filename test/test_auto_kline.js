@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // 自动获取最新 mint 并监听 K线数据脚本
-// 先通过 API 获取最新的 mint，然后监听其行情数据
+// 先通过 API 获取最新的 mint，然后监听其行情数据 
 
 const { io } = require('socket.io-client');
 const axios = require('axios');
