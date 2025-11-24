@@ -69,8 +69,8 @@ async fn main() {
     };
     tracing::info!("✅ RocksDB 初始化成功");
 
-    // 创建 OrderBook 存储实例（无论事件监听器是否启用都需要）
-    // Create OrderBook storage instance (needed regardless of event listener status)
+    // 创建 OrderBook 存储实例（仅用于事件处理,不对外暴露API）
+    // Create OrderBook storage instance (only for event processing, no public API)
     let orderbook_storage = match db_storage.create_orderbook_storage() {
         Ok(storage) => Arc::new(storage),
         Err(e) => {
@@ -78,7 +78,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    tracing::info!("✅ OrderBook 存储初始化成功");
+    tracing::info!("✅ OrderBook 存储初始化成功（仅内部使用）");
 
     // 初始化 K线推送服务 (如果启用) / Initialize K-line WebSocket service (if enabled)
     let (kline_socket_service, socketio_layer) = if config.kline.enable_kline_service {
@@ -228,9 +228,7 @@ async fn main() {
     // 创建路由
     let api_router = router::create_router(
         db_storage,
-        orderbook_storage,
         token_storage_for_api,
-        config.database.orderbook_max_limit
     );
 
     // 创建 Swagger UI

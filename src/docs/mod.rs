@@ -70,11 +70,6 @@ pub struct ErrorApiResponse {
         crate::router::db::query_events_by_mint,
         crate::router::db::query_events_by_user,
         crate::router::db::query_events_by_signature,
-        // OrderBook 路由
-        crate::router::orderbook::get_active_orders_by_mint,
-        crate::router::orderbook::get_active_orders_by_user,
-        crate::router::orderbook::get_active_order_by_id,
-        crate::router::orderbook::get_closed_orders_by_user,
         // Token 路由 / Token routes
         crate::router::token::get_token_by_mint,
         crate::router::token::get_tokens_by_symbol,
@@ -100,11 +95,6 @@ pub struct ErrorApiResponse {
             crate::solana::events::FullCloseEvent,
             crate::solana::events::PartialCloseEvent,
             crate::solana::events::MilestoneDiscountEvent,
-            // OrderBook 结构体
-            crate::db::OrderData,
-            crate::router::orderbook::OrderDataWithMint,
-            crate::router::orderbook::OrderListResponse,
-            crate::router::orderbook::PaginatedOrdersResponse,
             // Token 结构体 / Token structures
             crate::db::TokenDetail,
             crate::db::TokenUriData,
@@ -119,7 +109,6 @@ pub struct ErrorApiResponse {
         (name = "system", description = "系统相关接口 / System related APIs"),
         (name = "database", description = "数据库相关接口 / Database related APIs"),
         (name = "events", description = "事件查询接口 / Event query APIs"),
-        (name = "OrderBook", description = "OrderBook 订单簿接口 / OrderBook APIs"),
         (name = "tokens", description = "Token代币查询接口 / Token query APIs"),
     ),
     info(
