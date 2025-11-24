@@ -4,8 +4,23 @@ port = 3000
 
 [database]
 rocksdb_path = "./data/rocksdb"
+# OrderBook 专用数据库路径 / OrderBook dedicated database path
+orderbook_db_path = "./data/orderbook"
 # OrderBook查询最大返回数量(默认60000) / OrderBook query max limit (default 60000)
 orderbook_max_limit = 60000
+
+# OrderBook 数据库性能配置 (可选) / OrderBook database performance config (optional)
+[database.orderbook_db]
+# 单个写缓冲区大小(MB) / Single write buffer size (MB)
+write_buffer_size_mb = 256
+# 最大写缓冲区数量 / Max number of write buffers
+max_write_buffer_number = 4
+# 是否启用 fsync (生产环境建议 true) / Enable fsync (recommend true for production)
+use_fsync = false
+# 是否启用偏执检查 / Enable paranoid checks
+paranoid_checks = false
+# 最大后台任务数 / Max background jobs
+max_background_jobs = 8
 
 [solana]
 # Solana节点配置 / Solana node configuration

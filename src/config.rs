@@ -20,8 +20,65 @@ pub struct ServerConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
     pub rocksdb_path: String,
+    /// OrderBook 专用数据库路径 / OrderBook dedicated database path
+    pub orderbook_db_path: String,
     #[serde(default = "default_orderbook_max_limit")]
     pub orderbook_max_limit: usize,  // OrderBook查询最大返回数量 / OrderBook query max limit
+    /// OrderBook 数据库性能配置 / OrderBook database performance config
+    #[serde(default)]
+    pub orderbook_db: OrderBookDbConfig,
+}
+
+/// OrderBook 数据库性能配置 / OrderBook database performance configuration
+#[derive(Debug, Deserialize, Clone)]
+pub struct OrderBookDbConfig {
+    /// 单个写缓冲区大小(MB) / Single write buffer size (MB)
+    #[serde(default = "default_write_buffer_size")]
+    pub write_buffer_size_mb: usize,
+    /// 最大写缓冲区数量 / Max number of write buffers
+    #[serde(default = "default_max_write_buffer_number")]
+    pub max_write_buffer_number: i32,
+    /// 是否启用 fsync / Enable fsync
+    #[serde(default = "default_use_fsync")]
+    pub use_fsync: bool,
+    /// 是否启用偏执检查 / Enable paranoid checks
+    #[serde(default = "default_paranoid_checks")]
+    pub paranoid_checks: bool,
+    /// 最大后台任务数 / Max background jobs
+    #[serde(default = "default_max_background_jobs")]
+    pub max_background_jobs: i32,
+}
+
+impl Default for OrderBookDbConfig {
+    fn default() -> Self {
+        Self {
+            write_buffer_size_mb: 256,
+            max_write_buffer_number: 4,
+            use_fsync: false,
+            paranoid_checks: false,
+            max_background_jobs: 8,
+        }
+    }
+}
+
+fn default_write_buffer_size() -> usize {
+    256
+}
+
+fn default_max_write_buffer_number() -> i32 {
+    4
+}
+
+fn default_use_fsync() -> bool {
+    false
+}
+
+fn default_paranoid_checks() -> bool {
+    false
+}
+
+fn default_max_background_jobs() -> i32 {
+    8
 }
 
 fn default_orderbook_max_limit() -> usize {
