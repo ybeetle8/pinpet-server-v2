@@ -69,17 +69,6 @@ async fn main() {
     };
     tracing::info!("✅ RocksDB 初始化成功");
 
-    // 创建 OrderBook 存储实例（仅用于事件处理,不对外暴露API）
-    // Create OrderBook storage instance (only for event processing, no public API)
-    let orderbook_storage = match db_storage.create_orderbook_storage() {
-        Ok(storage) => Arc::new(storage),
-        Err(e) => {
-            tracing::error!("❌ OrderBook 存储创建失败 / Failed to create OrderBook storage: {}", e);
-            std::process::exit(1);
-        }
-    };
-    tracing::info!("✅ OrderBook 存储初始化成功（仅内部使用）");
-
     // 初始化 K线推送服务 (如果启用) / Initialize K-line WebSocket service (if enabled)
     let (kline_socket_service, socketio_layer) = if config.kline.enable_kline_service {
         tracing::info!("🚀 初始化 K线 WebSocket 服务 / Initializing K-line WebSocket service");
@@ -158,32 +147,19 @@ async fn main() {
         // 创建存储事件处理器 / Create storage event handler
         let storage_handler = Arc::new(solana::StorageEventHandler::new(
             event_storage,
-            orderbook_storage.clone(),
             token_storage.clone(),
         ));
 
-        // 创建清算处理器 / Create liquidation processor
-        let liquidation_processor = Arc::new(solana::LiquidationProcessor::new(orderbook_storage.clone()));
-
         // 如果启用了K线服务,创建K线事件处理器包装器 / If K-line service is enabled, create K-line event handler wrapper
         let event_handler: Arc<dyn solana::EventHandler> = if let Some(ref kline_service) = kline_socket_service {
-            // 创建 MintEventRouter / Create MintEventRouter
-            let mint_router = Arc::new(solana::MintEventRouter::new(
-                liquidation_processor,
-                storage_handler,
-            ));
-
-            // 创建K线事件处理器,包装MintEventRouter / Create K-line event handler wrapping MintEventRouter
+            // 创建K线事件处理器,包装StorageEventHandler / Create K-line event handler wrapping StorageEventHandler
             Arc::new(kline::KlineEventHandler::new(
-                mint_router,
+                storage_handler,
                 kline_service.clone(),
             ))
         } else {
-            // 不使用K线服务,直接使用 MintEventRouter / Without K-line service, use MintEventRouter directly
-            Arc::new(solana::MintEventRouter::new(
-                liquidation_processor,
-                storage_handler,
-            ))
+            // 不使用K线服务,直接使用 StorageEventHandler / Without K-line service, use StorageEventHandler directly
+            storage_handler
         };
 
         // 创建事件监听器管理器 / Create event listener manager

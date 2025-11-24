@@ -2,14 +2,13 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::{info, error};
-use crate::db::{EventStorage, OrderBookStorage, OrderData, TokenStorage};
+use crate::db::{EventStorage, TokenStorage};
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
 /// 存储事件处理器 - 将接收到的事件存储到RocksDB / Storage event handler - stores received events to RocksDB
 pub struct StorageEventHandler {
     event_storage: Arc<EventStorage>,
-    orderbook_storage: Arc<OrderBookStorage>,
     token_storage: Arc<TokenStorage>,
 }
 
@@ -17,12 +16,10 @@ impl StorageEventHandler {
     /// 创建新的存储事件处理器 / Create new storage event handler
     pub fn new(
         event_storage: Arc<EventStorage>,
-        orderbook_storage: Arc<OrderBookStorage>,
         token_storage: Arc<TokenStorage>,
     ) -> Self {
         Self {
             event_storage,
-            orderbook_storage,
             token_storage,
         }
     }
@@ -59,22 +56,6 @@ impl EventHandler for StorageEventHandler {
             if let Err(e) = self.store_token_created(tc_event).await {
                 error!("❌ 存储 TokenCreatedEvent 到 TokenStorage 失败 / Failed to store TokenCreatedEvent to TokenStorage: {}", e);
                 // 继续存储事件，不因 TokenStorage 失败而中断 / Continue storing event, don't fail due to TokenStorage error
-            }
-        }
-
-        // 如果是 LongShortEvent，同时存储到 OrderBook / If LongShortEvent, also store to OrderBook
-        if let PinpetEvent::LongShort(ref ls_event) = event {
-            if let Err(e) = self.store_long_short_to_orderbook(ls_event).await {
-                error!("❌ 存储 LongShortEvent 到 OrderBook 失败 / Failed to store LongShortEvent to OrderBook: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
-            }
-        }
-
-        // 如果是 PartialCloseEvent，更新 OrderBook 中的订单 / If PartialCloseEvent, update order in OrderBook
-        if let PinpetEvent::PartialClose(ref pc_event) = event {
-            if let Err(e) = self.handle_partial_close_event(pc_event).await {
-                error!("❌ 处理 PartialCloseEvent 失败 / Failed to handle PartialCloseEvent: {}", e);
-                // 继续存储事件，不因 OrderBook 更新失败而中断 / Continue storing event, don't fail due to OrderBook update error
             }
         }
 
@@ -117,107 +98,6 @@ impl StorageEventHandler {
         info!(
             "✅ TokenCreatedEvent 已存储到 TokenStorage / TokenCreatedEvent stored to TokenStorage: mint={}",
             event.mint_account
-        );
-
-        Ok(())
-    }
-
-    /// 将 LongShortEvent 转换并存储到 OrderBook / Convert and store LongShortEvent to OrderBook
-    async fn store_long_short_to_orderbook(
-        &self,
-        event: &super::events::LongShortEvent,
-    ) -> anyhow::Result<()> {
-        // 将 LongShortEvent 转换为 OrderData / Convert LongShortEvent to OrderData
-        let order = OrderData {
-            slot: event.slot,
-            order_id: event.order_id,
-            user: event.payer.clone(),  // payer 就是 user / payer is the user
-            lock_lp_start_price: event.lock_lp_start_price,
-            lock_lp_end_price: event.lock_lp_end_price,
-            open_price: event.open_price,
-            lock_lp_sol_amount: event.lock_lp_sol_amount,
-            lock_lp_token_amount: event.lock_lp_token_amount,
-            margin_init_sol_amount: event.margin_sol_amount,  // 初始保证金等于开仓时的保证金 / Initial margin equals margin at opening
-            margin_sol_amount: event.margin_sol_amount,
-            borrow_amount: event.borrow_amount,
-            position_asset_amount: event.position_asset_amount,
-            realized_sol_amount: 0,  // 填0 / Fill with 0
-            start_time: event.start_time,
-            end_time: event.end_time,
-            borrow_fee: event.borrow_fee,
-            order_type: event.order_type,
-            close_time: None,
-            close_type: 0,
-        };
-
-        // 存储到 OrderBook / Store to OrderBook
-        self.orderbook_storage
-            .add_active_order(&event.mint_account, &order)
-            .await?;
-
-        info!(
-            "✅ LongShortEvent 已存储到 OrderBook / LongShortEvent stored to OrderBook: mint={}, order_id={}",
-            event.mint_account, event.order_id
-        );
-
-        Ok(())
-    }
-
-    /// 处理 PartialCloseEvent 并更新 OrderBook / Handle PartialCloseEvent and update OrderBook
-    async fn handle_partial_close_event(
-        &self,
-        event: &super::events::PartialCloseEvent,
-    ) -> anyhow::Result<()> {
-        // 1. 根据 order_type 确定 direction / Determine direction from order_type
-        // order_type: 1=做多/dn, 2=做空/up
-        let direction = match event.order_type {
-            1 => "dn",
-            2 => "up",
-            _ => {
-                error!(
-                    "❌ 无效的 order_type / Invalid order_type: order_type={}, order_id={}, mint={}",
-                    event.order_type, event.order_id, event.mint_account
-                );
-                return Ok(()); // 跳过无效订单 / Skip invalid order
-            }
-        };
-
-        // 2. 查找激活订单 / Find active order
-        let order_result = self
-            .orderbook_storage
-            .get_active_order_by_id(&event.mint_account, direction, event.order_id)
-            .await?;
-
-        let (_mint, mut order) = match order_result {
-            Some(result) => result,
-            None => {
-                info!(
-                    "⚠️ 部分平仓事件：订单未找到，跳过 / PartialCloseEvent: Order not found, skipping - order_id={}, order_type={}, mint={}",
-                    event.order_id, event.order_type, event.mint_account
-                );
-                return Ok(()); // 订单不存在，跳过 / Order doesn't exist, skip
-            }
-        };
-
-        // 3. 更新订单字段 / Update order fields
-        order.lock_lp_start_price = event.lock_lp_start_price;
-        order.lock_lp_end_price = event.lock_lp_end_price;
-        order.lock_lp_sol_amount = event.lock_lp_sol_amount;
-        order.lock_lp_token_amount = event.lock_lp_token_amount;
-        // margin_init_sol_amount 不更新，保留初始值 / margin_init_sol_amount is not updated, keep initial value
-        order.margin_sol_amount = event.margin_sol_amount;
-        order.borrow_amount = event.borrow_amount;
-        order.position_asset_amount = event.position_asset_amount;
-        order.realized_sol_amount = event.realized_sol_amount;
-
-        // 4. 保存更新后的订单 / Save updated order
-        self.orderbook_storage
-            .update_active_order(&event.mint_account, direction, &order)
-            .await?;
-
-        info!(
-            "✅ PartialCloseEvent 已更新订单 / PartialCloseEvent updated order: mint={}, order_id={}, direction={}",
-            event.mint_account, event.order_id, direction
         );
 
         Ok(())
