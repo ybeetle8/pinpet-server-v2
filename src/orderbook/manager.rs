@@ -6,7 +6,7 @@ use crate::orderbook::{
     types::{MarginOrder, MarginOrderUpdateData, OrderBookHeader, TraversalResult},
 };
 use rocksdb::{WriteBatch, DB};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 /// OrderBook 数据库管理器
@@ -23,6 +23,10 @@ pub struct OrderBookDBManager {
     /// 订单方向: "up"(做空) 或 "dn"(做多)
     /// Order direction: "up"(short) or "dn"(long)
     direction: String,
+
+    /// 操作锁 - 确保插入和删除操作不会并发执行
+    /// Operation lock - ensures insert and delete operations don't execute concurrently
+    operation_lock: Mutex<()>,
 }
 
 impl OrderBookDBManager {
@@ -33,6 +37,7 @@ impl OrderBookDBManager {
             db,
             mint,
             direction,
+            operation_lock: Mutex::new(()),
         }
     }
 
@@ -226,6 +231,9 @@ impl OrderBookDBManager {
     /// 返回 (插入的订单索引, 订单ID)
     /// Returns (inserted order index, order ID)
     pub fn insert_after(&self, after_index: u16, order_data: &MarginOrder) -> Result<(u16, u64)> {
+        // 获取操作锁 / Acquire operation lock
+        let _lock = self.operation_lock.lock().unwrap();
+
         let mut header = self.load_header()?;
         let old_total = header.total;
         let current_order_id = header.order_id_counter;
@@ -385,6 +393,9 @@ impl OrderBookDBManager {
         before_index: u16,
         order_data: &MarginOrder,
     ) -> Result<(u16, u64)> {
+        // 获取操作锁 / Acquire operation lock
+        let _lock = self.operation_lock.lock().unwrap();
+
         let mut header = self.load_header()?;
         let old_total = header.total;
         let current_order_id = header.order_id_counter;
@@ -511,6 +522,9 @@ impl OrderBookDBManager {
         if indices.is_empty() {
             return Ok(());
         }
+
+        // 获取操作锁 / Acquire operation lock
+        let _lock = self.operation_lock.lock().unwrap();
 
         // 1. 克隆、去重并降序排序索引
         // 1. Clone, deduplicate and sort indices in descending order

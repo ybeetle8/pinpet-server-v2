@@ -71,6 +71,30 @@ impl EventHandler for StorageEventHandler {
             }
         }
 
+        // 如果是 BuySellEvent，处理清算 / If BuySellEvent, handle liquidations
+        if let PinpetEvent::BuySell(ref bs_event) = event {
+            if let Err(e) = self.handle_buy_sell_event(bs_event) {
+                error!("❌ 处理 BuySellEvent 清算失败 / Failed to handle BuySellEvent liquidations: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
+        // 如果是 FullCloseEvent，处理清算 / If FullCloseEvent, handle liquidations
+        if let PinpetEvent::FullClose(ref fc_event) = event {
+            if let Err(e) = self.handle_full_close_event(fc_event) {
+                error!("❌ 处理 FullCloseEvent 清算失败 / Failed to handle FullCloseEvent liquidations: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
+        // 如果是 PartialCloseEvent，处理更新和清算 / If PartialCloseEvent, handle update and liquidations
+        if let PinpetEvent::PartialClose(ref pc_event) = event {
+            if let Err(e) = self.handle_partial_close_event(pc_event) {
+                error!("❌ 处理 PartialCloseEvent 更新和清算失败 / Failed to handle PartialCloseEvent update and liquidations: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
         // 目前我们一次只处理一个事件，但store_events支持批量存储
         // Currently we process one event at a time, but store_events supports batch storage
         let events = vec![event];
@@ -218,6 +242,171 @@ impl StorageEventHandler {
             error!(
                 "⚠️ 警告: 分配的 order_id 与事件中的不一致 / Warning: Assigned order_id mismatch: assigned={}, event={}",
                 assigned_order_id, event.order_id
+            );
+        }
+
+        // 处理清算 / Handle liquidations
+        if !event.liquidate_indices.is_empty() {
+            info!(
+                "🔥 处理 LongShortEvent 清算 / Processing LongShortEvent liquidations: count={}",
+                event.liquidate_indices.len()
+            );
+
+            // LongShortEvent 的清算方向 / LongShortEvent liquidation direction
+            // order_type=1 (做多/long) 删 up 方向的订单 / order_type=1 (long) deletes up direction orders
+            // order_type=2 (做空/short) 删 dn 方向的订单 / order_type=2 (short) deletes dn direction orders
+            let liquidate_direction = match event.order_type {
+                1 => "up",  // 做多时清算做空订单 / When going long, liquidate short orders
+                2 => "dn",  // 做空时清算做多订单 / When going short, liquidate long orders
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Invalid order_type for liquidation: {}, expected 1 or 2",
+                        event.order_type
+                    ));
+                }
+            };
+
+            let liquidate_manager = self.orderbook_storage
+                .get_or_create_manager(event.mint_account.clone(), liquidate_direction.to_string())?;
+
+            liquidate_manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+
+            info!(
+                "✅ LongShortEvent 清算完成 / LongShortEvent liquidations completed: direction={}, count={}",
+                liquidate_direction, event.liquidate_indices.len()
+            );
+        }
+
+        Ok(())
+    }
+
+    /// 处理 BuySellEvent 的清算 / Handle BuySellEvent liquidations
+    fn handle_buy_sell_event(
+        &self,
+        event: &super::events::BuySellEvent,
+    ) -> anyhow::Result<()> {
+        // 检查是否有需要清算的订单 / Check if there are orders to liquidate
+        if event.liquidate_indices.is_empty() {
+            return Ok(());
+        }
+
+        // 确定清算的方向 / Determine liquidation direction
+        // is_buy=true 删 up 方向的订单 / is_buy=true deletes up direction orders
+        // is_buy=false 删 dn 方向的订单 / is_buy=false deletes dn direction orders
+        let direction = if event.is_buy { "up" } else { "dn" };
+
+        info!(
+            "🔥 处理 BuySellEvent 清算 / Processing BuySellEvent liquidations: mint={}, direction={}, count={}",
+            &event.mint_account[..8], direction, event.liquidate_indices.len()
+        );
+
+        // 获取 OrderBook 管理器 / Get OrderBook manager
+        let manager = self.orderbook_storage
+            .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
+
+        // 批量删除订单 / Batch remove orders
+        manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+
+        info!(
+            "✅ BuySellEvent 清算完成 / BuySellEvent liquidations completed: mint={}, direction={}, count={}",
+            &event.mint_account[..8], direction, event.liquidate_indices.len()
+        );
+
+        Ok(())
+    }
+
+    /// 处理 FullCloseEvent 的清算 / Handle FullCloseEvent liquidations
+    fn handle_full_close_event(
+        &self,
+        event: &super::events::FullCloseEvent,
+    ) -> anyhow::Result<()> {
+        // 检查是否有需要清算的订单 / Check if there are orders to liquidate
+        if event.liquidate_indices.is_empty() {
+            return Ok(());
+        }
+
+        // 确定清算的方向 / Determine liquidation direction
+        // is_close_long=true 删 dn 方向的订单 / is_close_long=true deletes dn direction orders
+        // is_close_long=false 删 up 方向的订单 / is_close_long=false deletes up direction orders
+        let direction = if event.is_close_long { "dn" } else { "up" };
+
+        info!(
+            "🔥 处理 FullCloseEvent 清算 / Processing FullCloseEvent liquidations: mint={}, direction={}, count={}",
+            &event.mint_account[..8], direction, event.liquidate_indices.len()
+        );
+
+        // 获取 OrderBook 管理器 / Get OrderBook manager
+        let manager = self.orderbook_storage
+            .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
+
+        // 批量删除订单 / Batch remove orders
+        manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+
+        info!(
+            "✅ FullCloseEvent 清算完成 / FullCloseEvent liquidations completed: mint={}, direction={}, count={}",
+            &event.mint_account[..8], direction, event.liquidate_indices.len()
+        );
+
+        Ok(())
+    }
+
+    /// 处理 PartialCloseEvent 的更新和清算 / Handle PartialCloseEvent update and liquidations
+    fn handle_partial_close_event(
+        &self,
+        event: &super::events::PartialCloseEvent,
+    ) -> anyhow::Result<()> {
+        // 确定更新和清算的方向 / Determine update and liquidation direction
+        // is_close_long=true 更新 dn 方向的订单 / is_close_long=true updates dn direction orders
+        // is_close_long=false 更新 up 方向的订单 / is_close_long=false updates up direction orders
+        let direction = if event.is_close_long { "dn" } else { "up" };
+
+        info!(
+            "🔄 处理 PartialCloseEvent / Processing PartialCloseEvent: mint={}, direction={}, order_id={}, order_index={}",
+            &event.mint_account[..8], direction, event.order_id, event.order_index
+        );
+
+        // 获取 OrderBook 管理器 / Get OrderBook manager
+        let manager = self.orderbook_storage
+            .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
+
+        // 1. 先更新订单 / First update the order
+        use crate::orderbook::MarginOrderUpdateData;
+        let update_data = MarginOrderUpdateData {
+            lock_lp_start_price: Some(event.lock_lp_start_price),
+            lock_lp_end_price: Some(event.lock_lp_end_price),
+            lock_lp_sol_amount: Some(event.lock_lp_sol_amount),
+            lock_lp_token_amount: Some(event.lock_lp_token_amount),
+            next_lp_sol_amount: None,  // 不更新 / Don't update
+            next_lp_token_amount: None,  // 不更新 / Don't update
+            end_time: Some(event.end_time),
+            margin_init_sol_amount: None,  // 不更新 / Don't update
+            margin_sol_amount: Some(event.margin_sol_amount),
+            borrow_amount: Some(event.borrow_amount),
+            position_asset_amount: Some(event.position_asset_amount),
+            borrow_fee: Some(event.borrow_fee),
+            open_price: None,  // 不更新 / Don't update
+            realized_sol_amount: Some(event.realized_sol_amount),
+        };
+
+        manager.update_order(event.order_index, event.order_id, &update_data)?;
+
+        info!(
+            "✅ PartialCloseEvent 订单更新完成 / PartialCloseEvent order update completed: order_id={}, order_index={}",
+            event.order_id, event.order_index
+        );
+
+        // 2. 再删除清算的订单 / Then delete liquidated orders
+        if !event.liquidate_indices.is_empty() {
+            info!(
+                "🔥 处理 PartialCloseEvent 清算 / Processing PartialCloseEvent liquidations: count={}",
+                event.liquidate_indices.len()
+            );
+
+            manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+
+            info!(
+                "✅ PartialCloseEvent 清算完成 / PartialCloseEvent liquidations completed: count={}",
+                event.liquidate_indices.len()
             );
         }
 
