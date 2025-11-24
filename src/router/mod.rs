@@ -1,7 +1,8 @@
 pub mod db;
 pub mod health;
-pub mod token;
 pub mod orderbook;
+pub mod orderbook_history;
+pub mod token;
 
 use axum::Router;
 use std::sync::Arc;
@@ -21,5 +22,6 @@ pub fn create_router(
         .merge(health::routes())
         .merge(db::routes().with_state(db))
         .merge(token::routes().with_state(token_state))
-        .merge(orderbook::routes().with_state(orderbook_storage))
+        .merge(orderbook::routes().with_state(orderbook_storage.clone()))
+        .merge(orderbook_history::routes().with_state(orderbook_storage))
 }

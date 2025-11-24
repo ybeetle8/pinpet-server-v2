@@ -269,7 +269,13 @@ impl StorageEventHandler {
             let liquidate_manager = self.orderbook_storage
                 .get_or_create_manager(event.mint_account.clone(), liquidate_direction.to_string())?;
 
-            liquidate_manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+            // 强制清算,使用 CloseReason::ForcedLiquidation (2) 和开仓价格
+            // Forced liquidation, use CloseReason::ForcedLiquidation (2) and open price
+            liquidate_manager.batch_remove_by_indices_unsafe(
+                &event.liquidate_indices,
+                2, // ForcedLiquidation
+                event.open_price,
+            )?;
 
             info!(
                 "✅ LongShortEvent 清算完成 / LongShortEvent liquidations completed: direction={}, count={}",
@@ -305,7 +311,13 @@ impl StorageEventHandler {
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
 
         // 批量删除订单 / Batch remove orders
-        manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+        // 强制清算,使用 CloseReason::ForcedLiquidation (2)
+        // Forced liquidation, use CloseReason::ForcedLiquidation (2)
+        manager.batch_remove_by_indices_unsafe(
+            &event.liquidate_indices,
+            2, // ForcedLiquidation
+            event.latest_price,
+        )?;
 
         info!(
             "✅ BuySellEvent 清算完成 / BuySellEvent liquidations completed: mint={}, direction={}, count={}",
@@ -340,7 +352,13 @@ impl StorageEventHandler {
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
 
         // 批量删除订单 / Batch remove orders
-        manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+        // 用户主动平仓,使用 CloseReason::UserInitiated (1)
+        // User initiated close, use CloseReason::UserInitiated (1)
+        manager.batch_remove_by_indices_unsafe(
+            &event.liquidate_indices,
+            1, // UserInitiated
+            event.latest_price,
+        )?;
 
         info!(
             "✅ FullCloseEvent 清算完成 / FullCloseEvent liquidations completed: mint={}, direction={}, count={}",
@@ -402,7 +420,13 @@ impl StorageEventHandler {
                 event.liquidate_indices.len()
             );
 
-            manager.batch_remove_by_indices_unsafe(&event.liquidate_indices)?;
+            // 强制清算,使用 CloseReason::ForcedLiquidation (2)
+            // Forced liquidation, use CloseReason::ForcedLiquidation (2)
+            manager.batch_remove_by_indices_unsafe(
+                &event.liquidate_indices,
+                2, // ForcedLiquidation
+                event.latest_price,
+            )?;
 
             info!(
                 "✅ PartialCloseEvent 清算完成 / PartialCloseEvent liquidations completed: count={}",

@@ -73,6 +73,43 @@ impl OrderBookDBManager {
         format!("orderbook_active_indices:{}:{}", self.mint, self.direction)
     }
 
+    // ==================== 已关闭订单键生成 / Closed Order Key Generation ====================
+
+    /// 生成用户已关闭订单键
+    /// Generate user closed order key
+    ///
+    /// # 参数 / Parameters
+    /// * `user_address` - 用户地址
+    /// * `close_timestamp` - 关闭时间戳
+    /// * `mint` - Token mint 地址
+    /// * `direction` - 订单方向
+    /// * `order_id` - 订单ID
+    fn closed_order_key(
+        user_address: &str,
+        close_timestamp: u32,
+        mint: &str,
+        direction: &str,
+        order_id: u64,
+    ) -> String {
+        format!(
+            "orderbook_user_closed:{}:{:010}:{}:{}:{:020}",
+            user_address, close_timestamp, mint, direction, order_id
+        )
+    }
+
+    /// 生成用户已关闭订单前缀(用于前缀扫描)
+    /// Generate user closed order prefix (for prefix scan)
+    ///
+    /// # 用法 / Usage
+    /// ```
+    /// // 查询用户所有已关闭订单
+    /// // Query all closed orders for user
+    /// let prefix = OrderBookDBManager::closed_order_prefix(user_address);
+    /// ```
+    pub fn closed_order_prefix(user_address: &str) -> String {
+        format!("orderbook_user_closed:{}:", user_address)
+    }
+
     // ==================== 用户索引键生成 / User Index Key Generation ====================
 
     /// 生成用户活跃订单索引键
@@ -581,11 +618,18 @@ impl OrderBookDBManager {
     ///
     /// # 参数 / Parameters
     /// * `indices` - 待删除的索引切片(可乱序、可重复)
+    /// * `close_reason` - 关闭原因
+    /// * `current_price` - 当前价格
     ///
     /// # 返回值 / Returns
     /// 成功返回 Ok(())
     /// Returns Ok(()) on success
-    pub fn batch_remove_by_indices_unsafe(&self, indices: &[u16]) -> Result<()> {
+    pub fn batch_remove_by_indices_unsafe(
+        &self,
+        indices: &[u16],
+        close_reason: u8,
+        current_price: u128,
+    ) -> Result<()> {
         // 0. 处理空数组
         // 0. Handle empty array
         if indices.is_empty() {
@@ -628,7 +672,7 @@ impl OrderBookDBManager {
         // 检查是否删除全部
         // Check if deleting all
         if delete_count >= old_total {
-            return self.batch_remove_all();
+            return self.batch_remove_all_with_close_records(close_reason, current_price);
         }
 
         // 3. 使用 WriteBatch 和本地缓存
@@ -651,6 +695,9 @@ impl OrderBookDBManager {
             }
         };
 
+        // ✅ 新增: 获取当前时间戳 / Get current timestamp
+        let now = chrono::Utc::now().timestamp() as u32;
+
         for &remove_index in &sorted_indices {
             // 3.1 读取被删除节点
             // 3.1 Read node to be deleted
@@ -658,6 +705,26 @@ impl OrderBookDBManager {
             let removed_prev = removed_order.prev_order;
             let removed_next = removed_order.next_order;
             let removed_order_id = removed_order.order_id;
+
+            // ✅ 新增: 构建并保存已关闭订单记录
+            // ✅ New: Build and save closed order record
+            let close_record = self.build_close_record(
+                &removed_order,
+                now,
+                current_price,
+                close_reason,
+            )?;
+
+            // 保存到数据库
+            // Save to database
+            let close_key = Self::closed_order_key(
+                &removed_order.user,
+                now,
+                &self.mint,
+                &self.direction,
+                removed_order_id,
+            );
+            batch.put(close_key.as_bytes(), &serde_json::to_vec(&close_record)?);
 
             // 3.2 从链表中摘除该节点 (使用缓存版本)
             // 3.2 Unlink node from linked list (using cached version)
@@ -1059,6 +1126,74 @@ impl OrderBookDBManager {
         Ok(())
     }
 
+    /// 删除全部订单并保存关闭记录
+    /// Remove all orders and save close records
+    fn batch_remove_all_with_close_records(
+        &self,
+        close_reason: u8,
+        current_price: u128,
+    ) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        let now = chrono::Utc::now().timestamp() as u32;
+
+        // 删除所有订单槽位和 ID 映射,并保存关闭记录
+        // Delete all order slots and ID mappings, and save close records
+        let active_indices = self.load_active_indices()?;
+        for index in active_indices {
+            let order = self.get_order(index)?;
+
+            // 保存关闭记录 / Save close record
+            let close_record = self.build_close_record(&order, now, current_price, close_reason)?;
+            let close_key = Self::closed_order_key(
+                &order.user,
+                now,
+                &self.mint,
+                &self.direction,
+                order.order_id,
+            );
+            batch.put(close_key.as_bytes(), &serde_json::to_vec(&close_record)?);
+
+            // 删除槽位 / Delete slot
+            let slot_key = self.slot_key(index);
+            batch.delete(slot_key.as_bytes());
+
+            // 删除 ID 映射 / Delete ID mapping
+            let id_key = self.id_map_key(order.order_id);
+            batch.delete(id_key.as_bytes());
+
+            // 删除用户活跃订单索引
+            // Remove user active order index
+            self.remove_user_active_index(
+                &mut batch,
+                &order.user,
+                order.start_time,
+                order.order_id,
+            );
+        }
+
+        // 重置 header / Reset header
+        let mut header = self.load_header()?;
+        header.head = u16::MAX;
+        header.tail = u16::MAX;
+        header.total = 0;
+        header.total_capacity = 0;
+        header.last_modified = now;
+        self.save_header_batch(&mut batch, &header)?;
+
+        // 清空活跃索引列表 / Clear active indices list
+        let active_key = self.active_indices_key();
+        batch.put(
+            active_key.as_bytes(),
+            &serde_json::to_vec(&Vec::<u16>::new())?,
+        );
+
+        // 原子提交 / Atomic commit
+        self.db.write(batch)?;
+
+        info!("✅ Removed all orders, saved close records");
+        Ok(())
+    }
+
     // ==================== 更新操作 / Update Operations ====================
 
     /// 更新指定索引的订单(需要 order_id 双重验证)
@@ -1301,5 +1436,73 @@ impl OrderBookDBManager {
         };
 
         Ok((Some(insert_pos), next_idx))
+    }
+
+    // ==================== 已关闭订单辅助函数 / Closed Order Helper Functions ====================
+
+    /// 构建订单关闭记录
+    /// Build close record for order
+    fn build_close_record(
+        &self,
+        order: &MarginOrder,
+        close_timestamp: u32,
+        close_price: u128,
+        close_reason: u8,
+    ) -> Result<crate::orderbook::types::ClosedOrderRecord> {
+        use crate::orderbook::types::{ClosedOrderRecord, CloseInfo};
+
+        // 计算持仓时长 / Calculate position duration
+        let position_duration_sec = close_timestamp.saturating_sub(order.start_time);
+
+        // 计算最终盈亏 / Calculate final PnL
+        let final_pnl_sol = self.calculate_pnl(order, close_price);
+
+        // 计算总借款费用 / Calculate total borrow fee
+        let total_borrow_fee_sol = order.borrow_fee as u64;
+
+        Ok(ClosedOrderRecord {
+            order: order.clone(),
+            close_info: CloseInfo {
+                close_timestamp,
+                close_price,
+                close_reason,
+                final_pnl_sol,
+                total_borrow_fee_sol,
+                position_duration_sec,
+            },
+        })
+    }
+
+    /// 计算盈亏(简化版)
+    /// Calculate PnL (simplified)
+    ///
+    /// # 注意 / Note
+    /// 实际盈亏计算可能更复杂,这里提供基础模板
+    /// Actual PnL calculation may be more complex, this is a basic template
+    fn calculate_pnl(&self, order: &MarginOrder, close_price: u128) -> i64 {
+        // 根据方向计算盈亏 / Calculate PnL based on direction
+        // dn(做多): (close_price - open_price) * position_size
+        // up(做空): (open_price - close_price) * position_size
+
+        let open_price = order.open_price;
+        let position_size = order.position_asset_amount;
+
+        let price_diff = if self.direction == "dn" {
+            // 做多 / Long
+            close_price as i128 - open_price as i128
+        } else {
+            // 做空 / Short
+            open_price as i128 - close_price as i128
+        };
+
+        // 计算盈亏(SOL) / Calculate PnL (SOL)
+        // 这里需要根据实际业务逻辑调整
+        // Adjust according to actual business logic
+        let pnl = (price_diff * position_size as i128) / (10_i128.pow(9));
+
+        // 扣除借款费用 / Deduct borrow fee
+        let pnl_after_fee = pnl - order.borrow_fee as i128;
+
+        pnl_after_fee as i64
     }
 }

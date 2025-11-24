@@ -250,3 +250,70 @@ pub struct TraversalResult {
     /// Whether traversal is complete
     pub done: bool,
 }
+
+// ==================== 已关闭订单相关数据结构 / Closed Order Related Structures ====================
+
+/// 已关闭订单快照 - 完整数据
+/// Closed order snapshot - complete data
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ClosedOrderRecord {
+    /// 订单完整快照(删除时保存)
+    /// Complete order snapshot (saved at deletion)
+    pub order: MarginOrder,
+
+    /// 关闭时的额外信息
+    /// Additional close-time information
+    pub close_info: CloseInfo,
+}
+
+/// 订单关闭信息
+/// Order close information
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CloseInfo {
+    /// 关闭时间戳(Unix timestamp)
+    /// Close timestamp (Unix timestamp)
+    pub close_timestamp: u32,
+
+    /// 关闭时的价格(u128, 9位小数精度)
+    /// Close price (u128, 9 decimal precision)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub close_price: u128,
+
+    /// 关闭原因 / Close reason:
+    /// - 1: 用户主动平仓 / User initiated close
+    /// - 2: 强制清算 / Forced liquidation
+    /// - 3: 到期自动平仓 / Expired auto-close
+    /// - 4: 爆仓清算 / Margin call liquidation
+    pub close_reason: u8,
+
+    /// 最终盈亏(SOL,带符号)
+    /// Final PnL (SOL, signed)
+    /// - 正数: 盈利 / Positive: profit
+    /// - 负数: 亏损 / Negative: loss
+    pub final_pnl_sol: i64,
+
+    /// 借款费用总计(SOL)
+    /// Total borrow fee (SOL)
+    pub total_borrow_fee_sol: u64,
+
+    /// 持仓时长(秒)
+    /// Position duration (seconds)
+    pub position_duration_sec: u32,
+}
+
+/// 关闭原因枚举
+/// Close reason enum
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum CloseReason {
+    /// 用户主动平仓 / User initiated
+    UserInitiated = 1,
+    /// 强制清算 / Forced liquidation
+    ForcedLiquidation = 2,
+    /// 到期自动平仓 / Expired
+    Expired = 3,
+    /// 爆仓清算 / Margin call
+    MarginCall = 4,
+}
