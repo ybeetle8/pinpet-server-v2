@@ -81,6 +81,7 @@ pub struct LongShortEvent {
     pub payer: String,                   // 开仓用户 (payer 就是 user) / User who opened position (payer is the user)
     pub mint_account: String,
     pub order_id: u64,                   // 开仓的订单的唯一编号 / Unique order ID
+    pub order_index: u16,                // 开仓的订单在订单账本中的索引 / Order index in the orderbook
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格 / Latest price
     #[serde_as(as = "DisplayFromStr")]
@@ -140,6 +141,7 @@ pub struct PartialCloseEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格 / Latest price
     pub order_id: u64,                   // 平仓订单的唯一编号 / Order ID
+    pub order_index: u16,                // 开仓的订单在订单账本中的索引 / Order index in the orderbook
     // 部分平仓订单的参数(修改后的值) / Partial close order parameters (modified values)
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
     pub user: String,                    // 开仓用户 / User who opened position
@@ -366,6 +368,7 @@ impl EventParser {
                     payer: event.payer.to_string(),
                     mint_account: event.mint_account.to_string(),
                     order_id: event.order_id,
+                    order_index: event.order_index,
                     latest_price: event.latest_price,
                     open_price: event.open_price,
                     order_type: event.order_type,
@@ -417,6 +420,7 @@ impl EventParser {
                     user_close_profit: event.user_close_profit,
                     latest_price: event.latest_price,
                     order_id: event.order_id,
+                    order_index: event.order_index,
                     order_type: event.order_type,
                     user: event.user.to_string(),
                     lock_lp_start_price: event.lock_lp_start_price,
@@ -497,6 +501,7 @@ struct LongShortRaw {
     payer: Pubkey,
     mint_account: Pubkey,
     order_id: u64,
+    order_index: u16,
     latest_price: u128,
     open_price: u128,
     order_type: u8,
@@ -538,6 +543,7 @@ struct PartialCloseRaw {
     user_close_profit: u64,
     latest_price: u128,
     order_id: u64,
+    order_index: u16,
     order_type: u8,
     user: Pubkey,
     lock_lp_start_price: u128,

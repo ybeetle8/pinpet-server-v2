@@ -3528,6 +3528,10 @@
             "type": "u64"
           },
           {
+            "name": "order_index",
+            "type": "u16"
+          },
+          {
             "name": "liquidate_indices",
             "type": {
               "vec": "u16"
@@ -3552,6 +3556,10 @@
           {
             "name": "order_id",
             "type": "u64"
+          },
+          {
+            "name": "order_index",
+            "type": "u16"
           },
           {
             "name": "latest_price",
@@ -3846,6 +3854,10 @@
           {
             "name": "order_id",
             "type": "u64"
+          },
+          {
+            "name": "order_index",
+            "type": "u16"
           },
           {
             "name": "order_type",
