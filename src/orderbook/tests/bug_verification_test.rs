@@ -574,3 +574,159 @@ fn test_bug_tail_pointer_tracking() {
 
     cleanup_test_db(&temp_path);
 }
+
+/// Bug 验证 #5: head 节点移动测试
+/// Bug verification #5: Head node move test
+///
+/// 专门测试当 head 节点被移动到其他位置时,header.head 是否正确更新
+/// Specifically test if header.head is correctly updated when head node is moved to another position
+#[test]
+fn test_bug_head_pointer_move() {
+    let (manager, temp_path) = create_test_manager();
+    manager
+        .initialize("test_authority".to_string())
+        .expect("Failed to initialize");
+
+    println!("\n=== Bug 验证 #5: Head 节点移动测试 ===\n");
+
+    // 1. 创建 4 个订单: [0] -> [1] -> [2] -> [3]
+    // 1. Create 4 orders: [0] -> [1] -> [2] -> [3]
+    for i in 0..4 {
+        let order = create_test_order(&format!("Node_{}", i), 1000000 + (i as u128 * 100000));
+        manager
+            .insert_after(if i == 0 { u16::MAX } else { i - 1 }, &order)
+            .expect("Failed to insert");
+    }
+
+    let initial_header = manager.load_header().expect("Failed to load header");
+    println!("初始状态: head={}, tail={}, total={}",
+             initial_header.head, initial_header.tail, initial_header.total);
+    assert_eq!(initial_header.head, 0);
+    assert_eq!(initial_header.tail, 3);
+    assert_eq!(initial_header.total, 4);
+
+    // 2. 删除 index=0 (head 节点)
+    // 2. Delete index=0 (head node)
+    // 这会导致:
+    // - index=3 (原 tail) 被移动到 index=0
+    // - header.head 应该更新为指向原来 index=1 的节点
+    // - header.tail 应该更新为 index=0 (原 index=3 移动到此)
+    println!("\n--- 场景: 删除 head 节点 index=0 ---");
+    manager.batch_remove_by_indices_unsafe(&[0]).expect("Failed to delete");
+
+    let header_after = manager.load_header().expect("Failed to load header");
+    println!("删除后: head={}, tail={}, total={}",
+             header_after.head, header_after.tail, header_after.total);
+
+    // 3. 验证遍历是否成功
+    // 3. Verify traversal succeeds
+    println!("\n--- 验证遍历 ---");
+    let mut visited_orders = Vec::new();
+    let traverse_result = manager.traverse(u16::MAX, 0, |idx, order| {
+        visited_orders.push((idx, order.user.clone()));
+        println!("  index={}, user={}", idx, order.user);
+        Ok(true)
+    });
+
+    match traverse_result {
+        Ok(result) => {
+            println!("✅ 遍历成功: {} 个节点 (预期 3 个)", result.processed);
+            assert_eq!(result.processed, 3, "应该遍历 3 个节点");
+            assert!(result.done, "遍历应该完成");
+        }
+        Err(e) => {
+            panic!("❌ BUG 触发: 遍历失败 - {:?}", e);
+        }
+    }
+
+    // 4. 验证 head 和 tail 指针有效性
+    // 4. Verify head and tail pointers validity
+    assert!(header_after.head < header_after.total,
+            "head={} 应该小于 total={}", header_after.head, header_after.total);
+    assert!(header_after.tail < header_after.total,
+            "tail={} 应该小于 total={}", header_after.tail, header_after.total);
+
+    // 5. 验证 head 节点的 prev 是 MAX
+    // 5. Verify head node's prev is MAX
+    let head_order = manager.get_order(header_after.head).expect("Failed to get head order");
+    assert_eq!(head_order.prev_order, u16::MAX,
+               "head 节点的 prev_order 应该是 MAX, 实际是 {}", head_order.prev_order);
+
+    // 6. 验证 tail 节点的 next 是 MAX
+    // 6. Verify tail node's next is MAX
+    let tail_order = manager.get_order(header_after.tail).expect("Failed to get tail order");
+    assert_eq!(tail_order.next_order, u16::MAX,
+               "tail 节点的 next_order 应该是 MAX, 实际是 {}", tail_order.next_order);
+
+    println!("\n✅ 所有验证通过!");
+
+    cleanup_test_db(&temp_path);
+}
+
+/// Bug 验证 #6: tail 节点是 head 时的移动测试
+/// Bug verification #6: Move test when tail node is head
+///
+/// 测试当链表只有一个节点被移动时,head 和 tail 是否都正确更新
+/// Test if both head and tail are correctly updated when the only node is moved
+#[test]
+fn test_bug_head_is_tail_move() {
+    let (manager, temp_path) = create_test_manager();
+    manager
+        .initialize("test_authority".to_string())
+        .expect("Failed to initialize");
+
+    println!("\n=== Bug 验证 #6: 两节点链表删除头节点 ===\n");
+
+    // 1. 创建 2 个订单: [0] -> [1]
+    // 1. Create 2 orders: [0] -> [1]
+    for i in 0..2 {
+        let order = create_test_order(&format!("Node_{}", i), 1000000 + (i as u128 * 100000));
+        manager
+            .insert_after(if i == 0 { u16::MAX } else { i - 1 }, &order)
+            .expect("Failed to insert");
+    }
+
+    let initial_header = manager.load_header().expect("Failed to load header");
+    println!("初始状态: head={}, tail={}, total={}",
+             initial_header.head, initial_header.tail, initial_header.total);
+
+    // 2. 删除 index=0 (head 节点)
+    // 2. Delete index=0 (head node)
+    // index=1 会被移动到 index=0,然后它既是 head 也是 tail
+    println!("\n--- 场景: 删除 head 节点 ---");
+    manager.batch_remove_by_indices_unsafe(&[0]).expect("Failed to delete");
+
+    let header_after = manager.load_header().expect("Failed to load header");
+    println!("删除后: head={}, tail={}, total={}",
+             header_after.head, header_after.tail, header_after.total);
+
+    // 3. 验证遍历
+    // 3. Verify traversal
+    let mut count = 0;
+    let traverse_result = manager.traverse(u16::MAX, 0, |idx, order| {
+        println!("  index={}, user={}", idx, order.user);
+        count += 1;
+        Ok(true)
+    });
+
+    match traverse_result {
+        Ok(result) => {
+            println!("✅ 遍历成功: {} 个节点 (预期 1 个)", result.processed);
+            assert_eq!(result.processed, 1, "应该遍历 1 个节点");
+        }
+        Err(e) => {
+            panic!("❌ BUG 触发: 遍历失败 - {:?}", e);
+        }
+    }
+
+    // 4. head 和 tail 应该相同且有效
+    // 4. head and tail should be same and valid
+    assert_eq!(header_after.head, header_after.tail,
+               "只有一个节点时 head 和 tail 应该相同");
+    assert!(header_after.head < header_after.total,
+            "head 应该有效");
+
+    println!("\n✅ 所有验证通过!");
+
+    cleanup_test_db(&temp_path);
+}

@@ -43,6 +43,7 @@ pub struct LongShortEvent {
     pub payer: Pubkey,
     pub mint_account: Pubkey,
     pub order_id: u64,                  // 开仓的订单的唯一编号
+    pub order_index: u16,               // 开仓的订单在订单账本中的索引
     pub latest_price: u128,                 // 最新的价格
     pub open_price: u128,                   // 开仓价格
     pub order_type: u8,                     // 订单类型 1: 做多 2: 做空
@@ -73,6 +74,7 @@ pub struct FullCloseEvent {
     pub user_close_profit: u64,             // 用户平仓收入的sol数量
     pub latest_price: u128,                 // 最新的价格
     pub order_id: u64,                      // 平仓订单订单的唯一编号
+    pub order_index: u16,                   // 平仓的订单在订单账本中的索引
     pub liquidate_indices: Vec<u16>,        // 需要清算的订单索引列表 这里包括平仓订单自已 (只是索引不是订单id哦!)
 }
 
@@ -88,6 +90,7 @@ pub struct PartialCloseEvent {
     pub user_close_profit: u64,             // 用户平仓收入的sol数量
     pub latest_price: u128,                 // 最新的价格
     pub order_id: u64,                      // 平仓订单订单的唯一编号
+    pub order_index: u16,               // 开仓的订单在订单账本中的索引
     // 部分平仓订单的参数(修改后的值)
     pub order_type: u8,                     // 订单类型 1: 做多 2: 做空
     pub user: Pubkey,                       // 开仓用户
@@ -97,7 +100,6 @@ pub struct PartialCloseEvent {
     pub lock_lp_token_amount: u64,          // 锁定流动池区间token数量
     pub start_time: u32,                    // 订单开始时间戳(秒)
     pub end_time: u32,                      // 贷款到期时间戳(秒)
-    //pub margin_init_sol_amount: u64,        // 初始保证金SOL数量 
     pub margin_sol_amount: u64,             // 保证金SOL数量
     pub borrow_amount: u64,                 // 贷款数量
     pub position_asset_amount: u64,         // 当前持仓数量

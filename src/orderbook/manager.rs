@@ -720,6 +720,18 @@ impl OrderBookDBManager {
                     let next_key = self.slot_key(tail_next);
                     batch.put(next_key.as_bytes(), &next_order.to_bytes()?);
                 }
+
+                // ✅ Bug #4 修复: 如果 head 指向 virtual_tail,更新为 remove_index
+                // ✅ Bug #4 Fix: If head points to virtual_tail, update to remove_index
+                if header.head == virtual_tail {
+                    header.head = remove_index;
+                }
+
+                // ✅ Bug #5 修复: 如果 tail 指向 virtual_tail,更新为 remove_index
+                // ✅ Bug #5 Fix: If tail points to virtual_tail, update to remove_index
+                if header.tail == virtual_tail {
+                    header.tail = remove_index;
+                }
             }
 
             // 3.6 虚拟末尾前移

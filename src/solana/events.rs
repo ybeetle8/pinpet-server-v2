@@ -120,6 +120,7 @@ pub struct FullCloseEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格 / Latest price
     pub order_id: u64,                   // 平仓订单的唯一编号 / Unique order ID
+    pub order_index: u16,                // 平仓订单的索引 / Order index in the orderbook
     pub liquidate_indices: Vec<u16>,    // 需要清算的订单索引列表 / Liquidation indices
     #[schema(value_type = String)]
     pub timestamp: DateTime<Utc>,
@@ -346,8 +347,9 @@ impl EventParser {
                 })))
             }
             BUY_SELL_EVENT_DISCRIMINATOR => {
-                debug!("解析BuySell事件 / Parsing BuySell event");
-                let event = BuySellRaw::try_from_slice(event_data)?;
+                debug!("解析BuySell事件 / Parsing BuySell event, data_len={}", event_data.len());
+                let event = BuySellRaw::try_from_slice(event_data)
+                    .map_err(|e| anyhow::anyhow!("BuySell解析失败: {}, data_len={}", e, event_data.len()))?;
                 Ok(Some(PinpetEvent::BuySell(BuySellEvent {
                     payer: event.payer.to_string(),
                     mint_account: event.mint_account.to_string(),
@@ -362,8 +364,9 @@ impl EventParser {
                 })))
             }
             LONG_SHORT_EVENT_DISCRIMINATOR => {
-                debug!("解析LongShort事件 / Parsing LongShort event");
-                let event = LongShortRaw::try_from_slice(event_data)?;
+                debug!("解析LongShort事件 / Parsing LongShort event, data_len={}", event_data.len());
+                let event = LongShortRaw::try_from_slice(event_data)
+                    .map_err(|e| anyhow::anyhow!("LongShort解析失败: {}, data_len={}", e, event_data.len()))?;
                 Ok(Some(PinpetEvent::LongShort(LongShortEvent {
                     payer: event.payer.to_string(),
                     mint_account: event.mint_account.to_string(),
@@ -389,8 +392,9 @@ impl EventParser {
                 })))
             }
             FULL_CLOSE_EVENT_DISCRIMINATOR => {
-                debug!("解析FullClose事件 / Parsing FullClose event");
-                let event = FullCloseRaw::try_from_slice(event_data)?;
+                debug!("解析FullClose事件 / Parsing FullClose event, data_len={}", event_data.len());
+                let event = FullCloseRaw::try_from_slice(event_data)
+                    .map_err(|e| anyhow::anyhow!("FullClose解析失败: {}, data_len={}", e, event_data.len()))?;
                 Ok(Some(PinpetEvent::FullClose(FullCloseEvent {
                     payer: event.payer.to_string(),
                     user_sol_account: event.user_sol_account.to_string(),
@@ -401,6 +405,7 @@ impl EventParser {
                     user_close_profit: event.user_close_profit,
                     latest_price: event.latest_price,
                     order_id: event.order_id,
+                    order_index: event.order_index,
                     liquidate_indices: event.liquidate_indices,
                     timestamp,
                     signature: signature.to_string(),
@@ -408,8 +413,9 @@ impl EventParser {
                 })))
             }
             PARTIAL_CLOSE_EVENT_DISCRIMINATOR => {
-                debug!("解析PartialClose事件 / Parsing PartialClose event");
-                let event = PartialCloseRaw::try_from_slice(event_data)?;
+                debug!("解析PartialClose事件 / Parsing PartialClose event, data_len={}", event_data.len());
+                let event = PartialCloseRaw::try_from_slice(event_data)
+                    .map_err(|e| anyhow::anyhow!("PartialClose解析失败: {}, data_len={}", e, event_data.len()))?;
                 Ok(Some(PinpetEvent::PartialClose(PartialCloseEvent {
                     payer: event.payer.to_string(),
                     user_sol_account: event.user_sol_account.to_string(),
@@ -529,6 +535,7 @@ struct FullCloseRaw {
     user_close_profit: u64,
     latest_price: u128,
     order_id: u64,
+    order_index: u16,  // 添加缺失的字段 / Add missing field
     liquidate_indices: Vec<u16>,
 }
 

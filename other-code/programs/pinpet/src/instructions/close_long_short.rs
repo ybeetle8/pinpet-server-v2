@@ -333,6 +333,7 @@ pub fn close_long_trade(
             user_close_profit: profit_sol,
             latest_price: calc_result.target_price,
             order_id: close_margin_order.order_id,
+            order_index: close_margin_index,
             liquidate_indices: calc_result.liquidate_indices.clone(),
         });
 
@@ -507,6 +508,7 @@ pub fn close_long_trade(
             user_close_profit: profit_portion,
             latest_price: calc_result.target_price,
             order_id: close_margin_order.order_id,  // 使用订单的 user 字段作为 PDA 地址
+            order_index: close_margin_index,
             // 部分平仓订单的参数(修改后的值) - 使用更新后的值
             order_type: close_margin_order.order_type,
             user: close_margin_order.user,
@@ -516,7 +518,6 @@ pub fn close_long_trade(
             lock_lp_token_amount: remaining_position_asset_amount,  // 使用更新后的值
             start_time: close_margin_order.start_time,
             end_time: close_margin_order.end_time,
-            //margin_init_sol_amount: close_margin_order.margin_init_sol_amount,
             margin_sol_amount: close_margin_order.margin_sol_amount,
             borrow_amount: new_borrow_amount,  // 使用更新后的值
             position_asset_amount: remaining_position_asset_amount,  // 使用更新后的值
@@ -946,6 +947,7 @@ pub fn close_short_trade(
             user_close_profit: profit_sol,
             latest_price: calc_result.target_price,
             order_id: close_margin_order.order_id,
+            order_index: close_margin_index,
             liquidate_indices: calc_result.liquidate_indices.clone(),
         });
 
@@ -1137,6 +1139,7 @@ pub fn close_short_trade(
             user_close_profit: profit_portion,
             latest_price: calc_result.target_price,
             order_id: close_margin_order.order_id,
+            order_index: close_margin_index,
             // 部分平仓订单的参数(修改后的值) - 使用更新后的值
             order_type: close_margin_order.order_type,
             user: close_margin_order.user,

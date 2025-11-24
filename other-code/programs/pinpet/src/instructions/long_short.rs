@@ -270,6 +270,8 @@ pub fn long_trade(
     let mut insert_ok = false;
     // 保存实际分配的 order_id
     let mut actual_order_id: u64 = 0;
+    // 保存实际分配的 order_index
+    let mut actual_order_index: u16 = 0;
 
     for (idx, &insert_index) in close_insert_indices.iter().enumerate() {
         // msg!(
@@ -303,7 +305,7 @@ pub fn long_trade(
 
                 // 直接插入到空链表中（insert_after会处理空链表情况，使用0作为索引）
                 // 对于空链表，insert_after 内部会自动创建第一个节点
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_after(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_after(
                     &ctx.accounts.down_orderbook.to_account_info(),
                     0, // 空链表时这个值不重要，函数内部会处理
                     &order_to_insert,
@@ -312,7 +314,8 @@ pub fn long_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到空订单簿, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到空订单簿, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -366,7 +369,7 @@ pub fn long_trade(
                 // );
 
                 // 插入到next节点之前
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_before(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_before(
                     &ctx.accounts.down_orderbook.to_account_info(),
                     next_idx,
                     &order_to_insert,
@@ -375,7 +378,8 @@ pub fn long_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到链表头部, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到链表头部, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -455,7 +459,7 @@ pub fn long_trade(
                 order_to_insert.next_lp_token_amount = CurveAMM::MAX_U64;
 
                 // 插入到prev节点之后
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_after(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_after(
                     &ctx.accounts.down_orderbook.to_account_info(),
                     prev_idx,
                     &order_to_insert,
@@ -464,7 +468,8 @@ pub fn long_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到链表尾部, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到链表尾部, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -564,7 +569,7 @@ pub fn long_trade(
                 order_to_insert.next_lp_token_amount = new_next_lp_token;
 
                 // 插入到prev节点之后（也就是next节点之前）
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_after(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_after(
                     &ctx.accounts.down_orderbook.to_account_info(),
                     prev_idx,
                     &order_to_insert,
@@ -573,7 +578,8 @@ pub fn long_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到链表中间, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到链表中间, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -731,6 +737,7 @@ pub fn long_trade(
     emit!(LongShortEvent {
         payer: ctx.accounts.payer.key(),
         order_id: actual_order_id,
+        order_index: actual_order_index,
         mint_account: ctx.accounts.mint_account.key(),
         latest_price: ctx.accounts.curve_account.price,
         open_price: new_margin_order.open_price,
@@ -978,6 +985,8 @@ pub fn short_trade(
     let mut insert_ok = false;
     // 保存实际分配的 order_id
     let mut actual_order_id: u64 = 0;
+    // 保存实际分配的 order_index
+    let mut actual_order_index: u16 = 0;
 
     for (idx, &insert_index) in close_insert_indices.iter().enumerate() {
         // msg!(
@@ -1011,7 +1020,7 @@ pub fn short_trade(
 
                 // 直接插入到空链表中（insert_after会处理空链表情况，使用0作为索引）
                 // 对于空链表，insert_after 内部会自动创建第一个节点
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_after(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_after(
                     &ctx.accounts.up_orderbook.to_account_info(),
                     0, // 空链表时这个值不重要，函数内部会处理
                     &order_to_insert,
@@ -1020,7 +1029,8 @@ pub fn short_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到空订单簿, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到空订单簿, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -1093,7 +1103,7 @@ pub fn short_trade(
                 // );
 
                 // 插入到next节点之前
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_before(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_before(
                     &ctx.accounts.up_orderbook.to_account_info(),
                     next_idx,
                     &order_to_insert,
@@ -1102,7 +1112,8 @@ pub fn short_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到链表头部, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到链表头部, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -1200,7 +1211,7 @@ pub fn short_trade(
                 order_to_insert.next_lp_token_amount = CurveAMM::MAX_U64;
 
                 // 插入到prev节点之后
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_after(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_after(
                     &ctx.accounts.up_orderbook.to_account_info(),
                     prev_idx,
                     &order_to_insert,
@@ -1209,7 +1220,8 @@ pub fn short_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到链表尾部, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到链表尾部, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -1343,7 +1355,7 @@ pub fn short_trade(
                 order_to_insert.next_lp_token_amount = new_next_lp_token;
 
                 // 插入到prev节点之后（也就是next节点之前）
-                let (_insert_index, returned_order_id) = OrderBookManager::insert_after(
+                let (insert_index, returned_order_id) = OrderBookManager::insert_after(
                     &ctx.accounts.up_orderbook.to_account_info(),
                     prev_idx,
                     &order_to_insert,
@@ -1352,7 +1364,8 @@ pub fn short_trade(
                 )?;
 
                 actual_order_id = returned_order_id;
-                // msg!("成功插入订单到链表中间, order_id={}", actual_order_id);
+                actual_order_index = insert_index;
+                // msg!("成功插入订单到链表中间, order_id={}, order_index={}", actual_order_id, insert_index);
                 insert_ok = true;
                 break; // 插入成功，退出循环
             }
@@ -1516,6 +1529,7 @@ pub fn short_trade(
     emit!(LongShortEvent {
         payer: ctx.accounts.payer.key(),
         order_id: actual_order_id,
+        order_index: actual_order_index,
         mint_account: ctx.accounts.mint_account.key(),
         latest_price: ctx.accounts.curve_account.price,
         open_price: new_margin_order.open_price,
