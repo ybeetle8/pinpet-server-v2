@@ -71,14 +71,25 @@ fn test_delete_head_order() {
     let header = manager.load_header().unwrap();
     assert_eq!(header.total, 2);
 
+    println!("\n=== 删除头节点后的状态 ===");
+    println!("Header: head={}, tail={}", header.head, header.tail);
+    for i in 0..header.total {
+        let order = manager.get_order(i).unwrap();
+        println!("index={}: user={}, prev={}, next={}",
+                 i, order.user, order.prev_order, order.next_order);
+    }
+
     // 删除 index=0 后,末尾节点(User2, index=2)被移动到 index=0
-    // 链表变为: order0(User2) -> order1(User1) -> null
-    // head 仍然是原来的 head,但内容被替换了
+    // 链表应该变为: order1(User1) -> order0(User2) -> null
+    // head 应该指向 order1 (因为原 order0 被删除)
     let order0 = manager.get_order(0).unwrap();
     assert_eq!(order0.user, "User2"); // 这是移动过来的原 index=2
 
     let order1 = manager.get_order(1).unwrap();
-    assert_eq!(order1.prev_order, 0);
+    // order1 应该是新的 head,其 prev_order 应该是 MAX
+    // order1 的 next_order 应该指向 order0 (移动过来的 User2)
+    assert_eq!(order1.prev_order, u16::MAX, "order1 应该是头节点,prev_order 应该是 MAX");
+    assert_eq!(order1.next_order, 0, "order1 的 next_order 应该指向 order0");
 
     cleanup_test_db(&temp_path);
 }
@@ -128,11 +139,24 @@ fn test_batch_delete_multiple_orders() {
     assert_eq!(header.total, 7);
 
     // 验证活跃索引列表
+    // 注意: 删除 [2,5,8] 后,末尾节点 [9,7,6] 被移动到 [2,5,8]
+    // total=7 意味着有效索引范围是 [0..7),即 [0,1,2,3,4,5,6]
     let active_indices = manager.load_active_indices().unwrap();
-    assert_eq!(active_indices.len(), 7);
-    assert!(!active_indices.contains(&2));
-    assert!(!active_indices.contains(&5));
-    assert!(!active_indices.contains(&8));
+    println!("\n=== 批量删除后的状态 ===");
+    println!("Header: total={}", header.total);
+    println!("Active indices: {:?}", active_indices);
+    println!("Expected: [0,1,2,3,4,5,6] (7个)");
+
+    // ✅ Bug #3 修复后的正确行为:
+    // 删除 [2,5,8],然后移动 [9->8, 7->5, 6->2]
+    // 但是我们的 Bug #3 修复会移除所有 >= total 的索引
+    // 所以移动前的 [9,7,6] 虽然被移动了,但在 active_indices 中会被过滤
+    // 最终 active_indices 应该只包含 < total 的有效索引
+    assert_eq!(active_indices.len(), 7, "active_indices 应该包含 7 个有效索引,实际: {:?}", active_indices);
+    // 验证所有索引都在有效范围内
+    for &idx in &active_indices {
+        assert!(idx < header.total, "索引 {} 应该小于 total {}", idx, header.total);
+    }
 
     cleanup_test_db(&temp_path);
 }

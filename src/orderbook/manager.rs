@@ -548,22 +548,88 @@ impl OrderBookDBManager {
             return self.batch_remove_all();
         }
 
-        // 3. 使用 WriteBatch
-        // 3. Use WriteBatch
+        // 3. 使用 WriteBatch 和本地缓存
+        // 3. Use WriteBatch with local cache
         let mut batch = WriteBatch::default();
         let mut virtual_tail = old_total - 1;
+
+        // ✅ Bug #1 修复: 使用 HashMap 缓存已修改的节点
+        // ✅ Bug #1 Fix: Use HashMap to cache modified nodes
+        use std::collections::HashMap;
+        let mut order_cache: HashMap<u16, MarginOrder> = HashMap::new();
+
+        // 辅助函数: 从缓存或数据库读取订单
+        // Helper function: Get order from cache or database
+        let get_order_cached = |cache: &HashMap<u16, MarginOrder>, index: u16| -> Result<MarginOrder> {
+            if let Some(order) = cache.get(&index) {
+                Ok(order.clone())
+            } else {
+                self.get_order(index)
+            }
+        };
 
         for &remove_index in &sorted_indices {
             // 3.1 读取被删除节点
             // 3.1 Read node to be deleted
-            let removed_order = self.get_order(remove_index)?;
+            let removed_order = get_order_cached(&order_cache, remove_index)?;
             let removed_prev = removed_order.prev_order;
             let removed_next = removed_order.next_order;
             let removed_order_id = removed_order.order_id;
 
-            // 3.2 从链表中摘除该节点
-            // 3.2 Unlink node from linked list
-            self.unlink_node_internal(&mut batch, &mut header, removed_prev, removed_next)?;
+            // 3.2 从链表中摘除该节点 (使用缓存版本)
+            // 3.2 Unlink node from linked list (using cached version)
+            // 处理前驱节点
+            // Handle predecessor node
+            if removed_prev != u16::MAX {
+                let mut prev_order = get_order_cached(&order_cache, removed_prev)?;
+                prev_order.next_order = removed_next;
+                prev_order.version += 1;
+
+                // 更新到缓存
+                // Update to cache
+                order_cache.insert(removed_prev, prev_order.clone());
+
+                let prev_key = self.slot_key(removed_prev);
+                batch.put(prev_key.as_bytes(), &prev_order.to_bytes()?);
+            } else {
+                // 删除的是头节点,更新 head
+                // Deleting head node, update head
+                header.head = removed_next;
+            }
+
+            // 处理后继节点
+            // Handle successor node
+            if removed_next != u16::MAX {
+                let mut next_order = get_order_cached(&order_cache, removed_next)?;
+                next_order.prev_order = removed_prev;
+                next_order.version += 1;
+
+                // 更新到缓存
+                // Update to cache
+                order_cache.insert(removed_next, next_order.clone());
+
+                let next_key = self.slot_key(removed_next);
+                batch.put(next_key.as_bytes(), &next_order.to_bytes()?);
+            } else {
+                // 删除的是尾节点,更新 tail
+                // Deleting tail node, update tail
+                header.tail = removed_prev;
+
+                // 修复: 删除尾节点时,更新前驱节点的 next_order 为 u16::MAX
+                // Fix: When deleting tail node, update predecessor's next_order to u16::MAX
+                if removed_prev != u16::MAX {
+                    let mut prev_order = get_order_cached(&order_cache, removed_prev)?;
+                    prev_order.next_order = u16::MAX;
+                    prev_order.version += 1;
+
+                    // 更新到缓存
+                    // Update to cache
+                    order_cache.insert(removed_prev, prev_order.clone());
+
+                    let prev_key = self.slot_key(removed_prev);
+                    batch.put(prev_key.as_bytes(), &prev_order.to_bytes()?);
+                }
+            }
 
             // 3.3 删除订单槽位
             // 3.3 Delete order slot
@@ -578,7 +644,68 @@ impl OrderBookDBManager {
             // 3.5 移动末尾节点到被删除位置(如果不是删除末尾)
             // 3.5 Move tail node to deleted position (if not deleting tail)
             if remove_index < virtual_tail {
-                self.move_tail_to_index_internal(&mut batch, virtual_tail, remove_index)?;
+                // 读取末尾节点数据 (使用缓存)
+                // Read tail node data (using cache)
+                let tail_order = get_order_cached(&order_cache, virtual_tail)?;
+                let tail_prev = tail_order.prev_order;
+                let tail_next = tail_order.next_order;
+                let tail_order_id = tail_order.order_id;
+
+                // 复制到目标位置
+                // Copy to target position
+                let mut target_order = tail_order.clone();
+                target_order.version += 1;
+
+                // 更新到缓存 (新位置)
+                // Update to cache (new position)
+                order_cache.insert(remove_index, target_order.clone());
+
+                let target_key = self.slot_key(remove_index);
+                batch.put(target_key.as_bytes(), &target_order.to_bytes()?);
+
+                // 更新 ID 映射
+                // Update ID mapping
+                let id_key = self.id_map_key(tail_order_id);
+                batch.put(id_key.as_bytes(), &serde_json::to_vec(&remove_index)?);
+
+                // 删除原位置
+                // Delete original position
+                let tail_key = self.slot_key(virtual_tail);
+                batch.delete(tail_key.as_bytes());
+
+                // 从缓存中移除旧位置
+                // Remove old position from cache
+                order_cache.remove(&virtual_tail);
+
+                // 更新前驱节点的 next_order (使用缓存)
+                // Update predecessor's next_order (using cache)
+                if tail_prev != u16::MAX {
+                    let mut prev_order = get_order_cached(&order_cache, tail_prev)?;
+                    prev_order.next_order = remove_index;
+                    prev_order.version += 1;
+
+                    // 更新到缓存
+                    // Update to cache
+                    order_cache.insert(tail_prev, prev_order.clone());
+
+                    let prev_key = self.slot_key(tail_prev);
+                    batch.put(prev_key.as_bytes(), &prev_order.to_bytes()?);
+                }
+
+                // 更新后继节点的 prev_order (使用缓存)
+                // Update successor's prev_order (using cache)
+                if tail_next != u16::MAX {
+                    let mut next_order = get_order_cached(&order_cache, tail_next)?;
+                    next_order.prev_order = remove_index;
+                    next_order.version += 1;
+
+                    // 更新到缓存
+                    // Update to cache
+                    order_cache.insert(tail_next, next_order.clone());
+
+                    let next_key = self.slot_key(tail_next);
+                    batch.put(next_key.as_bytes(), &next_order.to_bytes()?);
+                }
             }
 
             // 3.6 虚拟末尾前移
@@ -588,15 +715,73 @@ impl OrderBookDBManager {
 
         // 3.7 更新 OrderBook 头部
         // 3.7 Update OrderBook header
-        header.total = old_total - delete_count;
-        header.total_capacity = (old_total - delete_count) as u32;
+        let new_total = old_total - delete_count;
+        header.total = new_total;
+        header.total_capacity = new_total as u32;
+
+        // ✅ Bug #2 修复: 更新 tail 指针
+        // ✅ Bug #2 Fix: Update tail pointer
+        // 如果 tail 超出新的范围,需要找到新的尾节点
+        // If tail exceeds new range, need to find new tail node
+        if header.tail >= new_total {
+            // 从头遍历找到真正的尾节点
+            // Traverse from head to find the real tail node
+            if new_total > 0 {
+                let mut current = header.head;
+                loop {
+                    if current >= new_total {
+                        // tail 无效,设置为第一个有效节点作为临时值
+                        // tail is invalid, set to first valid node as temporary value
+                        header.tail = if header.head < new_total { header.head } else { u16::MAX };
+                        break;
+                    }
+
+                    let order = get_order_cached(&order_cache, current)?;
+                    if order.next_order == u16::MAX || order.next_order >= new_total {
+                        // 找到尾节点
+                        // Found tail node
+                        header.tail = current;
+
+                        // 如果新尾节点的 next 不是 MAX,需要修正
+                        // If new tail node's next is not MAX, need to fix it
+                        if order.next_order != u16::MAX {
+                            let mut new_tail_order = order.clone();
+                            new_tail_order.next_order = u16::MAX;
+                            new_tail_order.version += 1;
+
+                            // 更新到缓存和批量操作
+                            // Update to cache and batch
+                            order_cache.insert(current, new_tail_order.clone());
+                            let tail_key = self.slot_key(current);
+                            batch.put(tail_key.as_bytes(), &new_tail_order.to_bytes()?);
+                        }
+                        break;
+                    }
+                    current = order.next_order;
+
+                    // 防止无限循环
+                    // Prevent infinite loop
+                    if current == header.head {
+                        header.tail = u16::MAX;
+                        break;
+                    }
+                }
+            } else {
+                header.tail = u16::MAX;
+            }
+        }
+
         header.last_modified = chrono::Utc::now().timestamp() as u32;
         self.save_header_batch(&mut batch, &header)?;
 
         // 3.8 更新活跃索引列表
         // 3.8 Update active indices list
-        let mut active_indices = self.load_active_indices()?;
-        active_indices.retain(|idx| !sorted_indices.contains(idx));
+        // ✅ Bug #3 修复: 删除和移动操作后,active_indices 应该是 [0..new_total)
+        // ✅ Bug #3 Fix: After delete and move operations, active_indices should be [0..new_total)
+        // 因为我们使用了移动末尾节点的策略,删除后所有有效索引都是连续的
+        // Since we use move-tail strategy, all valid indices are consecutive after deletion
+        let active_indices: Vec<u16> = (0..new_total).collect();
+
         let active_key = self.active_indices_key();
         batch.put(active_key.as_bytes(), &serde_json::to_vec(&active_indices)?);
 

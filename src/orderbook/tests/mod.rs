@@ -65,3 +65,4 @@ mod delete_test;
 mod update_test;
 mod traverse_test;
 mod stress_test;
+mod bug_verification_test;
