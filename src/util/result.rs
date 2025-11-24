@@ -5,6 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use tracing::error;
+use utoipa::ToSchema;
 
 /// API 统一响应结果类型
 pub type ApiResult = Result<Response, ApiError>;

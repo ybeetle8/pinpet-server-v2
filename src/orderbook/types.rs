@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
+use utoipa::ToSchema;
 
 /// OrderBook 头部元数据
 /// OrderBook header metadata
@@ -92,7 +93,7 @@ impl OrderBookHeader {
 /// 保证金订单槽位结构
 /// Margin order slot structure
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MarginOrder {
     // ========== 32-byte 对齐字段 (Pubkey) ==========
     /// 开仓用户
@@ -103,16 +104,19 @@ pub struct MarginOrder {
     /// 锁定流动池区间开始价 (Q64.64 格式)
     /// Locked LP range start price (Q64.64 format)
     #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_start_price: u128,
 
     /// 锁定流动池区间结束价 (Q64.64 格式)
     /// Locked LP range end price (Q64.64 format)
     #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_end_price: u128,
 
     /// 开仓价 (Q64.64 格式,开仓时设置,永远不会再变)
     /// Open price (Q64.64 format, set at opening, never changes)
     #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub open_price: u128,
 
     // ========== 8-byte 对齐字段 (u64) ==========

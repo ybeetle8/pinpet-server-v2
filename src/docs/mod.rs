@@ -76,6 +76,8 @@ pub struct ErrorApiResponse {
         crate::router::token::get_latest_tokens,
         crate::router::token::get_tokens_by_slot_range,
         crate::router::token::get_token_stats,
+        // OrderBook 路由 / OrderBook routes
+        crate::router::orderbook::query_orderbook,
     ),
     components(
         schemas(
@@ -101,6 +103,12 @@ pub struct ErrorApiResponse {
             crate::db::TokenStats,
             crate::router::token::TokenListResponse,
             crate::router::token::TokenStatsResponse,
+            // OrderBook 结构体 / OrderBook structures
+            crate::router::orderbook::OrderBookQueryParams,
+            crate::router::orderbook::OrderBookHeaderInfo,
+            crate::router::orderbook::OrderBookOrderDetail,
+            crate::router::orderbook::OrderBookQueryResponse,
+            crate::orderbook::MarginOrder,
             EmptyResponse,
             ErrorApiResponse,
         )
@@ -110,6 +118,7 @@ pub struct ErrorApiResponse {
         (name = "database", description = "数据库相关接口 / Database related APIs"),
         (name = "events", description = "事件查询接口 / Event query APIs"),
         (name = "tokens", description = "Token代币查询接口 / Token query APIs"),
+        (name = "OrderBook", description = "OrderBook保证金订单查询接口 / OrderBook margin order query APIs"),
     ),
     info(
         title = "Pinpet Server API",

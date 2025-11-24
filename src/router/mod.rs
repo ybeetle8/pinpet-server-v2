@@ -1,6 +1,7 @@
 pub mod db;
 pub mod health;
 pub mod token;
+pub mod orderbook;
 
 use axum::Router;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 pub fn create_router(
     db: Arc<crate::db::RocksDbStorage>,
     token_storage: Arc<crate::db::TokenStorage>,
+    orderbook_storage: Arc<crate::db::OrderBookStorage>,
 ) -> Router {
     // 创建 Token 状态
     let token_state = token::TokenState {
@@ -19,4 +21,5 @@ pub fn create_router(
         .merge(health::routes())
         .merge(db::routes().with_state(db))
         .merge(token::routes().with_state(token_state))
+        .merge(orderbook::routes().with_state(orderbook_storage))
 }

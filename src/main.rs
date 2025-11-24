@@ -69,6 +69,19 @@ async fn main() {
     };
     tracing::info!("✅ RocksDB 初始化成功");
 
+    // 初始化 OrderBook 专用数据库 / Initialize OrderBook dedicated database
+    let orderbook_storage = match db::OrderBookStorage::new(
+        &config.database.orderbook_db,
+        &config.database.orderbook_db_path,
+    ) {
+        Ok(storage) => Arc::new(storage),
+        Err(e) => {
+            tracing::error!("❌ OrderBook 数据库初始化失败 / Failed to initialize OrderBook database: {}", e);
+            std::process::exit(1);
+        }
+    };
+    tracing::info!("✅ OrderBook 数据库初始化成功 / OrderBook database initialized successfully");
+
     // 初始化 K线推送服务 (如果启用) / Initialize K-line WebSocket service (if enabled)
     let (kline_socket_service, socketio_layer) = if config.kline.enable_kline_service {
         tracing::info!("🚀 初始化 K线 WebSocket 服务 / Initializing K-line WebSocket service");
@@ -148,6 +161,7 @@ async fn main() {
         let storage_handler = Arc::new(solana::StorageEventHandler::new(
             event_storage,
             token_storage.clone(),
+            orderbook_storage.clone(),
         ));
 
         // 如果启用了K线服务,创建K线事件处理器包装器 / If K-line service is enabled, create K-line event handler wrapper
@@ -205,6 +219,7 @@ async fn main() {
     let api_router = router::create_router(
         db_storage,
         token_storage_for_api,
+        orderbook_storage.clone(),
     );
 
     // 创建 Swagger UI
