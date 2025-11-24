@@ -151,4 +151,9 @@ impl OrderBookStorage {
     pub fn get_manager_count(&self) -> usize {
         self.managers.read().unwrap().len()
     }
+
+    /// 获取底层 RocksDB 实例 / Get underlying RocksDB instance
+    pub fn db(&self) -> Arc<DB> {
+        self.db.clone()
+    }
 }

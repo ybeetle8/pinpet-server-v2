@@ -73,6 +73,48 @@ impl OrderBookDBManager {
         format!("orderbook_active_indices:{}:{}", self.mint, self.direction)
     }
 
+    // ==================== 用户索引键生成 / User Index Key Generation ====================
+
+    /// 生成用户活跃订单索引键
+    /// Generate user active order index key
+    ///
+    /// 格式: orderbook_user:{user}:{mint}:{direction}:{start_time:010}:{order_id:020}
+    /// Format: orderbook_user:{user}:{mint}:{direction}:{start_time:010}:{order_id:020}
+    fn user_active_key(&self, user: &str, start_time: u32, order_id: u64) -> String {
+        format!(
+            "orderbook_user:{}:{}:{}:{:010}:{:020}",
+            user, self.mint, self.direction, start_time, order_id
+        )
+    }
+
+    // ==================== 用户索引维护 / User Index Maintenance ====================
+
+    /// 添加用户活跃订单索引 (内部使用)
+    /// Add user active order index (internal use)
+    fn add_user_active_index(
+        &self,
+        batch: &mut WriteBatch,
+        user: &str,
+        start_time: u32,
+        order_id: u64,
+    ) {
+        let key = self.user_active_key(user, start_time, order_id);
+        batch.put(key.as_bytes(), b""); // 值为空,仅作索引 / Value is empty, only for indexing
+    }
+
+    /// 删除用户活跃订单索引 (内部使用)
+    /// Remove user active order index (internal use)
+    fn remove_user_active_index(
+        &self,
+        batch: &mut WriteBatch,
+        user: &str,
+        start_time: u32,
+        order_id: u64,
+    ) {
+        let key = self.user_active_key(user, start_time, order_id);
+        batch.delete(key.as_bytes());
+    }
+
     // ==================== 初始化 / Initialization ====================
 
     /// 初始化 OrderBook(如果不存在)
@@ -272,6 +314,15 @@ impl OrderBookDBManager {
             let id_key = self.id_map_key(current_order_id);
             batch.put(id_key.as_bytes(), &serde_json::to_vec(&0u16)?);
 
+            // 添加用户活跃订单索引
+            // Add user active order index
+            self.add_user_active_index(
+                &mut batch,
+                &new_order.user,
+                new_order.start_time,
+                current_order_id,
+            );
+
             // 更新活跃索引列表
             // Update active indices list
             let active_key = self.active_indices_key();
@@ -329,6 +380,15 @@ impl OrderBookDBManager {
         // Update ID mapping
         let id_key = self.id_map_key(current_order_id);
         batch.put(id_key.as_bytes(), &serde_json::to_vec(&old_total)?);
+
+        // 添加用户活跃订单索引
+        // Add user active order index
+        self.add_user_active_index(
+            &mut batch,
+            &new_order.user,
+            new_order.start_time,
+            current_order_id,
+        );
 
         // 更新 after_index 节点
         // Update after_index node
@@ -452,6 +512,15 @@ impl OrderBookDBManager {
         // Update ID mapping
         let id_key = self.id_map_key(current_order_id);
         batch.put(id_key.as_bytes(), &serde_json::to_vec(&old_total)?);
+
+        // 添加用户活跃订单索引
+        // Add user active order index
+        self.add_user_active_index(
+            &mut batch,
+            &new_order.user,
+            new_order.start_time,
+            current_order_id,
+        );
 
         // 更新 before_index 节点
         // Update before_index node
@@ -654,6 +723,15 @@ impl OrderBookDBManager {
             // 3.4 Delete ID mapping
             let id_key = self.id_map_key(removed_order_id);
             batch.delete(id_key.as_bytes());
+
+            // 3.4.5 删除用户活跃订单索引
+            // 3.4.5 Remove user active order index
+            self.remove_user_active_index(
+                &mut batch,
+                &removed_order.user,
+                removed_order.start_time,
+                removed_order_id,
+            );
 
             // 3.5 移动末尾节点到被删除位置(如果不是删除末尾)
             // 3.5 Move tail node to deleted position (if not deleting tail)
@@ -944,6 +1022,15 @@ impl OrderBookDBManager {
             // Delete ID mapping
             let id_key = self.id_map_key(order.order_id);
             batch.delete(id_key.as_bytes());
+
+            // 删除用户活跃订单索引
+            // Remove user active order index
+            self.remove_user_active_index(
+                &mut batch,
+                &order.user,
+                order.start_time,
+                order.order_id,
+            );
         }
 
         // 重置 header

@@ -11,13 +11,14 @@ use tracing::{error, info};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::db::OrderBookStorage;
-use crate::orderbook::MarginOrder;
+use crate::orderbook::{MarginOrder, UserOrderQueryService};
 use crate::util::result::CommonResult;
 
 /// 创建 OrderBook 路由 / Create OrderBook routes
 pub fn routes() -> Router<Arc<OrderBookStorage>> {
     Router::new()
         .route("/api/orderbook/:mint/:direction", get(query_orderbook))
+        .route("/api/orderbook/user/:user_address/active", get(get_user_active_orders))
 }
 
 /// OrderBook 查询参数 / OrderBook query parameters
@@ -287,4 +288,176 @@ pub async fn query_orderbook(
         page_size,
         total_pages,
     })))
+}
+
+// ==================== 用户活跃订单查询 / User Active Orders Query ====================
+
+/// 用户活跃订单查询参数 / User active orders query parameters
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct UserActiveOrdersParams {
+    /// 可选: 按 mint 过滤 / Optional: Filter by mint
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mint: Option<String>,
+
+    /// 可选: 按方向过滤 ("up" 或 "dn") / Optional: Filter by direction ("up" or "dn")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+
+    /// 页码(从 1 开始) / Page number (starts from 1)
+    #[serde(default = "default_user_page")]
+    pub page: u32,
+
+    /// 每页数量 / Page size
+    #[serde(default = "default_user_page_size")]
+    pub page_size: u32,
+}
+
+fn default_user_page() -> u32 {
+    1
+}
+
+fn default_user_page_size() -> u32 {
+    20
+}
+
+/// 用户活跃订单响应项 / User active order response item
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserActiveOrderItem {
+    /// Mint 地址 / Mint address
+    pub mint: String,
+
+    /// 订单方向: "up" 或 "dn" / Order direction: "up" or "dn"
+    pub direction: String,
+
+    /// 订单完整数据 / Complete order data
+    #[serde(flatten)]
+    pub order: MarginOrder,
+}
+
+/// 用户活跃订单响应 / User active orders response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserActiveOrdersResponse {
+    /// 总订单数 / Total order count
+    pub total: u32,
+
+    /// 当前页订单列表 / Current page order list
+    pub orders: Vec<UserActiveOrderItem>,
+
+    /// 当前页码 / Current page
+    pub page: u32,
+
+    /// 每页数量 / Page size
+    pub page_size: u32,
+}
+
+/// 查询用户活跃订单 / Query user active orders
+///
+/// 根据用户地址查询该用户在所有 OrderBook 中的活跃订单
+/// Query all active orders of a user across all OrderBooks
+///
+/// # 参数 / Parameters
+/// - `user_address`: 用户地址 / User address
+/// - `mint`: 可选,按 mint 过滤 / Optional, filter by mint
+/// - `direction`: 可选,按方向过滤 ("up" 或 "dn") / Optional, filter by direction ("up" or "dn")
+/// - `page`: 页码(从 1 开始,默认 1) / Page number (starting from 1, default 1)
+/// - `page_size`: 每页数量(默认 20) / Page size (default 20)
+///
+/// # 返回值 / Returns
+/// 返回用户的活跃订单列表 / Returns user's active order list
+#[utoipa::path(
+    get,
+    path = "/api/orderbook/user/{user_address}/active",
+    params(
+        ("user_address" = String, Path, description = "用户地址 / User address"),
+        UserActiveOrdersParams
+    ),
+    responses(
+        (status = 200, description = "查询成功 / Query successful", body = UserActiveOrdersResponse),
+        (status = 400, description = "参数错误 / Bad Request"),
+        (status = 500, description = "服务器错误 / Server Error")
+    ),
+    tag = "OrderBook"
+)]
+pub async fn get_user_active_orders(
+    Path(user_address): Path<String>,
+    Query(params): Query<UserActiveOrdersParams>,
+    State(orderbook_storage): State<Arc<OrderBookStorage>>,
+) -> Result<Json<CommonResult<UserActiveOrdersResponse>>, (StatusCode, String)> {
+    info!(
+        "👤 查询用户活跃订单 / Query user active orders: user={}, mint={:?}, direction={:?}, page={}, page_size={}",
+        &user_address[..8.min(user_address.len())],
+        params.mint.as_ref().map(|s| &s[..8.min(s.len())]),
+        params.direction,
+        params.page,
+        params.page_size
+    );
+
+    // 验证分页参数 / Validate pagination parameters
+    let page = if params.page < 1 { 1 } else { params.page };
+    let page_size = if params.page_size < 1 {
+        20
+    } else if params.page_size > 100 {
+        100
+    } else {
+        params.page_size
+    };
+
+    // 验证 direction 参数 / Validate direction parameter
+    if let Some(ref direction) = params.direction {
+        if direction != "up" && direction != "dn" {
+            error!("❌ 无效的 direction 参数 / Invalid direction parameter: {}", direction);
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Invalid direction: {}, expected 'up' or 'dn'", direction),
+            ));
+        }
+    }
+
+    // 创建查询服务 / Create query service
+    let query_service = UserOrderQueryService::new(orderbook_storage.db());
+
+    // 查询用户活跃订单 / Query user active orders
+    let (total, orders) = match query_service.query_user_active_orders(
+        &user_address,
+        params.mint.as_deref(),
+        params.direction.as_deref(),
+        page,
+        page_size,
+    ) {
+        Ok(result) => result,
+        Err(e) => {
+            error!("❌ 查询用户活跃订单失败 / Failed to query user active orders: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Query failed: {}", e),
+            ));
+        }
+    };
+
+    // 构建响应 / Construct response
+    let items: Vec<UserActiveOrderItem> = orders
+        .into_iter()
+        .map(|(mint, direction, order)| UserActiveOrderItem {
+            mint,
+            direction,
+            order,
+        })
+        .collect();
+
+    let response = UserActiveOrdersResponse {
+        total,
+        orders: items,
+        page,
+        page_size,
+    };
+
+    info!(
+        "✅ 查询成功 / Query successful: user={}, total={}, returned={}",
+        &user_address[..8.min(user_address.len())],
+        total,
+        response.orders.len()
+    );
+
+    Ok(Json(CommonResult::ok(response)))
 }

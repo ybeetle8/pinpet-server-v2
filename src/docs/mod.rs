@@ -78,6 +78,7 @@ pub struct ErrorApiResponse {
         crate::router::token::get_token_stats,
         // OrderBook 路由 / OrderBook routes
         crate::router::orderbook::query_orderbook,
+        crate::router::orderbook::get_user_active_orders,
     ),
     components(
         schemas(
@@ -108,6 +109,9 @@ pub struct ErrorApiResponse {
             crate::router::orderbook::OrderBookHeaderInfo,
             crate::router::orderbook::OrderBookOrderDetail,
             crate::router::orderbook::OrderBookQueryResponse,
+            crate::router::orderbook::UserActiveOrdersParams,
+            crate::router::orderbook::UserActiveOrderItem,
+            crate::router::orderbook::UserActiveOrdersResponse,
             crate::orderbook::MarginOrder,
             EmptyResponse,
             ErrorApiResponse,
