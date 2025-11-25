@@ -491,4 +491,80 @@ impl TokenStorage {
 
         Ok(count)
     }
+
+    /// 更新Token的latest_price / Update token's latest_price
+    pub fn update_token_price(&self, mint: &str, latest_price: u128) -> Result<()> {
+        let key = format!("token:{}", mint);
+
+        // 读取现有Token详情 / Read existing token detail
+        match self.db.get(key.as_bytes())? {
+            Some(data) => {
+                let mut detail: TokenDetail = serde_json::from_slice(&data)?;
+
+                // 更新价格和时间戳 / Update price and timestamp
+                detail.latest_price = latest_price.to_string();
+                detail.updated_at = Utc::now().timestamp();
+
+                // 写回数据库 / Write back to database
+                let value = serde_json::to_vec(&detail)?;
+                self.db.put(key.as_bytes(), &value)?;
+
+                debug!(
+                    "Token价格已更新 / Token price updated: mint={}, latest_price={}",
+                    mint, latest_price
+                );
+                Ok(())
+            }
+            None => {
+                warn!(
+                    "无法更新价格，Token不存在 / Cannot update price, token not found: mint={}",
+                    mint
+                );
+                // 不抛出错误，因为可能事件到达顺序不同 / Don't throw error, events may arrive out of order
+                Ok(())
+            }
+        }
+    }
+
+    /// 更新Token的费率字段 / Update token's fee fields
+    pub fn update_token_fees(
+        &self,
+        mint: &str,
+        swap_fee: u16,
+        borrow_fee: u16,
+        fee_discount_flag: u8,
+    ) -> Result<()> {
+        let key = format!("token:{}", mint);
+
+        // 读取现有Token详情 / Read existing token detail
+        match self.db.get(key.as_bytes())? {
+            Some(data) => {
+                let mut detail: TokenDetail = serde_json::from_slice(&data)?;
+
+                // 更新费率字段和时间戳 / Update fee fields and timestamp
+                detail.swap_fee = swap_fee;
+                detail.borrow_fee = borrow_fee;
+                detail.fee_discount_flag = fee_discount_flag;
+                detail.updated_at = Utc::now().timestamp();
+
+                // 写回数据库 / Write back to database
+                let value = serde_json::to_vec(&detail)?;
+                self.db.put(key.as_bytes(), &value)?;
+
+                debug!(
+                    "Token费率已更新 / Token fees updated: mint={}, swap_fee={}, borrow_fee={}, fee_discount_flag={}",
+                    mint, swap_fee, borrow_fee, fee_discount_flag
+                );
+                Ok(())
+            }
+            None => {
+                warn!(
+                    "无法更新费率，Token不存在 / Cannot update fees, token not found: mint={}",
+                    mint
+                );
+                // 不抛出错误，因为可能事件到达顺序不同 / Don't throw error, events may arrive out of order
+                Ok(())
+            }
+        }
+    }
 }

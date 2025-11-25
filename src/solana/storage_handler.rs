@@ -63,6 +63,44 @@ impl EventHandler for StorageEventHandler {
             }
         }
 
+        // 更新Token的latest_price（所有带latest_price的事件）/ Update token's latest_price (all events with latest_price)
+        match &event {
+            PinpetEvent::TokenCreated(_e) => {
+                // TokenCreated已经在store_token_created中设置了初始价格 / Initial price already set in store_token_created
+            }
+            PinpetEvent::BuySell(e) => {
+                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                    error!("❌ 更新Token价格失败 (BuySell) / Failed to update token price (BuySell): {}", err);
+                }
+            }
+            PinpetEvent::LongShort(e) => {
+                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                    error!("❌ 更新Token价格失败 (LongShort) / Failed to update token price (LongShort): {}", err);
+                }
+            }
+            PinpetEvent::FullClose(e) => {
+                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                    error!("❌ 更新Token价格失败 (FullClose) / Failed to update token price (FullClose): {}", err);
+                }
+            }
+            PinpetEvent::PartialClose(e) => {
+                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                    error!("❌ 更新Token价格失败 (PartialClose) / Failed to update token price (PartialClose): {}", err);
+                }
+            }
+            PinpetEvent::MilestoneDiscount(e) => {
+                // MilestoneDiscount 更新费率字段 / Update fee fields
+                if let Err(err) = self.token_storage.update_token_fees(
+                    &e.mint_account,
+                    e.swap_fee,
+                    e.borrow_fee,
+                    e.fee_discount_flag,
+                ) {
+                    error!("❌ 更新Token费率失败 (MilestoneDiscount) / Failed to update token fees (MilestoneDiscount): {}", err);
+                }
+            }
+        }
+
         // 如果是 LongShortEvent，插入到 OrderBook / If LongShortEvent, insert to OrderBook
         if let PinpetEvent::LongShort(ref ls_event) = event {
             if let Err(e) = self.handle_long_short_event(ls_event) {

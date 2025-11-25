@@ -330,6 +330,10 @@ pub struct UserActiveOrderItem {
     /// 订单方向: "up" 或 "dn" / Order direction: "up" or "dn"
     pub direction: String,
 
+    /// 订单在链表中的当前索引 (动态,随删除操作变化,不应缓存)
+    /// Order index in linked list (dynamic, changes with delete operations, should not be cached)
+    pub index: u16,
+
     /// 订单完整数据 / Complete order data
     #[serde(flatten)]
     pub order: MarginOrder,
@@ -438,9 +442,10 @@ pub async fn get_user_active_orders(
     // 构建响应 / Construct response
     let items: Vec<UserActiveOrderItem> = orders
         .into_iter()
-        .map(|(mint, direction, order)| UserActiveOrderItem {
+        .map(|(mint, direction, index, order)| UserActiveOrderItem {
             mint,
             direction,
+            index,
             order,
         })
         .collect();

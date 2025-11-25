@@ -2,8 +2,9 @@
 // OrderBook User Query Service
 
 use crate::orderbook::{MarginOrder, Result, OrderBookError};
-use rocksdb::DB;
+use rocksdb::{DB, IteratorMode};
 use std::sync::Arc;
+use tracing::warn;
 
 /// 用户活跃订单查询服务
 /// User active orders query service
@@ -29,8 +30,8 @@ impl UserOrderQueryService {
     /// * `page_size` - 每页数量
     ///
     /// # 返回值 / Returns
-    /// (总数, 订单列表)
-    /// (total count, order list)
+    /// (总数, 订单列表: (mint, direction, index, order))
+    /// (total count, order list: (mint, direction, index, order))
     pub fn query_user_active_orders(
         &self,
         user: &str,
@@ -38,7 +39,10 @@ impl UserOrderQueryService {
         direction_filter: Option<&str>,
         page: u32,
         page_size: u32,
-    ) -> Result<(u32, Vec<(String, String, MarginOrder)>)> {
+    ) -> Result<(u32, Vec<(String, String, u16, MarginOrder)>)> {
+        // ⭐ 创建快照 - 所有读操作在这个时刻的一致性视图上进行
+        // ⭐ Create snapshot - all read operations use a consistent view at this moment
+        let snapshot = self.db.snapshot();
         // 1. 构建前缀键
         // 1. Build prefix key
         let prefix = if let Some(mint) = mint_filter {
@@ -54,10 +58,14 @@ impl UserOrderQueryService {
             format!("orderbook_user:{}:", user)
         };
 
-        // 2. 前缀扫描,收集所有匹配的键
-        // 2. Prefix scan, collect all matching keys
+        // 2. 在快照上前缀扫描,收集所有匹配的键
+        // 2. Prefix scan on snapshot, collect all matching keys
         let mut all_keys = Vec::new();
-        let iter = self.db.prefix_iterator(prefix.as_bytes());
+        let iter = snapshot.iterator(IteratorMode::From(
+            prefix.as_bytes(),
+            rocksdb::Direction::Forward,
+        ));
+
         for item in iter {
             let (key, _value) = item?;
             let key_str = String::from_utf8_lossy(&key).to_string();
@@ -71,6 +79,8 @@ impl UserOrderQueryService {
             all_keys.push(key_str);
         }
 
+        // ⭐ total = 扫描到的键数量(在快照内,这些键对应的订单一定存在)
+        // ⭐ total = number of keys scanned (within snapshot, these keys must have corresponding orders)
         let total = all_keys.len() as u32;
 
         // 3. 分页
@@ -79,8 +89,8 @@ impl UserOrderQueryService {
         let take = page_size as usize;
         let page_keys: Vec<_> = all_keys.into_iter().skip(skip).take(take).collect();
 
-        // 4. 解析键并查询订单数据
-        // 4. Parse keys and query order data
+        // 4. 在快照上解析键并查询订单数据
+        // 4. Parse keys and query order data on snapshot
         let mut orders = Vec::new();
         for key in page_keys {
             // 解析键: orderbook_user:{user}:{mint}:{direction}:{start_time}:{order_id}
@@ -100,25 +110,40 @@ impl UserOrderQueryService {
                 OrderBookError::InvalidAccountData(format!("Invalid order_id: {}", order_id_str))
             })?;
 
-            // 查询 index
-            // Query index
+            // ⭐ 在快照上查询 index
+            // ⭐ Query index on snapshot
             let id_key = format!("orderbook_id_map:{}:{}:{:010}", mint, direction, order_id);
-            let index_bytes = match self.db.get(id_key.as_bytes())? {
-                Some(bytes) => bytes,
-                None => continue, // 订单可能已被删除,跳过 / Order may be deleted, skip
+            let index: u16 = match snapshot.get(id_key.as_bytes())? {
+                Some(bytes) => serde_json::from_slice(&bytes)?,
+                None => {
+                    // ⚠️ 理论上在快照内不应该发生,但防御性编程
+                    // ⚠️ Should not happen within snapshot, but defensive programming
+                    warn!(
+                        "orderbook_id_map missing for order_id {} in snapshot (user={}, mint={}, direction={})",
+                        order_id, user, mint, direction
+                    );
+                    continue;
+                }
             };
-            let index: u16 = serde_json::from_slice(&index_bytes)?;
 
-            // 查询订单数据
-            // Query order data
+            // ⭐ 在快照上查询订单数据
+            // ⭐ Query order data on snapshot
             let slot_key = format!("orderbook_slot:{}:{}:{:05}", mint, direction, index);
-            let order_bytes = match self.db.get(slot_key.as_bytes())? {
+            let order_bytes = match snapshot.get(slot_key.as_bytes())? {
                 Some(bytes) => bytes,
-                None => continue, // 订单可能已被删除,跳过 / Order may be deleted, skip
+                None => {
+                    warn!(
+                        "orderbook_slot missing for index {} in snapshot (user={}, mint={}, direction={}, order_id={})",
+                        index, user, mint, direction, order_id
+                    );
+                    continue;
+                }
             };
             let order = MarginOrder::from_bytes(&order_bytes)?;
 
-            orders.push((mint.to_string(), direction.to_string(), order));
+            // ⭐ 返回时包含 index
+            // ⭐ Return with index
+            orders.push((mint.to_string(), direction.to_string(), index, order));
         }
 
         Ok((total, orders))
