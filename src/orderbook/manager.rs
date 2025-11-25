@@ -17,7 +17,7 @@ pub struct OrderBookDBManager {
     db: Arc<DB>,
 
     /// 关联的 mint 地址
-    /// Associated mint address
+    /// Associated mint address 
     mint: String,
 
     /// 订单方向: "up"(做空) 或 "dn"(做多)
