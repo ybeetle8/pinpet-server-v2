@@ -210,7 +210,7 @@ impl StorageEventHandler {
             lock_lp_start_price: event.lock_lp_start_price,
             lock_lp_end_price: event.lock_lp_end_price,
             open_price: event.open_price,
-            order_id: 0,  // 将由 manager 分配 / Will be assigned by manager
+            order_id: event.order_id,  // ✅ 使用事件中的 order_id / Use order_id from event
             lock_lp_sol_amount: event.lock_lp_sol_amount,
             lock_lp_token_amount: event.lock_lp_token_amount,
             next_lp_sol_amount: 0,  // 初始值 / Initial value
@@ -275,13 +275,12 @@ impl StorageEventHandler {
             &event.mint_account[..8], direction, index, assigned_order_id, event.order_id
         );
 
-        // 验证: 检查分配的 order_id 是否与事件中的 order_id 一致 / Verify: Check if assigned order_id matches event order_id
-        if assigned_order_id != event.order_id {
-            error!(
-                "⚠️ 警告: 分配的 order_id 与事件中的不一致 / Warning: Assigned order_id mismatch: assigned={}, event={}",
-                assigned_order_id, event.order_id
-            );
-        }
+        // ✅ 现在 assigned_order_id 一定等于 event.order_id,添加断言用于调试
+        // ✅ Now assigned_order_id must equal event.order_id, add assertion for debugging
+        debug_assert_eq!(
+            assigned_order_id, event.order_id,
+            "order_id must match event, this should never fail"
+        );
 
         // 处理清算 / Handle liquidations
         if !event.liquidate_indices.is_empty() {

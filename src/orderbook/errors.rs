@@ -67,6 +67,10 @@ pub enum OrderBookError {
     #[error("Invalid slot index during traversal: {0}")]
     TraversalInvalidIndex(u16),
 
+    /// order_id 无效 (必须从事件中提供) / Invalid order_id (must be provided from event)
+    #[error("Invalid order_id: {0}")]
+    InvalidOrderId(String),
+
     /// 通用错误 / Generic error
     #[error("{0}")]
     Generic(String),

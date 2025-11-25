@@ -315,7 +315,18 @@ impl OrderBookDBManager {
 
         let mut header = self.load_header()?;
         let old_total = header.total;
-        let current_order_id = header.order_id_counter;
+
+        // ✅ 使用 order_data 中的 order_id (来自事件)
+        // ✅ Use order_id from order_data (from event)
+        let order_id = order_data.order_id;
+
+        // ✅ 验证 order_id 有效性
+        // ✅ Validate order_id validity
+        if order_id == 0 {
+            return Err(OrderBookError::InvalidOrderId(
+                "order_id cannot be 0, must be provided from event".to_string()
+            ));
+        }
 
         // ✅ 验证容量
         // ✅ Validate capacity
@@ -336,7 +347,8 @@ impl OrderBookDBManager {
         // Handle empty linked list: insert first node
         if old_total == 0 {
             let mut new_order = order_data.clone();
-            new_order.order_id = current_order_id;
+            // ✅ 保持 order_data 中的 order_id 不变
+            // ✅ Keep order_id from order_data unchanged
             new_order.prev_order = u16::MAX;
             new_order.next_order = u16::MAX;
             new_order.version = 1;
@@ -348,7 +360,7 @@ impl OrderBookDBManager {
 
             // 更新 ID 映射
             // Update ID mapping
-            let id_key = self.id_map_key(current_order_id);
+            let id_key = self.id_map_key(order_id);
             batch.put(id_key.as_bytes(), &serde_json::to_vec(&0u16)?);
 
             // 添加用户活跃订单索引
@@ -357,7 +369,7 @@ impl OrderBookDBManager {
                 &mut batch,
                 &new_order.user,
                 new_order.start_time,
-                current_order_id,
+                order_id,
             );
 
             // 更新活跃索引列表
@@ -371,7 +383,11 @@ impl OrderBookDBManager {
             header.tail = 0;
             header.total = 1;
             header.total_capacity = 1;
-            header.order_id_counter = current_order_id + 1;
+            // ✅ 更新 order_id_counter 为最大值 + 1 (用于元数据记录)
+            // ✅ Update order_id_counter to max + 1 (for metadata recording)
+            if order_id >= header.order_id_counter {
+                header.order_id_counter = order_id + 1;
+            }
             header.last_modified = chrono::Utc::now().timestamp() as u32;
             self.save_header_batch(&mut batch, &header)?;
 
@@ -381,9 +397,9 @@ impl OrderBookDBManager {
 
             info!(
                 "✅ Inserted first order: index=0, order_id={}",
-                current_order_id
+                order_id
             );
-            return Ok((0, current_order_id));
+            return Ok((0, order_id));
         }
 
         // 验证索引
@@ -403,7 +419,8 @@ impl OrderBookDBManager {
         // 创建新订单
         // Create new order
         let mut new_order = order_data.clone();
-        new_order.order_id = current_order_id;
+        // ✅ 保持 order_data 中的 order_id 不变
+        // ✅ Keep order_id from order_data unchanged
         new_order.prev_order = after_index;
         new_order.next_order = old_next;
         new_order.version = 1;
@@ -415,7 +432,7 @@ impl OrderBookDBManager {
 
         // 更新 ID 映射
         // Update ID mapping
-        let id_key = self.id_map_key(current_order_id);
+        let id_key = self.id_map_key(order_id);
         batch.put(id_key.as_bytes(), &serde_json::to_vec(&old_total)?);
 
         // 添加用户活跃订单索引
@@ -424,7 +441,7 @@ impl OrderBookDBManager {
             &mut batch,
             &new_order.user,
             new_order.start_time,
-            current_order_id,
+            order_id,
         );
 
         // 更新 after_index 节点
@@ -460,7 +477,11 @@ impl OrderBookDBManager {
         // Update header
         header.total = new_total;
         header.total_capacity = new_total as u32;
-        header.order_id_counter = current_order_id + 1;
+        // ✅ 更新 order_id_counter 为最大值 + 1 (仅作记录)
+        // ✅ Update order_id_counter to max + 1 (for metadata recording only)
+        if order_id >= header.order_id_counter {
+            header.order_id_counter = order_id + 1;
+        }
         header.last_modified = chrono::Utc::now().timestamp() as u32;
         self.save_header_batch(&mut batch, &header)?;
 
@@ -470,9 +491,9 @@ impl OrderBookDBManager {
 
         info!(
             "✅ Inserted order: index={}, order_id={}",
-            old_total, current_order_id
+            old_total, order_id
         );
-        Ok((old_total, current_order_id))
+        Ok((old_total, order_id))
     }
 
     /// 在指定节点之前插入订单
@@ -495,7 +516,18 @@ impl OrderBookDBManager {
 
         let mut header = self.load_header()?;
         let old_total = header.total;
-        let current_order_id = header.order_id_counter;
+
+        // ✅ 使用 order_data 中的 order_id (来自事件)
+        // ✅ Use order_id from order_data (from event)
+        let order_id = order_data.order_id;
+
+        // ✅ 验证 order_id 有效性
+        // ✅ Validate order_id validity
+        if order_id == 0 {
+            return Err(OrderBookError::InvalidOrderId(
+                "order_id cannot be 0, must be provided from event".to_string()
+            ));
+        }
 
         // ✅ 验证容量
         // ✅ Validate capacity
@@ -535,7 +567,8 @@ impl OrderBookDBManager {
         // 创建新订单
         // Create new order
         let mut new_order = order_data.clone();
-        new_order.order_id = current_order_id;
+        // ✅ 保持 order_data 中的 order_id 不变
+        // ✅ Keep order_id from order_data unchanged
         new_order.prev_order = old_prev;
         new_order.next_order = before_index;
         new_order.version = 1;
@@ -547,7 +580,7 @@ impl OrderBookDBManager {
 
         // 更新 ID 映射
         // Update ID mapping
-        let id_key = self.id_map_key(current_order_id);
+        let id_key = self.id_map_key(order_id);
         batch.put(id_key.as_bytes(), &serde_json::to_vec(&old_total)?);
 
         // 添加用户活跃订单索引
@@ -556,7 +589,7 @@ impl OrderBookDBManager {
             &mut batch,
             &new_order.user,
             new_order.start_time,
-            current_order_id,
+            order_id,
         );
 
         // 更新 before_index 节点
@@ -592,7 +625,11 @@ impl OrderBookDBManager {
         // Update header
         header.total = new_total;
         header.total_capacity = new_total as u32;
-        header.order_id_counter = current_order_id + 1;
+        // ✅ 更新 order_id_counter 为最大值 + 1 (仅作记录)
+        // ✅ Update order_id_counter to max + 1 (for metadata recording only)
+        if order_id >= header.order_id_counter {
+            header.order_id_counter = order_id + 1;
+        }
         header.last_modified = chrono::Utc::now().timestamp() as u32;
         self.save_header_batch(&mut batch, &header)?;
 
@@ -602,9 +639,9 @@ impl OrderBookDBManager {
 
         info!(
             "✅ Inserted order before: index={}, order_id={}",
-            old_total, current_order_id
+            old_total, order_id
         );
-        Ok((old_total, current_order_id))
+        Ok((old_total, order_id))
     }
 
     // ==================== 删除操作 / Delete Operations ====================
