@@ -9,7 +9,7 @@ pub mod user_query;
 
 // Re-export main types
 // 重导出主要类型
-pub use closed_orders::{ClosedOrdersQuery, UserTradingStats};
+pub use closed_orders::ClosedOrdersQuery;
 pub use errors::{OrderBookError, Result};
 pub use manager::OrderBookDBManager;
 pub use types::{

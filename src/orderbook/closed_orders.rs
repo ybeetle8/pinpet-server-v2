@@ -2,14 +2,12 @@
 // Closed orders query interface
 
 use crate::orderbook::{
-    errors::{OrderBookError, Result},
+    errors::Result,
     types::ClosedOrderRecord,
     manager::OrderBookDBManager,
 };
 use rocksdb::DB;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use utoipa::ToSchema;
 
 /// 已关闭订单查询接口
 /// Closed orders query interface
@@ -102,36 +100,6 @@ impl ClosedOrdersQuery {
         Ok(filtered)
     }
 
-    /// 统计用户交易历史(盈亏汇总)
-    /// Calculate user trading history stats
-    pub fn calculate_user_stats(
-        &self,
-        user_address: &str,
-    ) -> Result<UserTradingStats> {
-        let records = self.query_user_closed_orders(user_address, None)?;
-
-        let mut stats = UserTradingStats::default();
-        stats.total_trades = records.len();
-
-        for record in records {
-            let pnl = record.close_info.final_pnl_sol;
-            stats.total_pnl_sol += pnl;
-
-            if pnl > 0 {
-                stats.winning_trades += 1;
-                stats.total_profit_sol += pnl;
-            } else if pnl < 0 {
-                stats.losing_trades += 1;
-                stats.total_loss_sol += pnl.abs();
-            }
-
-            stats.total_borrow_fee_sol += record.close_info.total_borrow_fee_sol as i64;
-            stats.total_position_duration_sec += record.close_info.position_duration_sec as u64;
-        }
-
-        Ok(stats)
-    }
-
     /// 前缀扫描辅助函数
     /// Prefix scan helper function
     fn scan_with_prefix(
@@ -167,41 +135,4 @@ impl ClosedOrdersQuery {
 
         Ok(records)
     }
-}
-
-/// 用户交易统计
-/// User trading statistics
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
-pub struct UserTradingStats {
-    /// 总交易次数
-    /// Total number of trades
-    pub total_trades: usize,
-
-    /// 盈利交易次数
-    /// Number of winning trades
-    pub winning_trades: usize,
-
-    /// 亏损交易次数
-    /// Number of losing trades
-    pub losing_trades: usize,
-
-    /// 总盈亏(SOL)
-    /// Total PnL (SOL)
-    pub total_pnl_sol: i64,
-
-    /// 总盈利(SOL)
-    /// Total profit (SOL)
-    pub total_profit_sol: i64,
-
-    /// 总亏损(SOL)
-    /// Total loss (SOL)
-    pub total_loss_sol: i64,
-
-    /// 总借款费用(SOL)
-    /// Total borrow fees (SOL)
-    pub total_borrow_fee_sol: i64,
-
-    /// 总持仓时长(秒)
-    /// Total position duration (seconds)
-    pub total_position_duration_sec: u64,
 }

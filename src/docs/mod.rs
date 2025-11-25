@@ -81,7 +81,6 @@ pub struct ErrorApiResponse {
         crate::router::orderbook::get_user_active_orders,
         // OrderBook History 路由 / OrderBook History routes
         crate::router::orderbook_history::get_user_history,
-        crate::router::orderbook_history::get_user_stats,
     ),
     components(
         schemas(
@@ -119,10 +118,8 @@ pub struct ErrorApiResponse {
             // OrderBook History 结构体 / OrderBook History structures
             crate::router::orderbook_history::HistoryQueryParams,
             crate::router::orderbook_history::ClosedOrdersResponse,
-            crate::router::orderbook_history::StatsResponse,
             crate::orderbook::ClosedOrderRecord,
             crate::orderbook::CloseInfo,
-            crate::orderbook::UserTradingStats,
             EmptyResponse,
             ErrorApiResponse,
         )

@@ -14,7 +14,7 @@ use tracing::{error, info};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::db::OrderBookStorage;
-use crate::orderbook::closed_orders::{ClosedOrdersQuery, UserTradingStats};
+use crate::orderbook::closed_orders::ClosedOrdersQuery;
 use crate::orderbook::types::ClosedOrderRecord;
 use crate::util::result::CommonResult;
 
@@ -24,10 +24,6 @@ pub fn routes() -> Router<Arc<OrderBookStorage>> {
         .route(
             "/api/orderbook/user/:user_address/history",
             get(get_user_history),
-        )
-        .route(
-            "/api/orderbook/user/:user_address/stats",
-            get(get_user_stats),
         )
 }
 
@@ -90,19 +86,6 @@ pub struct ClosedOrdersResponse {
     /// 订单记录列表
     /// Order records list
     pub records: Vec<ClosedOrderRecord>,
-}
-
-/// 响应数据 - 用户交易统计
-/// Response data - User trading stats
-#[derive(Debug, Serialize, ToSchema)]
-pub struct StatsResponse {
-    /// 用户地址
-    /// User address
-    pub user_address: String,
-
-    /// 统计数据
-    /// Statistics data
-    pub stats: UserTradingStats,
 }
 
 // ==================== API 端点 / API Endpoints ====================
@@ -226,63 +209,6 @@ pub async fn get_user_history(
         &user_address[..8.min(user_address.len())],
         total,
         response.records.len()
-    );
-
-    (StatusCode::OK, Json(CommonResult::ok(response))).into_response()
-}
-
-/// 查询用户交易统计
-/// Query user trading statistics
-///
-/// # 中文说明 / Chinese Description
-/// 统计用户所有已关闭订单的盈亏、胜率等信息
-///
-/// # English Description
-/// Calculate PnL, win rate and other stats from all closed orders
-#[utoipa::path(
-    get,
-    path = "/api/orderbook/user/{user_address}/stats",
-    params(
-        ("user_address" = String, Path, description = "用户 Solana 地址 / User Solana address")
-    ),
-    responses(
-        (status = 200, description = "查询成功 / Query successful", body = StatsResponse),
-        (status = 500, description = "服务器错误 / Server error")
-    ),
-    tag = "OrderBook"
-)]
-pub async fn get_user_stats(
-    Path(user_address): Path<String>,
-    State(orderbook_storage): State<Arc<OrderBookStorage>>,
-) -> impl IntoResponse {
-    info!(
-        "📈 查询用户交易统计 / Query user stats: user={}",
-        &user_address[..8.min(user_address.len())]
-    );
-
-    let query = ClosedOrdersQuery::new(orderbook_storage.db());
-
-    let stats = match query.calculate_user_stats(&user_address) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("❌ 统计失败 / Stats calculation failed: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(CommonResult::<()>::error(500, e.to_string())),
-            )
-                .into_response();
-        }
-    };
-
-    let response = StatsResponse {
-        user_address: user_address.clone(),
-        stats,
-    };
-
-    info!(
-        "✅ 统计成功 / Stats calculation successful: user={}, total_trades={}",
-        &user_address[..8.min(user_address.len())],
-        response.stats.total_trades
     );
 
     (StatusCode::OK, Json(CommonResult::ok(response))).into_response()
