@@ -49,6 +49,40 @@ pub struct GetLatestTokensParams {
     pub before_timestamp: Option<i64>,
 }
 
+/// 排序方式枚举 / Sort order enum
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum SortBy {
+    /// 按热度排序 / Sort by hottest (based on activity and recency)
+    Hot,
+    /// 按创建时间降序排序(最新优先) / Sort by creation time descending (newest first)
+    Created,
+    /// 按创建时间升序排序(最早优先) / Sort by creation time ascending (oldest first)
+    Ascending,
+}
+
+impl Default for SortBy {
+    fn default() -> Self {
+        SortBy::Created
+    }
+}
+
+/// 获取Token列表参数(支持多种排序) / Get token list parameters (with multiple sort options)
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct GetTokenListParams {
+    /// 排序方式 / Sort order
+    /// - hot: 按热度排序 / Sort by hottest
+    /// - created: 按创建时间降序(最新优先) / Sort by creation time descending (newest first)
+    /// - ascending: 按创建时间升序(最早优先) / Sort by creation time ascending (oldest first)
+    #[serde(default)]
+    pub sort_by: SortBy,
+    /// 每页数量(默认20,最大100) / Items per page (default 20, max 100)
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    /// 查询此时间戳之前的tokens / Get tokens before this timestamp
+    pub before_timestamp: Option<i64>,
+}
+
 /// 按slot范围查询Token参数 / Get tokens by slot range parameters
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct GetTokensBySlotRangeParams {
@@ -213,6 +247,81 @@ pub async fn get_latest_tokens(
     }
 }
 
+/// 获取Token列表(支持多种排序方式)
+/// Get token list with multiple sort options
+///
+/// **注意 / Note:** 当前所有排序方式暂时返回相同结果(按创建时间降序)，未来会实现不同的排序逻辑
+/// Currently all sort options return the same result (sorted by creation time descending), different sorting logic will be implemented in the future
+#[utoipa::path(
+    get,
+    path = "/api/tokens/list",
+    params(
+        ("sort_by" = Option<SortBy>, Query, description = "排序方式 / Sort order: hot(按热度), created(按创建时间降序,默认), ascending(按创建时间升序) | Sort options: hot(by hottest), created(by creation time desc, default), ascending(by creation time asc). **未来会实现不同排序逻辑 / Different sorting logic will be implemented in future**"),
+        ("limit" = Option<usize>, Query, description = "每页数量(默认20,最大100) / Items per page (default 20, max 100)"),
+        ("before_timestamp" = Option<i64>, Query, description = "查询此时间戳之前的tokens / Get tokens before this timestamp")
+    ),
+    responses(
+        (status = 200, description = "成功返回Token列表 / Successfully returned token list"),
+        (status = 400, description = "无效的参数 / Invalid parameters"),
+        (status = 500, description = "服务器内部错误 / Internal server error")
+    ),
+    tag = "tokens"
+)]
+pub async fn get_token_list(
+    State(state): State<TokenState>,
+    Query(params): Query<GetTokenListParams>,
+) -> impl IntoResponse {
+    // 限制最大每页数量 / Limit max items per page
+    let limit = params.limit.min(100);
+
+    // TODO: 未来根据不同的 sort_by 实现不同的排序逻辑
+    // TODO: Implement different sorting logic based on sort_by in the future
+    // 当前暂时统一使用按创建时间降序
+    // Currently using creation time descending for all options
+    match params.sort_by {
+        SortBy::Hot => {
+            // TODO: 实现热度排序逻辑 / Implement hotness sorting logic
+            // 暂时使用创建时间降序 / Temporarily use creation time descending
+        }
+        SortBy::Created => {
+            // 按创建时间降序(最新优先) / Sort by creation time descending (newest first)
+        }
+        SortBy::Ascending => {
+            // TODO: 实现创建时间升序排序 / Implement creation time ascending sorting
+            // 暂时使用创建时间降序 / Temporarily use creation time descending
+        }
+    }
+
+    match state
+        .token_storage
+        .get_latest_tokens(limit, params.before_timestamp)
+    {
+        Ok(tokens) => {
+            let total = tokens.len();
+
+            // 计算下一页游标 / Calculate next cursor
+            // 如果返回了完整的一页，使用最后一个token的created_at作为游标
+            // If a full page is returned, use the last token's created_at as cursor
+            let next_cursor = if total >= limit {
+                tokens.last().map(|t| t.created_at.to_string())
+            } else {
+                // 如果少于limit，说明已经是最后一页 / Less than limit means last page
+                None
+            };
+
+            Ok(Json(CommonResult::ok(TokenListResponse {
+                tokens,
+                total,
+                next_cursor,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to query token list: {}", e),
+        )),
+    }
+}
+
 /// 按slot范围查询Token
 /// Get tokens by slot range
 #[utoipa::path(
@@ -297,6 +406,7 @@ pub fn routes() -> Router<TokenState> {
         .route("/api/tokens/mint/:mint", get(get_token_by_mint))
         .route("/api/tokens/symbol", get(get_tokens_by_symbol))
         .route("/api/tokens/latest", get(get_latest_tokens))
+        .route("/api/tokens/list", get(get_token_list))
         .route("/api/tokens/slot-range", get(get_tokens_by_slot_range))
         .route("/api/tokens/stats", get(get_token_stats))
 }

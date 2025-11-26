@@ -73,6 +73,7 @@ pub struct ErrorApiResponse {
         crate::router::token::get_token_by_mint,
         crate::router::token::get_tokens_by_symbol,
         crate::router::token::get_latest_tokens,
+        crate::router::token::get_token_list,
         crate::router::token::get_tokens_by_slot_range,
         crate::router::token::get_token_stats,
         // OrderBook 路由 / OrderBook routes
@@ -103,6 +104,7 @@ pub struct ErrorApiResponse {
             crate::db::TokenDetail,
             crate::db::TokenUriData,
             crate::db::TokenStats,
+            crate::router::token::SortBy,
             crate::router::token::TokenListResponse,
             crate::router::token::TokenStatsResponse,
             // OrderBook 结构体 / OrderBook structures

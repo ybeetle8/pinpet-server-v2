@@ -123,18 +123,7 @@ function connectAndSubscribe(mint) {
         
         if (data.interval === INTERVAL) {
             const klineTime = new Date(data.data.time * 1000);
-            console.log(`📊 实时K线更新:`, {
-                symbol: data.symbol,
-                time: klineTime.toISOString(),
-                开盘价: data.data.open,
-                最高价: data.data.high,
-                最低价: data.data.low,
-                收盘价: data.data.close,
-                成交量: data.data.volume,
-                更新类型: data.data.update_type,
-                更新次数: data.data.update_count,
-                接收时间: new Date(data.timestamp).toISOString()
-            });
+            console.log(`📊 实时K线更新:`, data);
         } else {
             console.log(`⚠️ 收到其他间隔的K线数据: ${data.interval}, 期望: ${INTERVAL}`);
         }
