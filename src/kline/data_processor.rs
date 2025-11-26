@@ -5,6 +5,9 @@ use anyhow::Result;
 use chrono::Utc;
 use std::sync::Arc;
 
+/// 价格精度常量 (26位小数) / Precision constant for u128 to f64 conversion (26 decimal places)
+pub const PRICE_PRECISION: u128 = 10_u128.pow(26);
+
 /// K线数据处理器 / K-line data processor
 pub struct KlineDataProcessor {
     event_storage: Arc<crate::db::EventStorage>,
@@ -16,18 +19,31 @@ impl KlineDataProcessor {
         Self { event_storage }
     }
 
+    /// 将u128价格转换为f64 / Convert u128 price to f64 with precision handling
+    /// 价格存储为u128类型，精度为10^26，需要除以PRICE_PRECISION转换为f64
+    /// Price is stored as u128 with 26 decimal places precision, needs to be divided by PRICE_PRECISION to convert to f64
+    pub fn convert_price_to_f64(price_u128: u128) -> f64 {
+        // 将u128转换为f64并除以精度常量 / Convert u128 to f64 and divide by precision constant
+        // Since u128 has 26 decimal places, we divide by 10^26
+        // But f64 has limited precision, so we might lose some accuracy
+        let price_f64 = price_u128 as f64 / PRICE_PRECISION as f64;
+
+        // 四舍五入到合理精度(12位小数)以避免浮点噪声 / Round to reasonable precision (12 decimal places) to avoid floating point noise
+        (price_f64 * 1e12).round() / 1e12
+    }
+
     /// 从事件提取价格数据 / Extract price from event
     pub fn extract_price_from_event(event: &PinpetEvent) -> Option<f64> {
         match event {
             PinpetEvent::TokenCreated(e) => {
                 // Convert u128 to f64 with precision handling
                 // 将u128价格转换为f64, 保留精度 / Convert u128 price to f64 with precision
-                Some(e.latest_price as f64)
+                Some(Self::convert_price_to_f64(e.latest_price))
             }
-            PinpetEvent::BuySell(e) => Some(e.latest_price as f64),
-            PinpetEvent::LongShort(e) => Some(e.latest_price as f64),
-            PinpetEvent::FullClose(e) => Some(e.latest_price as f64),
-            PinpetEvent::PartialClose(e) => Some(e.latest_price as f64),
+            PinpetEvent::BuySell(e) => Some(Self::convert_price_to_f64(e.latest_price)),
+            PinpetEvent::LongShort(e) => Some(Self::convert_price_to_f64(e.latest_price)),
+            PinpetEvent::FullClose(e) => Some(Self::convert_price_to_f64(e.latest_price)),
+            PinpetEvent::PartialClose(e) => Some(Self::convert_price_to_f64(e.latest_price)),
             _ => None,
         }
     }
