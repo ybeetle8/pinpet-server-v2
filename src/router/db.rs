@@ -138,44 +138,6 @@ pub struct EventList {
 fn default_page() -> u32 { 1 }
 fn default_page_size() -> u32 { 20 }
 
-/// 写入数据到 RocksDB
-#[utoipa::path(
-    post,
-    path = "/db/put",
-    tag = "database",
-    summary = "写入数据",
-    description = "向 RocksDB 写入键值对",
-    request_body = DbRequest,
-    responses(
-        (status = 200, description = "写入成功",
-         body = crate::docs::ApiResponse<DbResponse>),
-        (status = 500, description = "服务器内部错误",
-         body = crate::docs::ErrorApiResponse,
-         example = json!({
-             "code": 500,
-             "msg": "Internal Server Error",
-             "data": null
-         })
-        )
-    )
-)]
-pub async fn db_put(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
-    Json(req): Json<DbRequest>,
-) -> ApiResult {
-    let result = db.put(&req.key, req.value.as_deref().unwrap_or(""));
-
-    match result {
-        Ok(_) => Ok(ok_result::<DbResponse>(Ok(DbResponse {
-            key: req.key.clone(),
-            value: req.value,
-        }))),
-        Err(e) => Ok(ok_result::<DbResponse>(Err(
-            crate::util::result::ApiError::InternalError(e.to_string()),
-        ))),
-    }
-}
-
 /// 从 RocksDB 读取数据
 #[utoipa::path(
     post,
@@ -451,7 +413,6 @@ pub async fn query_events_by_signature(
 /// 创建数据库路由
 pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
     Router::new()
-        .route("/db/put", post(db_put))
         .route("/db/get", post(db_get))
         .route("/db/delete", post(db_delete))
         .route("/db/stats", get(db_stats))

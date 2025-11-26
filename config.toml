@@ -45,7 +45,7 @@ enable_raw_message_logging = true
 
 [ipfs]
 # IPFS网关配置 / IPFS gateway configuration
-gateway_url = "https://crimson-binding-tarantula-509.mypinata.cloud/ipfs/"
+gateway_url = "https://pinpet.mypinata.cloud/ipfs/"
 request_timeout_seconds = 30
 max_retries = 3
 retry_delay_seconds = 5
