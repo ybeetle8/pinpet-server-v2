@@ -130,10 +130,10 @@ impl KlineDataProcessor {
         symbol: &str,
         limit: usize,
     ) -> Result<EventHistoryResponse> {
-        // 从数据库查询事件 / Query events from database
+        // 从数据库查询事件（降序，最新的在前）/ Query events from database (descending, newest first)
         let events = self
             .event_storage
-            .query_by_mint(symbol, Some(limit))
+            .query_by_mint(symbol, Some(limit), false)  // false = 降序 / descending
             .await?;
 
         let data: Vec<EventUpdateMessage> = events

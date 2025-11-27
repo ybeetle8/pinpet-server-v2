@@ -235,10 +235,12 @@ impl EventStorage {
     }
 
     /// 按mint_account查询事件 / Query events by mint_account
-    pub async fn query_by_mint(&self, mint: &str, limit: Option<usize>) -> Result<Vec<PinpetEvent>> {
+    /// 默认返回按slot降序排列的事件（最新的在前） / Returns events sorted by slot in descending order (newest first) by default
+    pub async fn query_by_mint(&self, mint: &str, limit: Option<usize>, ascending: bool) -> Result<Vec<PinpetEvent>> {
         let prefix = format!("idx_mint:{}:", mint);
-        let mut events = Vec::new();
+        let mut all_keys: Vec<String> = Vec::new();
 
+        // 收集所有匹配的索引键 / Collect all matching index keys
         let iter = self.db.iterator(IteratorMode::From(
             prefix.as_bytes(),
             Direction::Forward
@@ -246,15 +248,38 @@ impl EventStorage {
 
         for item in iter {
             let (key, _) = item?;
-            let key_str = String::from_utf8_lossy(&key);
+            let key_str = String::from_utf8_lossy(&key).to_string();
 
             // 检查是否仍在prefix范围内 / Check if still within prefix range
             if !key_str.starts_with(&prefix) {
                 break;
             }
 
-            // 解析索引键获取事件键 / Parse index key to get event key
-            // idx_mint:{mint}:{slot:010}:{sig8}:{type}:{idx3}
+            all_keys.push(key_str);
+        }
+
+        // 按slot排序（从键中提取slot）/ Sort by slot (extract slot from key)
+        // idx_mint:{mint}:{slot:010}:{sig8}:{type}:{idx3}
+        all_keys.sort_by(|a, b| {
+            let slot_a = a.split(':').nth(2).unwrap_or("0");
+            let slot_b = b.split(':').nth(2).unwrap_or("0");
+            if ascending {
+                slot_a.cmp(slot_b)  // 升序 / ascending
+            } else {
+                slot_b.cmp(slot_a)  // 降序 / descending
+            }
+        });
+
+        // 应用limit限制 / Apply limit
+        let keys_to_process = if let Some(limit) = limit {
+            all_keys.iter().take(limit).collect::<Vec<_>>()
+        } else {
+            all_keys.iter().collect::<Vec<_>>()
+        };
+
+        // 获取事件数据 / Get event data
+        let mut events = Vec::new();
+        for key_str in keys_to_process {
             let parts: Vec<&str> = key_str.split(':').collect();
             if parts.len() >= 6 {
                 let slot = parts[2];
@@ -268,12 +293,6 @@ impl EventStorage {
                 if let Ok(Some(data)) = self.db.get(event_key.as_bytes()) {
                     if let Ok(event) = serde_json::from_slice::<PinpetEvent>(&data) {
                         events.push(event);
-
-                        if let Some(limit) = limit {
-                            if events.len() >= limit {
-                                break;
-                            }
-                        }
                     }
                 }
             }
