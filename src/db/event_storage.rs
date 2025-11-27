@@ -32,12 +32,14 @@ struct SignatureRef {
 /// 事件存储服务 / Event storage service
 pub struct EventStorage {
     db: Arc<DB>,
+    kline_storage: crate::db::KlineStorage,
 }
 
 impl EventStorage {
     /// 创建新的事件存储服务 / Create new event storage service
     pub fn new(db: Arc<DB>) -> Result<Self> {
-        Ok(Self { db })
+        let kline_storage = crate::db::KlineStorage::new(Arc::clone(&db));
+        Ok(Self { db, kline_storage })
     }
 
     /// 生成8位短签名 / Generate 8-character short signature
@@ -101,9 +103,9 @@ impl EventStorage {
 
         let events_len = events.len();  // 保存长度以供后面使用 / Save length for later use
 
-        for event in events {
-            let event_type = Self::get_event_type_code(&event).to_string();
-            let (mint, slot, _, user) = Self::extract_event_info(&event);
+        for event in &events {
+            let event_type = Self::get_event_type_code(event).to_string();
+            let (mint, slot, _, user) = Self::extract_event_info(event);
 
             // 获取或递增索引 / Get or increment index
             let idx = type_counters
@@ -117,7 +119,7 @@ impl EventStorage {
             // 1. 存储主事件数据 / Store main event data
             let event_key = format!("event:{}:{}:{}:{}:{}",
                                    slot_str, mint, sig8, event_type, idx_str);
-            let event_data = serde_json::to_vec(&event)?;
+            let event_data = serde_json::to_vec(event)?;
             batch.put(event_key.as_bytes(), &event_data);
 
             // 2. 创建mint索引 / Create mint index
@@ -165,6 +167,49 @@ impl EventStorage {
 
         info!("成功存储 {} 个事件，签名: {} / Successfully stored {} events, signature: {}",
               events_len, signature, events_len, signature);
+
+        // 9. 处理K线数据（对于包含价格信息的事件）/ Process K-line data (for events with price info)
+        // 在事件存储完成后异步处理,避免阻塞 / Process asynchronously after event storage to avoid blocking
+        for event in &events {
+            match event {
+                PinpetEvent::BuySell(e) => {
+                    if let Err(err) = self.kline_storage
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .await
+                    {
+                        tracing::error!("❌ Failed to process kline data for BuySell event: {}", err);
+                    }
+                }
+                PinpetEvent::LongShort(e) => {
+                    if let Err(err) = self.kline_storage
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .await
+                    {
+                        tracing::error!("❌ Failed to process kline data for LongShort event: {}", err);
+                    }
+                }
+                PinpetEvent::FullClose(e) => {
+                    if let Err(err) = self.kline_storage
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .await
+                    {
+                        tracing::error!("❌ Failed to process kline data for FullClose event: {}", err);
+                    }
+                }
+                PinpetEvent::PartialClose(e) => {
+                    if let Err(err) = self.kline_storage
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .await
+                    {
+                        tracing::error!("❌ Failed to process kline data for PartialClose event: {}", err);
+                    }
+                }
+                _ => {
+                    // 其他事件不包含latest_price,无需处理K线 / Other events don't have latest_price, no kline processing needed
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -618,6 +663,12 @@ impl EventStorage {
                 slot_batches: slot_count,
             },
         })
+    }
+
+    /// 查询K线数据 / Query K-line data
+    /// 代理到KlineStorage的查询方法 / Delegate to KlineStorage's query method
+    pub async fn query_kline_data(&self, query: crate::kline::types::KlineQuery) -> Result<crate::kline::types::KlineQueryResponse> {
+        self.kline_storage.query_kline_data(query).await
     }
 }
 

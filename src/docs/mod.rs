@@ -81,6 +81,8 @@ pub struct ErrorApiResponse {
         crate::router::orderbook::get_user_active_orders,
         // OrderBook History 路由 / OrderBook History routes
         crate::router::orderbook_history::get_user_history,
+        // K线查询路由 / K-line Query routes
+        crate::router::kline::get_kline,
     ),
     components(
         schemas(
@@ -121,6 +123,9 @@ pub struct ErrorApiResponse {
             crate::router::orderbook_history::ClosedOrdersResponse,
             crate::orderbook::ClosedOrderRecord,
             crate::orderbook::CloseInfo,
+            // K线查询结构体 / K-line Query structures
+            crate::kline::types::KlineData,
+            crate::kline::types::KlineQueryResponse,
             EmptyResponse,
             ErrorApiResponse,
         )
@@ -131,6 +136,7 @@ pub struct ErrorApiResponse {
         (name = "events", description = "事件查询接口 / Event query APIs"),
         (name = "tokens", description = "Token代币查询接口 / Token query APIs"),
         (name = "OrderBook", description = "OrderBook保证金订单查询接口 / OrderBook margin order query APIs"),
+        (name = "K线查询 / K-line Query", description = "K线数据查询接口 / K-line data query APIs"),
     ),
     info(
         title = "Pinpet Server API",

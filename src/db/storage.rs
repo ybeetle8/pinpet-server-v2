@@ -120,4 +120,9 @@ impl RocksDbStorage {
     pub fn create_token_storage(&self) -> Result<crate::db::TokenStorage> {
         crate::db::TokenStorage::new(Arc::clone(&self.db), self.config.clone())
     }
+
+    /// 创建 K线 存储实例 / Create K-line storage instance
+    pub fn create_kline_storage(&self) -> Result<crate::db::KlineStorage> {
+        Ok(crate::db::KlineStorage::new(Arc::clone(&self.db)))
+    }
 }

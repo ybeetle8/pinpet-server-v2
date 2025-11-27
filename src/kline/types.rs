@@ -2,6 +2,19 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// K线数据结构(存储用) / K-line data structure (for storage)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct KlineData {
+    pub time: u64,         // Unix时间戳(秒) / Unix timestamp (seconds)
+    pub open: f64,         // 开盘价 / Open price
+    pub high: f64,         // 最高价 / High price
+    pub low: f64,          // 最低价 / Low price
+    pub close: f64,        // 收盘价 / Close price
+    pub volume: f64,       // 成交量 / Volume
+    pub is_final: bool,    // 是否为最终K线 / Is final K-line
+    pub update_count: u32, // 更新次数 / Update count
+}
+
 /// 实时K线数据结构 / Real-time K-line data structure
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct KlineRealtimeData {
@@ -14,6 +27,29 @@ pub struct KlineRealtimeData {
     pub is_final: bool,      // 是否为最终K线 / Is final K-line
     pub update_type: String, // "realtime" | "final" 更新类型 / Update type
     pub update_count: u32,   // 更新次数 / Update count
+}
+
+/// K线查询参数 / K-line query parameters
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct KlineQuery {
+    pub mint_account: String,      // mint地址 / mint address
+    pub interval: String,          // s1, s30, m5 时间间隔 / time interval
+    pub page: Option<usize>,       // 页码 / page number
+    pub limit: Option<usize>,      // 每页数量 / items per page
+    pub order_by: Option<String>,  // time_asc | time_desc 排序方式 / sort order
+}
+
+/// K线查询响应 / K-line query response
+#[derive(Debug, Serialize, Default, ToSchema)]
+pub struct KlineQueryResponse {
+    pub klines: Vec<KlineData>,    // K线数据列表 / K-line data list
+    pub total: usize,              // 总数 / total count
+    pub page: usize,               // 当前页 / current page
+    pub limit: usize,              // 每页数量 / items per page
+    pub has_next: bool,            // 是否有下一页 / has next page
+    pub has_prev: bool,            // 是否有上一页 / has previous page
+    pub interval: String,          // 时间间隔 / time interval
+    pub mint_account: String,      // mint地址 / mint address
 }
 
 /// 实时K线推送消息 / Real-time K-line push message

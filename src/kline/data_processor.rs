@@ -73,21 +73,54 @@ impl KlineDataProcessor {
     }
 
     /// 获取历史K线数据 / Get historical K-line data
-    /// Note: 新项目暂时返回空数据,因为还没有实现K线聚合存储 / Returns empty for now as K-line aggregation storage is not implemented yet
+    /// 从数据库查询已聚合的K线数据 / Query aggregated K-line data from database
     pub async fn get_kline_history(
         &self,
-        _symbol: &str,
-        _interval: &str,
-        _limit: usize,
+        symbol: &str,
+        interval: &str,
+        limit: usize,
     ) -> Result<KlineHistoryResponse> {
-        // TODO: 实现真正的K线历史数据查询 / TODO: Implement real K-line history query
-        // 现在返回空数据 / Return empty data for now
+        use crate::kline::types::KlineQuery;
+
+        // 构建查询参数 / Build query parameters
+        let query = KlineQuery {
+            mint_account: symbol.to_string(),
+            interval: interval.to_string(),
+            page: Some(1),
+            limit: Some(limit),
+            order_by: Some("time_desc".to_string()), // 时间倒序（最新的在前）/ Time descending (newest first)
+        };
+
+        // 查询K线数据 / Query K-line data
+        let response = self.event_storage.query_kline_data(query).await?;
+
+        // 转换KlineData为KlineRealtimeData / Convert KlineData to KlineRealtimeData
+        let data: Vec<KlineRealtimeData> = response
+            .klines
+            .into_iter()
+            .map(|kline| KlineRealtimeData {
+                time: kline.time,
+                open: kline.open,
+                high: kline.high,
+                low: kline.low,
+                close: kline.close,
+                volume: kline.volume,
+                is_final: kline.is_final,
+                update_type: if kline.is_final {
+                    "final".to_string()
+                } else {
+                    "realtime".to_string()
+                },
+                update_count: kline.update_count,
+            })
+            .collect();
+
         Ok(KlineHistoryResponse {
-            symbol: _symbol.to_string(),
-            interval: _interval.to_string(),
-            data: Vec::new(),
-            has_more: false,
-            total_count: 0,
+            symbol: symbol.to_string(),
+            interval: interval.to_string(),
+            data,
+            has_more: response.has_next,
+            total_count: response.total,
         })
     }
 

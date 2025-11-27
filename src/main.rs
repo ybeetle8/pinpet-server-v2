@@ -215,11 +215,21 @@ async fn main() {
         }
     };
 
+    // 创建 K线 存储实例 (用于API查询) / Create K-line storage instance (for API queries)
+    let kline_storage_for_api = match db_storage.create_kline_storage() {
+        Ok(storage) => Arc::new(storage),
+        Err(e) => {
+            tracing::error!("❌ K线存储创建失败(API) / Failed to create K-line storage (API): {}", e);
+            std::process::exit(1);
+        }
+    };
+
     // 创建路由
     let api_router = router::create_router(
         db_storage,
         token_storage_for_api,
         orderbook_storage.clone(),
+        kline_storage_for_api,
     );
 
     // 创建 Swagger UI
