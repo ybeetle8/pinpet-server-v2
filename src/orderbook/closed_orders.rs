@@ -62,11 +62,17 @@ impl ClosedOrdersQuery {
         let filtered: Vec<ClosedOrderRecord> = all_records
             .into_iter()
             .filter(|record| {
-                // 从键中判断 mint 是否匹配 (键格式: orderbook_user_closed:{user}:{timestamp}:{mint}:{direction}:{order_id})
-                // 这里我们可以从订单数据中检查,因为我们没有保存原始 mint/direction 到 ClosedOrderRecord
-                // 实际上更好的方法是在 ClosedOrderRecord 中添加 mint 和 direction 字段
-                // TODO: 需要完善过滤逻辑,或在 ClosedOrderRecord 中添加 mint/direction 字段
-                true
+                // 按 mint 过滤
+                // Filter by mint
+                let mint_match = record.mint == mint;
+
+                // 如果指定了 direction,则同时按 direction 过滤
+                // If direction is specified, also filter by direction
+                let direction_match = direction
+                    .map(|d| record.direction == d)
+                    .unwrap_or(true);
+
+                mint_match && direction_match
             })
             .take(limit.unwrap_or(usize::MAX))
             .collect();
@@ -119,9 +125,30 @@ impl ClosedOrdersQuery {
                 break;
             }
 
+            // 从键中解析 mint 和 direction
+            // Parse mint and direction from key
+            // 键格式: orderbook_user_closed:{user}:{timestamp}:{mint}:{direction}:{order_id}
+            // Key format: orderbook_user_closed:{user}:{timestamp}:{mint}:{direction}:{order_id}
+            let key_str = String::from_utf8_lossy(&key);
+            let parts: Vec<&str> = key_str.split(':').collect();
+
+            let (mint, direction) = if parts.len() >= 5 {
+                (parts[3].to_string(), parts[4].to_string())
+            } else {
+                // 如果键格式不正确,使用默认值
+                // If key format is incorrect, use default values
+                ("unknown".to_string(), "unknown".to_string())
+            };
+
             // 反序列化值
             // Deserialize value
-            let record: ClosedOrderRecord = serde_json::from_slice(&value)?;
+            let mut record: ClosedOrderRecord = serde_json::from_slice(&value)?;
+
+            // 设置 mint 和 direction
+            // Set mint and direction
+            record.mint = mint;
+            record.direction = direction;
+
             records.push(record);
 
             // 达到限制则停止

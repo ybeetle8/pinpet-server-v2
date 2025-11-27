@@ -1461,6 +1461,8 @@ impl OrderBookDBManager {
         let total_borrow_fee_sol = order.borrow_fee as u64;
 
         Ok(ClosedOrderRecord {
+            mint: self.mint.clone(),
+            direction: self.direction.clone(),
             order: order.clone(),
             close_info: CloseInfo {
                 close_timestamp,

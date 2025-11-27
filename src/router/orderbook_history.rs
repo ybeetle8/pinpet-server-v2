@@ -165,16 +165,20 @@ pub async fn get_user_history(
     let mut filtered = records;
 
     // 按 mint 过滤 / Filter by mint
-    // TODO: 需要在 ClosedOrderRecord 中添加 mint 字段或从键中解析
-    // if let Some(mint) = params.mint {
-    //     filtered = filtered.into_iter().filter(|r| ...).collect();
-    // }
+    if let Some(ref mint) = params.mint {
+        filtered = filtered
+            .into_iter()
+            .filter(|r| &r.mint == mint)
+            .collect();
+    }
 
     // 按 direction 过滤 / Filter by direction
-    // TODO: 需要在 ClosedOrderRecord 中添加 direction 字段或从键中解析
-    // if let Some(direction) = params.direction {
-    //     filtered = filtered.into_iter().filter(|r| ...).collect();
-    // }
+    if let Some(ref direction) = params.direction {
+        filtered = filtered
+            .into_iter()
+            .filter(|r| &r.direction == direction)
+            .collect();
+    }
 
     // 按时间范围过滤 / Filter by time range
     if let (Some(start), Some(end)) = (params.start_time, params.end_time) {

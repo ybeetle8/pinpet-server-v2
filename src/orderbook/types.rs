@@ -257,6 +257,14 @@ pub struct TraversalResult {
 /// Closed order snapshot - complete data
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ClosedOrderRecord {
+    /// Token mint 地址
+    /// Token mint address
+    pub mint: String,
+
+    /// 订单方向: "up"(做空) 或 "dn"(做多)
+    /// Order direction: "up"(short) or "dn"(long)
+    pub direction: String,
+
     /// 订单完整快照(删除时保存)
     /// Complete order snapshot (saved at deletion)
     pub order: MarginOrder,
