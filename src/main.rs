@@ -159,7 +159,7 @@ async fn main() {
 
         // 创建存储事件处理器 / Create storage event handler
         let storage_handler = Arc::new(solana::StorageEventHandler::new(
-            event_storage,
+            event_storage.clone(),  // 克隆一份供storage_handler使用 / Clone for storage_handler
             token_storage.clone(),
             orderbook_storage.clone(),
         ));
@@ -170,6 +170,7 @@ async fn main() {
             Arc::new(kline::KlineEventHandler::new(
                 storage_handler,
                 kline_service.clone(),
+                event_storage,  // 传入event_storage用于读取K线数据 / Pass event_storage for reading K-line data
             ))
         } else {
             // 不使用K线服务,直接使用 StorageEventHandler / Without K-line service, use StorageEventHandler directly

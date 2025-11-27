@@ -280,4 +280,31 @@ impl KlineStorage {
             mint_account: mint_account.clone(),
         })
     }
+
+    /// 获取特定时间桶的K线数据 / Get K-line data for specific time bucket
+    /// 用于实时推送时快速查询单条K线数据 / Used for quickly querying single K-line data during real-time push
+    pub async fn get_kline_by_time(
+        &self,
+        mint_account: &str,
+        interval: &str,
+        time: u64,
+    ) -> Result<Option<KlineData>> {
+        // 生成键 / Generate key
+        let key = self.generate_kline_key(interval, mint_account, time);
+
+        // 从数据库读取 / Read from database
+        match self.db.get(key.as_bytes())? {
+            Some(data) => {
+                // 解析K线数据 / Parse K-line data
+                match serde_json::from_slice::<KlineData>(&data) {
+                    Ok(kline_data) => Ok(Some(kline_data)),
+                    Err(e) => {
+                        warn!("❌ Failed to parse K-line data for key {}: {}", key, e);
+                        Ok(None)
+                    }
+                }
+            }
+            None => Ok(None),
+        }
+    }
 }

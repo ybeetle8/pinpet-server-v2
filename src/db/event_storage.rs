@@ -670,6 +670,17 @@ impl EventStorage {
     pub async fn query_kline_data(&self, query: crate::kline::types::KlineQuery) -> Result<crate::kline::types::KlineQueryResponse> {
         self.kline_storage.query_kline_data(query).await
     }
+
+    /// 获取特定时间桶的K线数据 / Get K-line data for specific time bucket
+    /// 用于实时推送时读取数据库中的K线数据 / Used for reading K-line data from DB during real-time push
+    pub async fn get_kline_data(
+        &self,
+        mint: &str,
+        interval: &str,
+        time: u64,
+    ) -> Result<Option<crate::kline::types::KlineData>> {
+        self.kline_storage.get_kline_by_time(mint, interval, time).await
+    }
 }
 
 /// 数据库统计信息 / Database statistics
