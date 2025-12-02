@@ -1,7 +1,7 @@
 // 存储事件处理器 - 将事件存储到RocksDB / Storage event handler - store events to RocksDB
 use async_trait::async_trait;
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use crate::db::{EventStorage, TokenStorage, OrderBookStorage};
 use crate::orderbook::MarginOrder;
 use super::events::PinpetEvent;
@@ -63,6 +63,43 @@ impl EventHandler for StorageEventHandler {
             }
         }
 
+        // ⚠️  重要: 先处理订单操作,再更新价格
+        // ⚠️  Important: Process order operations BEFORE updating price
+        // 这样可以确保在删除订单时获取的是上一次的价格,而不是当前事件的价格
+        // This ensures we get the previous price when deleting orders, not the current event's price
+
+        // 如果是 LongShortEvent，插入到 OrderBook / If LongShortEvent, insert to OrderBook
+        if let PinpetEvent::LongShort(ref ls_event) = event {
+            if let Err(e) = self.handle_long_short_event(ls_event) {
+                error!("❌ 处理 LongShortEvent 失败 / Failed to handle LongShortEvent: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
+        // 如果是 BuySellEvent，处理清算 / If BuySellEvent, handle liquidations
+        if let PinpetEvent::BuySell(ref bs_event) = event {
+            if let Err(e) = self.handle_buy_sell_event(bs_event) {
+                error!("❌ 处理 BuySellEvent 清算失败 / Failed to handle BuySellEvent liquidations: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
+        // 如果是 FullCloseEvent，处理清算 / If FullCloseEvent, handle liquidations
+        if let PinpetEvent::FullClose(ref fc_event) = event {
+            if let Err(e) = self.handle_full_close_event(fc_event) {
+                error!("❌ 处理 FullCloseEvent 清算失败 / Failed to handle FullCloseEvent liquidations: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
+        // 如果是 PartialCloseEvent，处理更新和清算 / If PartialCloseEvent, handle update and liquidations
+        if let PinpetEvent::PartialClose(ref pc_event) = event {
+            if let Err(e) = self.handle_partial_close_event(pc_event) {
+                error!("❌ 处理 PartialCloseEvent 更新和清算失败 / Failed to handle PartialCloseEvent update and liquidations: {}", e);
+                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            }
+        }
+
         // 更新Token的latest_price（所有带latest_price的事件）/ Update token's latest_price (all events with latest_price)
         match &event {
             PinpetEvent::TokenCreated(_e) => {
@@ -98,38 +135,6 @@ impl EventHandler for StorageEventHandler {
                 ) {
                     error!("❌ 更新Token费率失败 (MilestoneDiscount) / Failed to update token fees (MilestoneDiscount): {}", err);
                 }
-            }
-        }
-
-        // 如果是 LongShortEvent，插入到 OrderBook / If LongShortEvent, insert to OrderBook
-        if let PinpetEvent::LongShort(ref ls_event) = event {
-            if let Err(e) = self.handle_long_short_event(ls_event) {
-                error!("❌ 处理 LongShortEvent 失败 / Failed to handle LongShortEvent: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
-            }
-        }
-
-        // 如果是 BuySellEvent，处理清算 / If BuySellEvent, handle liquidations
-        if let PinpetEvent::BuySell(ref bs_event) = event {
-            if let Err(e) = self.handle_buy_sell_event(bs_event) {
-                error!("❌ 处理 BuySellEvent 清算失败 / Failed to handle BuySellEvent liquidations: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
-            }
-        }
-
-        // 如果是 FullCloseEvent，处理清算 / If FullCloseEvent, handle liquidations
-        if let PinpetEvent::FullClose(ref fc_event) = event {
-            if let Err(e) = self.handle_full_close_event(fc_event) {
-                error!("❌ 处理 FullCloseEvent 清算失败 / Failed to handle FullCloseEvent liquidations: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
-            }
-        }
-
-        // 如果是 PartialCloseEvent，处理更新和清算 / If PartialCloseEvent, handle update and liquidations
-        if let PinpetEvent::PartialClose(ref pc_event) = event {
-            if let Err(e) = self.handle_partial_close_event(pc_event) {
-                error!("❌ 处理 PartialCloseEvent 更新和清算失败 / Failed to handle PartialCloseEvent update and liquidations: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
             }
         }
 
@@ -304,15 +309,19 @@ impl StorageEventHandler {
                 }
             };
 
+            // ✅ 先获取平仓前的价格(上一次记录的价格)
+            // ✅ First get the previous price (last recorded price before this event)
+            let previous_price = self.get_previous_price(&event.mint_account)?;
+
             let liquidate_manager = self.orderbook_storage
                 .get_or_create_manager(event.mint_account.clone(), liquidate_direction.to_string())?;
 
-            // 强制清算,使用 CloseReason::ForcedLiquidation (2) 和开仓价格
-            // Forced liquidation, use CloseReason::ForcedLiquidation (2) and open price
+            // 强制清算,使用 CloseReason::ForcedLiquidation (2)
+            // Forced liquidation, use CloseReason::ForcedLiquidation (2)
             liquidate_manager.batch_remove_by_indices_unsafe(
                 &event.liquidate_indices,
                 2, // ForcedLiquidation
-                event.open_price,
+                previous_price,
             )?;
 
             info!(
@@ -344,6 +353,10 @@ impl StorageEventHandler {
             &event.mint_account[..8], direction, event.liquidate_indices.len()
         );
 
+        // ✅ 先获取平仓前的价格(上一次记录的价格)
+        // ✅ First get the previous price (last recorded price before this event)
+        let previous_price = self.get_previous_price(&event.mint_account)?;
+
         // 获取 OrderBook 管理器 / Get OrderBook manager
         let manager = self.orderbook_storage
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
@@ -354,7 +367,7 @@ impl StorageEventHandler {
         manager.batch_remove_by_indices_unsafe(
             &event.liquidate_indices,
             2, // ForcedLiquidation
-            event.latest_price,
+            previous_price,
         )?;
 
         info!(
@@ -385,6 +398,10 @@ impl StorageEventHandler {
             &event.mint_account[..8], direction, event.liquidate_indices.len()
         );
 
+        // ✅ 先获取平仓前的价格(上一次记录的价格)
+        // ✅ First get the previous price (last recorded price before this event)
+        let previous_price = self.get_previous_price(&event.mint_account)?;
+
         // 获取 OrderBook 管理器 / Get OrderBook manager
         let manager = self.orderbook_storage
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
@@ -395,7 +412,7 @@ impl StorageEventHandler {
         manager.batch_remove_by_indices_unsafe(
             &event.liquidate_indices,
             1, // UserInitiated
-            event.latest_price,
+            previous_price,
         )?;
 
         info!(
@@ -458,12 +475,16 @@ impl StorageEventHandler {
                 event.liquidate_indices.len()
             );
 
+            // ✅ 先获取平仓前的价格(上一次记录的价格)
+            // ✅ First get the previous price (last recorded price before this event)
+            let previous_price = self.get_previous_price(&event.mint_account)?;
+
             // 强制清算,使用 CloseReason::ForcedLiquidation (2)
             // Forced liquidation, use CloseReason::ForcedLiquidation (2)
             manager.batch_remove_by_indices_unsafe(
                 &event.liquidate_indices,
                 2, // ForcedLiquidation
-                event.latest_price,
+                previous_price,
             )?;
 
             info!(
@@ -473,6 +494,36 @@ impl StorageEventHandler {
         }
 
         Ok(())
+    }
+
+    // ==================== 辅助方法 / Helper Methods ====================
+
+    /// 获取平仓前的价格(从 TokenStorage 获取上一次记录的价格)
+    /// Get previous price before close (last recorded price from TokenStorage)
+    ///
+    /// # 参数 / Parameters
+    /// * `mint` - Token mint 地址 / Token mint address
+    ///
+    /// # 返回值 / Returns
+    /// 返回上一次记录的价格,如果不存在则返回 0
+    /// Returns last recorded price, or 0 if not found
+    fn get_previous_price(&self, mint: &str) -> anyhow::Result<u128> {
+        match self.token_storage.get_token_by_mint(mint) {
+            Ok(Some(token)) => {
+                // 将 String 类型的 latest_price 转换为 u128
+                // Convert String latest_price to u128
+                token.latest_price.parse::<u128>()
+                    .map_err(|e| anyhow::anyhow!("Failed to parse latest_price: {}", e))
+            }
+            Ok(None) => {
+                warn!("⚠️  Token not found in storage: {}, using price 0", &mint[..8.min(mint.len())]);
+                Ok(0)
+            }
+            Err(e) => {
+                error!("❌ Failed to get token from storage: {}", e);
+                Err(anyhow::anyhow!("Failed to get token: {}", e))
+            }
+        }
     }
 }
 

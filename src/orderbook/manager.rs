@@ -619,7 +619,7 @@ impl OrderBookDBManager {
     /// # 参数 / Parameters
     /// * `indices` - 待删除的索引切片(可乱序、可重复)
     /// * `close_reason` - 关闭原因
-    /// * `current_price` - 当前价格
+    /// * `previous_price` - 平仓前的价格(来自 TokenStorage 的上一次价格)
     ///
     /// # 返回值 / Returns
     /// 成功返回 Ok(())
@@ -628,7 +628,7 @@ impl OrderBookDBManager {
         &self,
         indices: &[u16],
         close_reason: u8,
-        current_price: u128,
+        previous_price: u128,
     ) -> Result<()> {
         // 0. 处理空数组
         // 0. Handle empty array
@@ -672,7 +672,7 @@ impl OrderBookDBManager {
         // 检查是否删除全部
         // Check if deleting all
         if delete_count >= old_total {
-            return self.batch_remove_all_with_close_records(close_reason, current_price);
+            return self.batch_remove_all_with_close_records(close_reason, previous_price);
         }
 
         // 3. 使用 WriteBatch 和本地缓存
@@ -711,7 +711,7 @@ impl OrderBookDBManager {
             let close_record = self.build_close_record(
                 &removed_order,
                 now,
-                current_price,
+                previous_price,
                 close_reason,
             )?;
 
@@ -1131,7 +1131,7 @@ impl OrderBookDBManager {
     fn batch_remove_all_with_close_records(
         &self,
         close_reason: u8,
-        current_price: u128,
+        previous_price: u128,
     ) -> Result<()> {
         let mut batch = WriteBatch::default();
         let now = chrono::Utc::now().timestamp() as u32;
@@ -1143,7 +1143,7 @@ impl OrderBookDBManager {
             let order = self.get_order(index)?;
 
             // 保存关闭记录 / Save close record
-            let close_record = self.build_close_record(&order, now, current_price, close_reason)?;
+            let close_record = self.build_close_record(&order, now, previous_price, close_reason)?;
             let close_key = Self::closed_order_key(
                 &order.user,
                 now,
@@ -1451,15 +1451,6 @@ impl OrderBookDBManager {
     ) -> Result<crate::orderbook::types::ClosedOrderRecord> {
         use crate::orderbook::types::{ClosedOrderRecord, CloseInfo};
 
-        // 计算持仓时长 / Calculate position duration
-        let position_duration_sec = close_timestamp.saturating_sub(order.start_time);
-
-        // 计算最终盈亏 / Calculate final PnL
-        let final_pnl_sol = self.calculate_pnl(order, close_price);
-
-        // 计算总借款费用 / Calculate total borrow fee
-        let total_borrow_fee_sol = order.borrow_fee as u64;
-
         Ok(ClosedOrderRecord {
             mint: self.mint.clone(),
             direction: self.direction.clone(),
@@ -1468,43 +1459,8 @@ impl OrderBookDBManager {
                 close_timestamp,
                 close_price,
                 close_reason,
-                final_pnl_sol,
-                total_borrow_fee_sol,
-                position_duration_sec,
             },
         })
     }
 
-    /// 计算盈亏(简化版)
-    /// Calculate PnL (simplified)
-    ///
-    /// # 注意 / Note
-    /// 实际盈亏计算可能更复杂,这里提供基础模板
-    /// Actual PnL calculation may be more complex, this is a basic template
-    fn calculate_pnl(&self, order: &MarginOrder, close_price: u128) -> i64 {
-        // 根据方向计算盈亏 / Calculate PnL based on direction
-        // dn(做多): (close_price - open_price) * position_size
-        // up(做空): (open_price - close_price) * position_size
-
-        let open_price = order.open_price;
-        let position_size = order.position_asset_amount;
-
-        let price_diff = if self.direction == "dn" {
-            // 做多 / Long
-            close_price as i128 - open_price as i128
-        } else {
-            // 做空 / Short
-            open_price as i128 - close_price as i128
-        };
-
-        // 计算盈亏(SOL) / Calculate PnL (SOL)
-        // 这里需要根据实际业务逻辑调整
-        // Adjust according to actual business logic
-        let pnl = (price_diff * position_size as i128) / (10_i128.pow(9));
-
-        // 扣除借款费用 / Deduct borrow fee
-        let pnl_after_fee = pnl - order.borrow_fee as i128;
-
-        pnl_after_fee as i64
-    }
 }

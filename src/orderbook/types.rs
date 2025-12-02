@@ -283,8 +283,8 @@ pub struct CloseInfo {
     /// Close timestamp (Unix timestamp)
     pub close_timestamp: u32,
 
-    /// 关闭时的价格(u128, 9位小数精度)
-    /// Close price (u128, 9 decimal precision)
+    /// 关闭时的价格(u128, Q64.64 格式) - 平仓事件发生前的价格
+    /// Close price (u128, Q64.64 format) - Price before close event occurred
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub close_price: u128,
@@ -295,20 +295,6 @@ pub struct CloseInfo {
     /// - 3: 到期自动平仓 / Expired auto-close
     /// - 4: 爆仓清算 / Margin call liquidation
     pub close_reason: u8,
-
-    /// 最终盈亏(SOL,带符号)
-    /// Final PnL (SOL, signed)
-    /// - 正数: 盈利 / Positive: profit
-    /// - 负数: 亏损 / Negative: loss
-    pub final_pnl_sol: i64,
-
-    /// 借款费用总计(SOL)
-    /// Total borrow fee (SOL)
-    pub total_borrow_fee_sol: u64,
-
-    /// 持仓时长(秒)
-    /// Position duration (seconds)
-    pub position_duration_sec: u32,
 }
 
 /// 关闭原因枚举
