@@ -172,6 +172,14 @@ impl EventStorage {
         // 在事件存储完成后异步处理,避免阻塞 / Process asynchronously after event storage to avoid blocking
         for event in &events {
             match event {
+                PinpetEvent::TokenCreated(e) => {
+                    if let Err(err) = self.kline_storage
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .await
+                    {
+                        tracing::error!("❌ Failed to process kline data for TokenCreated event: {}", err);
+                    }
+                }
                 PinpetEvent::BuySell(e) => {
                     if let Err(err) = self.kline_storage
                         .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
@@ -205,7 +213,7 @@ impl EventStorage {
                     }
                 }
                 _ => {
-                    // 其他事件不包含latest_price,无需处理K线 / Other events don't have latest_price, no kline processing needed
+                    // 其他事件(仅MilestoneDiscount)不包含latest_price,无需处理K线 / Other events (only MilestoneDiscount) don't have latest_price, no kline processing needed
                 }
             }
         }
