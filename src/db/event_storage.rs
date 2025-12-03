@@ -163,7 +163,11 @@ impl EventStorage {
         }
 
         // 8. 原子提交所有更改 / Atomically commit all changes
-        self.db.write(batch)?;
+        // 🔧 P0 修复: 使用 spawn_blocking 避免阻塞 Tokio 运行时 / P0 Fix: Use spawn_blocking to avoid blocking Tokio runtime
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || {
+            db.write(batch)
+        }).await??;
 
         info!("成功存储 {} 个事件，签名: {} / Successfully stored {} events, signature: {}",
               events_len, signature, events_len, signature);

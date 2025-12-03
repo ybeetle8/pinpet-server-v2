@@ -193,7 +193,9 @@ impl SolanaEventListener {
         event_handler: Arc<dyn EventHandler>,
     ) -> anyhow::Result<Self> {
         let event_parser = EventParser::new(&config.program_id)?;
-        let (event_broadcaster, _) = broadcast::channel(1000);
+        // 🔧 P1 修复: 增加 Broadcast channel 容量从 1000 到 10000 以避免事件丢失
+        // 🔧 P1 Fix: Increase Broadcast channel capacity from 1000 to 10000 to avoid event loss
+        let (event_broadcaster, _) = broadcast::channel(10000);
 
         Ok(Self {
             config,

@@ -174,8 +174,13 @@ impl KlineStorage {
             };
 
             // 存储更新后的K线数据 / Store updated kline data
+            // 🔧 P0 修复: 使用 spawn_blocking 避免阻塞 Tokio 运行时 / P0 Fix: Use spawn_blocking to avoid blocking Tokio runtime
             let value = serde_json::to_vec(&kline_data)?;
-            self.db.put(kline_key.as_bytes(), &value)?;
+            let db = Arc::clone(&self.db);
+            let key_clone = kline_key.clone();
+            tokio::task::spawn_blocking(move || {
+                db.put(key_clone.as_bytes(), &value)
+            }).await??;
 
             debug!(
                 "💹 Kline data updated for interval {}, mint: {}, time: {}, open: {}, close: {}",

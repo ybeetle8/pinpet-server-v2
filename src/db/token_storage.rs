@@ -173,8 +173,50 @@ impl TokenStorage {
             }
         }
 
-        // 原子写入所有索引 / Atomic write all indexes
-        self.save_token_with_indexes(&detail)?;
+        // 🔧 P0 修复: 原子写入所有索引使用 spawn_blocking / P0 Fix: Atomic write all indexes using spawn_blocking
+        let db = Arc::clone(&self.db);
+        let detail_clone = detail.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut batch = WriteBatch::default();
+
+            // 1. 主存储 / Main storage: token:{mint}
+            let main_key = format!("token:{}", detail_clone.mint_account);
+            let value = serde_json::to_vec(&detail_clone)?;
+            batch.put(main_key.as_bytes(), &value);
+
+            // 2. Symbol索引 / Symbol index: token_symbol:{SYMBOL}:{mint}
+            let symbol_key = format!(
+                "token_symbol:{}:{}",
+                detail_clone.symbol.to_uppercase(),
+                detail_clone.mint_account
+            );
+            batch.put(symbol_key.as_bytes(), b"");
+
+            // 3. 创建时间索引 / Creation time index: token_created:{timestamp:010}:{mint}
+            let time_key = format!(
+                "token_created:{:010}:{}",
+                detail_clone.created_at, detail_clone.mint_account
+            );
+            batch.put(time_key.as_bytes(), b"");
+
+            // 4. Slot索引 / Slot index: token_slot:{slot:010}:{mint}
+            let slot_key = format!(
+                "token_slot:{:010}:{}",
+                detail_clone.created_slot, detail_clone.mint_account
+            );
+            batch.put(slot_key.as_bytes(), b"");
+
+            // 5. 创建者索引 / Creator index: token_payer:{payer}:{timestamp:010}:{mint}
+            let payer_key = format!(
+                "token_payer:{}:{:010}:{}",
+                detail_clone.payer, detail_clone.created_at, detail_clone.mint_account
+            );
+            batch.put(payer_key.as_bytes(), b"");
+
+            // 原子提交 / Atomic commit
+            db.write(batch)?;
+            Ok(())
+        }).await??;
 
         info!(
             "Token详情保存成功 / Token detail saved successfully: mint={}",
@@ -221,7 +263,9 @@ impl TokenStorage {
         );
         batch.put(payer_key.as_bytes(), b"");
 
-        // 原子提交 / Atomic commit
+        // 🔧 P0 修复: 原子提交使用 spawn_blocking / P0 Fix: Atomic commit using spawn_blocking
+        // 注意: 这是同步函数,但在 save_token_from_event (异步) 调用链中被 spawn_blocking 包装
+        // Note: This is a sync function, but wrapped in spawn_blocking via save_token_from_event (async) call chain
         self.db.write(batch)?;
 
         debug!(

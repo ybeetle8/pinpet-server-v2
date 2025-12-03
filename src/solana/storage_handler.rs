@@ -8,6 +8,7 @@ use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
 /// 存储事件处理器 - 将接收到的事件存储到RocksDB / Storage event handler - stores received events to RocksDB
+#[derive(Clone)]
 pub struct StorageEventHandler {
     event_storage: Arc<EventStorage>,
     token_storage: Arc<TokenStorage>,
@@ -68,75 +69,87 @@ impl EventHandler for StorageEventHandler {
         // 这样可以确保在删除订单时获取的是上一次的价格,而不是当前事件的价格
         // This ensures we get the previous price when deleting orders, not the current event's price
 
-        // 如果是 LongShortEvent，插入到 OrderBook / If LongShortEvent, insert to OrderBook
-        if let PinpetEvent::LongShort(ref ls_event) = event {
-            if let Err(e) = self.handle_long_short_event(ls_event) {
-                error!("❌ 处理 LongShortEvent 失败 / Failed to handle LongShortEvent: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+        // 🔧 P0 修复: 使用 spawn_blocking 包装所有同步 OrderBook 操作
+        // 🔧 P0 Fix: Use spawn_blocking to wrap all synchronous OrderBook operations
+        let this = self.clone();
+        let event_for_blocking = event.clone();
+        tokio::task::spawn_blocking(move || {
+            // 如果是 LongShortEvent，插入到 OrderBook / If LongShortEvent, insert to OrderBook
+            if let PinpetEvent::LongShort(ref ls_event) = event_for_blocking {
+                if let Err(e) = this.handle_long_short_event(ls_event) {
+                    error!("❌ 处理 LongShortEvent 失败 / Failed to handle LongShortEvent: {}", e);
+                    // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                }
             }
-        }
 
-        // 如果是 BuySellEvent，处理清算 / If BuySellEvent, handle liquidations
-        if let PinpetEvent::BuySell(ref bs_event) = event {
-            if let Err(e) = self.handle_buy_sell_event(bs_event) {
-                error!("❌ 处理 BuySellEvent 清算失败 / Failed to handle BuySellEvent liquidations: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            // 如果是 BuySellEvent，处理清算 / If BuySellEvent, handle liquidations
+            if let PinpetEvent::BuySell(ref bs_event) = event_for_blocking {
+                if let Err(e) = this.handle_buy_sell_event(bs_event) {
+                    error!("❌ 处理 BuySellEvent 清算失败 / Failed to handle BuySellEvent liquidations: {}", e);
+                    // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                }
             }
-        }
 
-        // 如果是 FullCloseEvent，处理清算 / If FullCloseEvent, handle liquidations
-        if let PinpetEvent::FullClose(ref fc_event) = event {
-            if let Err(e) = self.handle_full_close_event(fc_event) {
-                error!("❌ 处理 FullCloseEvent 清算失败 / Failed to handle FullCloseEvent liquidations: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            // 如果是 FullCloseEvent，处理清算 / If FullCloseEvent, handle liquidations
+            if let PinpetEvent::FullClose(ref fc_event) = event_for_blocking {
+                if let Err(e) = this.handle_full_close_event(fc_event) {
+                    error!("❌ 处理 FullCloseEvent 清算失败 / Failed to handle FullCloseEvent liquidations: {}", e);
+                    // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                }
             }
-        }
 
-        // 如果是 PartialCloseEvent，处理更新和清算 / If PartialCloseEvent, handle update and liquidations
-        if let PinpetEvent::PartialClose(ref pc_event) = event {
-            if let Err(e) = self.handle_partial_close_event(pc_event) {
-                error!("❌ 处理 PartialCloseEvent 更新和清算失败 / Failed to handle PartialCloseEvent update and liquidations: {}", e);
-                // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+            // 如果是 PartialCloseEvent，处理更新和清算 / If PartialCloseEvent, handle update and liquidations
+            if let PinpetEvent::PartialClose(ref pc_event) = event_for_blocking {
+                if let Err(e) = this.handle_partial_close_event(pc_event) {
+                    error!("❌ 处理 PartialCloseEvent 更新和清算失败 / Failed to handle PartialCloseEvent update and liquidations: {}", e);
+                    // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                }
             }
-        }
+        }).await?;
 
         // 更新Token的latest_price（所有带latest_price的事件）/ Update token's latest_price (all events with latest_price)
-        match &event {
-            PinpetEvent::TokenCreated(_e) => {
-                // TokenCreated已经在store_token_created中设置了初始价格 / Initial price already set in store_token_created
-            }
-            PinpetEvent::BuySell(e) => {
-                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
-                    error!("❌ 更新Token价格失败 (BuySell) / Failed to update token price (BuySell): {}", err);
+        // 🔧 P0 修复: 使用 spawn_blocking 包装 TokenStorage 的同步写操作
+        // 🔧 P0 Fix: Use spawn_blocking to wrap synchronous TokenStorage write operations
+        let token_storage = self.token_storage.clone();
+        let event_for_token = event.clone();
+        tokio::task::spawn_blocking(move || {
+            match &event_for_token {
+                PinpetEvent::TokenCreated(_e) => {
+                    // TokenCreated已经在store_token_created中设置了初始价格 / Initial price already set in store_token_created
+                }
+                PinpetEvent::BuySell(e) => {
+                    if let Err(err) = token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                        error!("❌ 更新Token价格失败 (BuySell) / Failed to update token price (BuySell): {}", err);
+                    }
+                }
+                PinpetEvent::LongShort(e) => {
+                    if let Err(err) = token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                        error!("❌ 更新Token价格失败 (LongShort) / Failed to update token price (LongShort): {}", err);
+                    }
+                }
+                PinpetEvent::FullClose(e) => {
+                    if let Err(err) = token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                        error!("❌ 更新Token价格失败 (FullClose) / Failed to update token price (FullClose): {}", err);
+                    }
+                }
+                PinpetEvent::PartialClose(e) => {
+                    if let Err(err) = token_storage.update_token_price(&e.mint_account, e.latest_price) {
+                        error!("❌ 更新Token价格失败 (PartialClose) / Failed to update token price (PartialClose): {}", err);
+                    }
+                }
+                PinpetEvent::MilestoneDiscount(e) => {
+                    // MilestoneDiscount 更新费率字段 / Update fee fields
+                    if let Err(err) = token_storage.update_token_fees(
+                        &e.mint_account,
+                        e.swap_fee,
+                        e.borrow_fee,
+                        e.fee_discount_flag,
+                    ) {
+                        error!("❌ 更新Token费率失败 (MilestoneDiscount) / Failed to update token fees (MilestoneDiscount): {}", err);
+                    }
                 }
             }
-            PinpetEvent::LongShort(e) => {
-                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
-                    error!("❌ 更新Token价格失败 (LongShort) / Failed to update token price (LongShort): {}", err);
-                }
-            }
-            PinpetEvent::FullClose(e) => {
-                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
-                    error!("❌ 更新Token价格失败 (FullClose) / Failed to update token price (FullClose): {}", err);
-                }
-            }
-            PinpetEvent::PartialClose(e) => {
-                if let Err(err) = self.token_storage.update_token_price(&e.mint_account, e.latest_price) {
-                    error!("❌ 更新Token价格失败 (PartialClose) / Failed to update token price (PartialClose): {}", err);
-                }
-            }
-            PinpetEvent::MilestoneDiscount(e) => {
-                // MilestoneDiscount 更新费率字段 / Update fee fields
-                if let Err(err) = self.token_storage.update_token_fees(
-                    &e.mint_account,
-                    e.swap_fee,
-                    e.borrow_fee,
-                    e.fee_discount_flag,
-                ) {
-                    error!("❌ 更新Token费率失败 (MilestoneDiscount) / Failed to update token fees (MilestoneDiscount): {}", err);
-                }
-            }
-        }
+        }).await?;
 
         // 目前我们一次只处理一个事件，但store_events支持批量存储
         // Currently we process one event at a time, but store_events supports batch storage

@@ -167,110 +167,97 @@ pub async fn query_orderbook(
         params.page_size
     };
 
-    // 获取 OrderBook 管理器 / Get OrderBook manager
-    let manager = match orderbook_storage.get_or_create_manager(mint.clone(), direction.clone()) {
-        Ok(m) => m,
-        Err(e) => {
-            error!("❌ 获取 OrderBook 管理器失败 / Failed to get OrderBook manager: {}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get OrderBook manager: {}", e),
-            ));
-        }
-    };
+    // 🔧 P1 修复: 使用 spawn_blocking 包装所有同步 OrderBook 操作
+    // 🔧 P1 Fix: Use spawn_blocking to wrap all synchronous OrderBook operations
+    let mint_clone = mint.clone();
+    let direction_clone = direction.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<_, String> {
+        // 获取 OrderBook 管理器 / Get OrderBook manager
+        let manager = orderbook_storage.get_or_create_manager(mint_clone.clone(), direction_clone.clone())
+            .map_err(|e| format!("Failed to get OrderBook manager: {}", e))?;
 
-    // 加载 OrderBook header / Load OrderBook header
-    let header = match manager.load_header() {
-        Ok(h) => h,
-        Err(e) => {
+        // 加载 OrderBook header / Load OrderBook header
+        let header = manager.load_header().map_err(|e| {
             error!("❌ 加载 OrderBook header 失败 / Failed to load OrderBook header: {}", e);
-            return Err((
-                StatusCode::NOT_FOUND,
-                format!("OrderBook not found: {}:{}", mint, direction),
-            ));
+            format!("OrderBook not found: {}:{}", mint_clone, direction_clone)
+        })?;
+
+        // 构造 header 响应 / Construct header response
+        let header_info = OrderBookHeaderInfo {
+            version: header.version,
+            order_type: header.order_type,
+            authority: header.authority.clone(),
+            order_id_counter: header.order_id_counter,
+            created_at: header.created_at,
+            last_modified: header.last_modified,
+            total_capacity: header.total_capacity,
+            head: header.head,
+            tail: header.tail,
+            total: header.total,
+        };
+
+        // 计算分页 / Calculate pagination
+        let total_count = header.total;
+        let total_pages = if total_count == 0 {
+            0
+        } else {
+            ((total_count as usize + page_size - 1) / page_size).max(1)
+        };
+
+        // 如果链表为空,直接返回 / If linked list is empty, return directly
+        if total_count == 0 {
+            info!("ℹ️ OrderBook 为空 / OrderBook is empty");
+            return Ok::<_, String>((header_info, vec![], total_count, total_pages));
         }
-    };
 
-    // 构造 header 响应 / Construct header response
-    let header_info = OrderBookHeaderInfo {
-        version: header.version,
-        order_type: header.order_type,
-        authority: header.authority.clone(),
-        order_id_counter: header.order_id_counter,
-        created_at: header.created_at,
-        last_modified: header.last_modified,
-        total_capacity: header.total_capacity,
-        head: header.head,
-        tail: header.tail,
-        total: header.total,
-    };
+        // 计算起始位置 / Calculate start position
+        let skip = (page - 1) * page_size;
 
-    // 计算分页 / Calculate pagination
-    let total_count = header.total;
-    let total_pages = if total_count == 0 {
-        0
-    } else {
-        ((total_count as usize + page_size - 1) / page_size).max(1)
-    };
+        // 收集订单 / Collect orders
+        let mut orders = Vec::new();
+        let mut current_index = 0;
+        let mut collected = 0;
 
-    // 如果链表为空,直接返回 / If linked list is empty, return directly
-    if total_count == 0 {
-        info!("ℹ️ OrderBook 为空 / OrderBook is empty");
-        return Ok(Json(CommonResult::ok(OrderBookQueryResponse {
-            header: header_info,
-            orders: vec![],
-            total_count: 0,
-            returned_count: 0,
-            page,
-            page_size,
-            total_pages: 0,
-        })));
-    }
+        // 使用 traverse 方法遍历链表 / Use traverse method to iterate linked list
+        manager.traverse(
+            u16::MAX, // 从 head 开始 / Start from head
+            0,        // 不限制遍历数量 / No limit
+            |index, order| {
+                // 跳过前面的记录 / Skip previous records
+                if current_index < skip {
+                    current_index += 1;
+                    return Ok(true); // 继续遍历 / Continue
+                }
 
-    // 计算起始位置 / Calculate start position
-    let skip = (page - 1) * page_size;
+                // 已收集足够的记录 / Collected enough records
+                if collected >= page_size {
+                    return Ok(false); // 停止遍历 / Stop
+                }
 
-    // 收集订单 / Collect orders
-    let mut orders = Vec::new();
-    let mut current_index = 0;
-    let mut collected = 0;
-
-    // 使用 traverse 方法遍历链表 / Use traverse method to iterate linked list
-    let traverse_result = manager.traverse(
-        u16::MAX, // 从 head 开始 / Start from head
-        0,        // 不限制遍历数量 / No limit
-        |index, order| {
-            // 跳过前面的记录 / Skip previous records
-            if current_index < skip {
+                // 收集当前记录 / Collect current record
+                orders.push(OrderBookOrderDetail {
+                    index,
+                    order: order.clone(),
+                });
+                collected += 1;
                 current_index += 1;
-                return Ok(true); // 继续遍历 / Continue
-            }
 
-            // 已收集足够的记录 / Collected enough records
-            if collected >= page_size {
-                return Ok(false); // 停止遍历 / Stop
-            }
+                Ok(true) // 继续遍历 / Continue
+            },
+        ).map_err(|e| {
+            error!("❌ 遍历 OrderBook 失败 / Failed to traverse OrderBook: {}", e);
+            format!("Failed to traverse OrderBook: {}", e)
+        })?;
 
-            // 收集当前记录 / Collect current record
-            orders.push(OrderBookOrderDetail {
-                index,
-                order: order.clone(),
-            });
-            collected += 1;
-            current_index += 1;
+        Ok((header_info, orders, total_count, total_pages))
+    }).await.map_err(|e| {
+        error!("❌ spawn_blocking 任务失败 / spawn_blocking task failed: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Task failed: {}", e))
+    })?.map_err(|e: String| {
+        (StatusCode::INTERNAL_SERVER_ERROR, e)
+    })?;
 
-            Ok(true) // 继续遍历 / Continue
-        },
-    );
-
-    // 检查遍历结果 / Check traverse result
-    if let Err(e) = traverse_result {
-        error!("❌ 遍历 OrderBook 失败 / Failed to traverse OrderBook: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to traverse OrderBook: {}", e),
-        ));
-    }
+    let (header_info, orders, total_count, total_pages) = result;
 
     let returned_count = orders.len();
 
