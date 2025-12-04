@@ -13,6 +13,7 @@ pub struct StorageEventHandler {
     event_storage: Arc<EventStorage>,
     token_storage: Arc<TokenStorage>,
     orderbook_storage: Arc<OrderBookStorage>,
+    kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
 }
 
 impl StorageEventHandler {
@@ -26,7 +27,14 @@ impl StorageEventHandler {
             event_storage,
             token_storage,
             orderbook_storage,
+            kline_socket_service: None,
         }
+    }
+
+    /// 设置 K线 Socket 服务 (用于推送 LiquidateEvent)
+    /// Set K-line socket service (for pushing LiquidateEvent)
+    pub fn set_kline_socket_service(&mut self, service: Arc<crate::kline::KlineSocketService>) {
+        self.kline_socket_service = Some(service);
     }
 }
 
@@ -198,9 +206,20 @@ impl EventHandler for StorageEventHandler {
                     PinpetEvent::Liquidate(e) => e.signature.clone(),
                     _ => continue, // 不应该发生 / Should not happen
                 };
-                if let Err(err) = self.event_storage.store_events(&sig, vec![liquidate_event]).await {
+
+                // 存储到数据库 / Store to database
+                if let Err(err) = self.event_storage.store_events(&sig, vec![liquidate_event.clone()]).await {
                     error!("❌ 存储 LiquidateEvent 失败 / Failed to store LiquidateEvent: {}", err);
                     // 不中断主流程，记录错误继续 / Don't interrupt main flow, log error and continue
+                }
+
+                // 推送到 Socket.IO (如果服务可用) / Push to Socket.IO (if service available)
+                if let Some(ref kline_service) = self.kline_socket_service {
+                    info!("📡 推送 LiquidateEvent 到 Socket.IO / Pushing LiquidateEvent to Socket.IO");
+                    if let Err(err) = kline_service.broadcast_event_update(&liquidate_event).await {
+                        error!("❌ 推送 LiquidateEvent 失败 / Failed to broadcast LiquidateEvent: {}", err);
+                        // 不中断主流程 / Don't interrupt main flow
+                    }
                 }
             }
         }

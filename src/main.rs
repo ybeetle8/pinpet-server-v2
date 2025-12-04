@@ -158,11 +158,19 @@ async fn main() {
         };
 
         // 创建存储事件处理器 / Create storage event handler
-        let storage_handler = Arc::new(solana::StorageEventHandler::new(
+        let mut storage_handler = solana::StorageEventHandler::new(
             event_storage.clone(),  // 克隆一份供storage_handler使用 / Clone for storage_handler
             token_storage.clone(),
             orderbook_storage.clone(),
-        ));
+        );
+
+        // 如果启用了K线服务,设置到 StorageEventHandler 中用于推送 LiquidateEvent
+        // If K-line service is enabled, set it in StorageEventHandler for pushing LiquidateEvent
+        if let Some(ref kline_service) = kline_socket_service {
+            storage_handler.set_kline_socket_service(kline_service.clone());
+        }
+
+        let storage_handler = Arc::new(storage_handler);
 
         // 如果启用了K线服务,创建K线事件处理器包装器 / If K-line service is enabled, create K-line event handler wrapper
         let event_handler: Arc<dyn solana::EventHandler> = if let Some(ref kline_service) = kline_socket_service {
