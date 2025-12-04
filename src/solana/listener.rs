@@ -120,6 +120,19 @@ impl EventHandler for DefaultEventHandler {
                 info!("   - 交易签名 / Transaction signature: {}", e.signature);
                 info!("   - 区块高度 / Block height: {}", e.slot);
             }
+            PinpetEvent::Liquidate(e) => {
+                info!(
+                    "🔥 清算事件 / Liquidation event: {} 清算了 / liquidated {} 的订单 / 's order",
+                    e.payer, e.user_sol_account
+                );
+                info!("   - 代币地址 / Token mint: {}", e.mint_account);
+                info!("   - 平多/平空 / Close long/short: {}", if e.is_close_long { "平多/close long" } else { "平空/close short" });
+                info!("   - 最终token数量 / Final token amount: {}", e.final_token_amount);
+                info!("   - 最终SOL数量 / Final SOL amount: {}", e.final_sol_amount);
+                info!("   - 订单索引 / Order index: {}", e.order_index);
+                info!("   - 交易签名 / Transaction signature: {}", e.signature);
+                info!("   - 区块高度 / Block height: {}", e.slot);
+            }
         }
         Ok(())
     }

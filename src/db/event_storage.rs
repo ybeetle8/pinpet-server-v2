@@ -56,6 +56,7 @@ impl EventStorage {
             PinpetEvent::FullClose(_) => "fc",
             PinpetEvent::PartialClose(_) => "pc",
             PinpetEvent::MilestoneDiscount(_) => "md",
+            PinpetEvent::Liquidate(_) => "lq",
         }
     }
 
@@ -83,6 +84,11 @@ impl EventStorage {
             },
             PinpetEvent::MilestoneDiscount(e) => {
                 (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.payer.clone()))
+            },
+            PinpetEvent::Liquidate(e) => {
+                // 使用 user_sol_account 作为用户索引，记录被清算的用户
+                // Use user_sol_account for user index, recording the liquidated user
+                (e.mint_account.clone(), e.slot, e.signature.clone(), Some(e.user_sol_account.clone()))
             },
         }
     }

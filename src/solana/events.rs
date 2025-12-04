@@ -26,6 +26,7 @@ pub enum PinpetEvent {
     FullClose(FullCloseEvent),
     PartialClose(PartialCloseEvent),
     MilestoneDiscount(MilestoneDiscountEvent),
+    Liquidate(LiquidateEvent),
 }
 
 /// 创建基本代币事件 / Token creation event
@@ -575,4 +576,20 @@ struct MilestoneDiscountRaw {
     swap_fee: u16,
     borrow_fee: u16,
     fee_discount_flag: u8,
+}
+
+/// 清算事件 (服务端合成事件) / Liquidation event (server-side synthetic event)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LiquidateEvent {
+    pub payer: String,                    // 清算触发者 / Liquidation initiator
+    pub user_sol_account: String,         // 被清算用户SOL账户 / Liquidated user's SOL account
+    pub mint_account: String,             // 代币mint地址 / Token mint address
+    pub is_close_long: bool,              // 是否为平多 / Is closing long (true) or short (false)
+    pub final_token_amount: u64,         // 最终token数量 / Final token amount (u64)
+    pub final_sol_amount: u64,           // 最终SOL数量 / Final SOL amount (u64, lamports)
+    pub order_index: u16,                // 订单索引 / Order index (u16)
+    #[schema(value_type = String)]
+    pub timestamp: DateTime<Utc>,        // ISO 8601格式时间戳 / ISO 8601 timestamp
+    pub signature: String,               // 触发清算的交易签名 / Transaction signature that triggered liquidation
+    pub slot: u64,                       // 区块槽位 / Block slot
 }

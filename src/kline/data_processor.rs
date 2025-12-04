@@ -57,6 +57,7 @@ impl KlineDataProcessor {
             PinpetEvent::FullClose(e) => e.mint_account.clone(),
             PinpetEvent::PartialClose(e) => e.mint_account.clone(),
             PinpetEvent::MilestoneDiscount(e) => e.mint_account.clone(),
+            PinpetEvent::Liquidate(e) => e.mint_account.clone(),
         }
     }
 
@@ -69,6 +70,7 @@ impl KlineDataProcessor {
             PinpetEvent::FullClose(_) => "FullClose".to_string(),
             PinpetEvent::PartialClose(_) => "PartialClose".to_string(),
             PinpetEvent::MilestoneDiscount(_) => "MilestoneDiscount".to_string(),
+            PinpetEvent::Liquidate(_) => "Liquidate".to_string(),
         }
     }
 

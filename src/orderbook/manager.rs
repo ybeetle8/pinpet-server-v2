@@ -9,6 +9,17 @@ use rocksdb::{WriteBatch, DB};
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
+/// 被删除订单的信息 (用于创建 LiquidateEvent)
+/// Information about removed order (for creating LiquidateEvent)
+#[derive(Debug, Clone)]
+pub struct RemovedOrderInfo {
+    pub index: u16,
+    pub user: String,
+    pub position_asset_amount: u64,
+    pub margin_sol_amount: u64,
+    pub order_id: u64,
+}
+
 /// OrderBook 数据库管理器
 /// OrderBook database manager
 pub struct OrderBookDBManager {
@@ -962,6 +973,94 @@ impl OrderBookDBManager {
 
         info!("✅ Batch removed {} orders", delete_count);
         Ok(())
+    }
+
+    /// 批量删除订单并返回被删除订单的信息 (用于创建 LiquidateEvent)
+    /// Batch remove orders and return their info (for creating LiquidateEvent)
+    ///
+    /// # 参数 / Parameters
+    /// * `indices` - 待删除的索引切片(可乱序、可重复) / Indices to remove (can be unordered, can have duplicates)
+    /// * `close_reason` - 关闭原因 / Close reason
+    /// * `previous_price` - 平仓前的价格(来自 TokenStorage 的上一次价格) / Previous price before close
+    ///
+    /// # 返回值 / Returns
+    /// 成功返回被删除订单的信息列表 / Returns list of removed order info on success
+    ///
+    /// # 注意 / Note
+    /// 此方法在删除订单前先收集订单信息,然后释放锁后调用删除方法
+    /// This method collects order info before deletion, then releases lock before calling delete
+    pub fn batch_remove_by_indices_unsafe_with_info(
+        &self,
+        indices: &[u16],
+        close_reason: u8,
+        previous_price: u128,
+    ) -> Result<Vec<RemovedOrderInfo>> {
+        // 0. 处理空数组 / Handle empty array
+        if indices.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 1. 先收集被删除订单的信息 (在独立的作用域中获取锁)
+        // First collect info of orders to be removed (acquire lock in separate scope)
+        let removed_orders = {
+            // 获取操作锁 / Acquire operation lock
+            let _lock = self.operation_lock.lock().unwrap();
+
+            // 克隆、去重并降序排序索引 / Clone, deduplicate and sort indices in descending order
+            let mut sorted_indices = indices.to_vec();
+            sorted_indices.sort_unstable_by(|a, b| b.cmp(a)); // 降序 / Descending
+            sorted_indices.dedup();
+
+            // 读取初始状态 / Read initial state
+            let header = self.load_header()?;
+            let old_total = header.total;
+
+            // 验证链表非空 / Verify linked list is not empty
+            if old_total == 0 {
+                return Err(OrderBookError::EmptyOrderBook);
+            }
+
+            // 验证所有索引都在范围内 / Verify all indices are within range
+            for &index in &sorted_indices {
+                if index >= old_total {
+                    return Err(OrderBookError::InvalidSlotIndex {
+                        index,
+                        total: old_total,
+                    });
+                }
+            }
+
+            // 收集被删除订单的信息 / Collect info of removed orders
+            let mut orders = Vec::new();
+            for &index in &sorted_indices {
+                match self.get_order(index) {
+                    Ok(order) => {
+                        orders.push(RemovedOrderInfo {
+                            index,
+                            user: order.user.clone(),
+                            position_asset_amount: order.position_asset_amount,
+                            margin_sol_amount: order.margin_sol_amount,
+                            order_id: order.order_id,
+                        });
+                    }
+                    Err(e) => {
+                        warn!(
+                            "⚠️ 无法读取订单索引 {} 的信息: {} / Cannot read order info for index {}: {}",
+                            index, e, index, e
+                        );
+                        // 继续处理其他订单 / Continue with other orders
+                    }
+                }
+            }
+            orders
+        }; // 锁在这里被释放 / Lock is released here
+
+        // 2. 执行删除 (此时锁已释放,batch_remove_by_indices_unsafe 可以正常获取锁)
+        // Perform deletion (lock released, batch_remove_by_indices_unsafe can acquire lock normally)
+        self.batch_remove_by_indices_unsafe(indices, close_reason, previous_price)?;
+
+        info!("✅ Batch removed {} orders with info", removed_orders.len());
+        Ok(removed_orders)
     }
 
     /// 内部辅助函数: 从链表中摘除节点
