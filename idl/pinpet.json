@@ -28,160 +28,23 @@
       "accounts": [
         {
           "name": "payer",
+          "docs": [
+            "发起批准的用户"
+          ],
           "writable": true,
           "signer": true
         },
         {
           "name": "mint_account",
-          "writable": true
-        },
-        {
-          "name": "curve_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  111,
-                  114,
-                  114,
-                  111,
-                  119,
-                  105,
-                  110,
-                  103,
-                  95,
-                  99,
-                  117,
-                  114,
-                  118,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint_account"
-              }
-            ]
-          }
-        },
-        {
-          "name": "pool_token_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  111,
-                  108,
-                  95,
-                  116,
-                  111,
-                  107,
-                  101,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint_account"
-              }
-            ]
-          }
-        },
-        {
-          "name": "pool_sol_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  111,
-                  108,
-                  95,
-                  115,
-                  111,
-                  108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint_account"
-              }
-            ]
-          }
-        },
-        {
-          "name": "up_orderbook",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  112,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114,
-                  98,
-                  111,
-                  111,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint_account"
-              }
-            ]
-          }
-        },
-        {
-          "name": "down_orderbook",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  111,
-                  119,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114,
-                  98,
-                  111,
-                  111,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint_account"
-              }
-            ]
-          }
+          "docs": [
+            "代币 mint 账户（用于 PDA seed）"
+          ]
         },
         {
           "name": "user_token_account",
-          "writable": true,
+          "docs": [
+            "用户的代币账户（读取余额）"
+          ],
           "pda": {
             "seeds": [
               {
@@ -270,34 +133,9 @@
           }
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "rent",
-          "address": "SysvarRent111111111111111111111111111111111"
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
-          "name": "fee_recipient_account",
-          "writable": true
-        },
-        {
-          "name": "base_fee_recipient_account",
-          "writable": true
-        },
-        {
           "name": "cooldown",
           "docs": [
-            "交易冷却时间PDA",
-            "首次交易时自动创建，后续交易验证冷却时间"
+            "交易冷却时间 PDA"
           ],
           "writable": true,
           "pda": {
@@ -331,6 +169,34 @@
               }
             ]
           }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token 程序"
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "docs": [
+            "Associated Token 程序"
+          ],
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "系统程序"
+          ],
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "docs": [
+            "租金系统变量"
+          ],
+          "address": "SysvarRent111111111111111111111111111111111"
         }
       ],
       "args": []

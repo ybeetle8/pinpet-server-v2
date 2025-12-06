@@ -181,40 +181,31 @@ impl EventHandler for StorageEventHandler {
             }
         }).await?;
 
-        // 目前我们一次只处理一个事件，但store_events支持批量存储
-        // Currently we process one event at a time, but store_events supports batch storage
-        let events = vec![event];
+        // 🔧 P1 修复: 批量存储主事件和清算事件,避免签名映射被覆盖
+        // 🔧 P1 Fix: Batch store main event and liquidate events to avoid sig_map overwrite
 
-        // 存储主事件到数据库 / Store main event to database
-        match self.event_storage.store_events(&signature, events).await {
+        // 合并主事件和清算事件 / Merge main event and liquidate events
+        let mut all_events = vec![event];
+        let liquidate_events_count = liquidate_events.len();
+        all_events.extend(liquidate_events.iter().cloned());
+
+        // 一次性存储所有事件到数据库 / Store all events to database at once
+        match self.event_storage.store_events(&signature, all_events).await {
             Ok(_) => {
-                info!("✅ 事件存储成功 / Event stored successfully: {}", &signature[..8]);
+                let total_count = 1 + liquidate_events_count;
+                info!("✅ 批量存储{}个事件成功 / Batch stored {} events successfully: signature={}, main=1, liquidate={}",
+                      total_count, total_count, &signature[..8], liquidate_events_count);
             }
             Err(e) => {
-                error!("❌ 事件存储失败 / Failed to store event: {}", e);
+                error!("❌ 批量存储事件失败 / Failed to batch store events: {}", e);
                 return Err(e);
             }
         }
 
-        // 存储额外生成的 LiquidateEvent / Store additional generated LiquidateEvents
+        // 推送清算事件到 Socket.IO (如果服务可用) / Push liquidate events to Socket.IO (if service available)
         if !liquidate_events.is_empty() {
-            info!("📦 存储{}个额外的清算事件 / Storing {} additional liquidate events",
-                  liquidate_events.len(), liquidate_events.len());
-            for liquidate_event in liquidate_events {
-                // 先提取signature,避免借用检查问题 / Extract signature first to avoid borrow checker issues
-                let sig = match &liquidate_event {
-                    PinpetEvent::Liquidate(e) => e.signature.clone(),
-                    _ => continue, // 不应该发生 / Should not happen
-                };
-
-                // 存储到数据库 / Store to database
-                if let Err(err) = self.event_storage.store_events(&sig, vec![liquidate_event.clone()]).await {
-                    error!("❌ 存储 LiquidateEvent 失败 / Failed to store LiquidateEvent: {}", err);
-                    // 不中断主流程，记录错误继续 / Don't interrupt main flow, log error and continue
-                }
-
-                // 推送到 Socket.IO (如果服务可用) / Push to Socket.IO (if service available)
-                if let Some(ref kline_service) = self.kline_socket_service {
+            if let Some(ref kline_service) = self.kline_socket_service {
+                for liquidate_event in liquidate_events {
                     info!("📡 推送 LiquidateEvent 到 Socket.IO / Pushing LiquidateEvent to Socket.IO");
                     if let Err(err) = kline_service.broadcast_event_update(&liquidate_event).await {
                         error!("❌ 推送 LiquidateEvent 失败 / Failed to broadcast LiquidateEvent: {}", err);
