@@ -69,6 +69,7 @@ pub struct ErrorApiResponse {
         crate::router::db::query_events_by_mint,
         crate::router::db::query_events_by_user,
         crate::router::db::query_events_by_signature,
+        crate::router::db::query_user_token_created,
         // Token 路由 / Token routes
         crate::router::token::get_token_by_mint,
         crate::router::token::get_tokens_by_symbol,

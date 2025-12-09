@@ -138,6 +138,13 @@ impl EventStorage {
                 let user_idx = format!("idx_user:{}:{}:{}:{}:{}:{}",
                                       user, slot_str, mint, sig8, event_type, idx_str);
                 batch.put(user_idx.as_bytes(), b"");
+
+                // 3.1. 创建 TokenCreated 专用索引(仅当事件类型为 "tc" 时) / Create TokenCreated dedicated index (only when event type is "tc")
+                if event_type == "tc" {
+                    let user_tc_idx = format!("idx_user_tc:{}:{}:{}:{}:{}",
+                                             user, slot_str, mint, sig8, idx_str);
+                    batch.put(user_tc_idx.as_bytes(), b"");
+                }
             }
 
             // 4. 收集签名引用 / Collect signature references
@@ -591,6 +598,87 @@ impl EventStorage {
 
                 let event_key = format!("event:{}:{}:{}:{}:{}",
                                        slot, mint, sig8, event_type, idx);
+
+                if let Ok(Some(data)) = self.db.get(event_key.as_bytes()) {
+                    if let Ok(event) = serde_json::from_slice::<PinpetEvent>(&data) {
+                        events.push(event);
+                    }
+                }
+            }
+        }
+
+        Ok(PaginatedEvents {
+            events,
+            total,
+            page,
+            page_size,
+            total_pages,
+        })
+    }
+
+    /// 按 user 查询 TokenCreated 事件(分页) / Query TokenCreated events by user (paginated)
+    /// 使用专用索引 idx_user_tc,查询性能优于通用方法 / Uses dedicated idx_user_tc index for better query performance
+    pub async fn query_user_token_created_paginated(
+        &self,
+        user: &str,
+        page: u32,
+        page_size: u32,
+        ascending: bool,
+    ) -> Result<PaginatedEvents> {
+        let prefix = format!("idx_user_tc:{}:", user);
+        let mut all_keys: Vec<String> = Vec::new();
+
+        // 收集所有匹配的索引键 / Collect all matching index keys
+        let iter = self.db.iterator(IteratorMode::From(
+            prefix.as_bytes(),
+            Direction::Forward
+        ));
+
+        for item in iter {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key).to_string();
+
+            // 检查是否仍在prefix范围内 / Check if still within prefix range
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            all_keys.push(key_str);
+        }
+
+        // 按slot排序（从键中提取slot）/ Sort by slot (extract slot from key)
+        // idx_user_tc:{user}:{slot:010}:{mint}:{sig8}:{idx:03}
+        all_keys.sort_by(|a, b| {
+            let slot_a = a.split(':').nth(2).unwrap_or("0");
+            let slot_b = b.split(':').nth(2).unwrap_or("0");
+            if ascending {
+                slot_a.cmp(slot_b)
+            } else {
+                slot_b.cmp(slot_a)
+            }
+        });
+
+        let total = all_keys.len() as u64;
+        let total_pages = ((total as f64) / (page_size as f64)).ceil() as u32;
+
+        // 计算分页偏移 / Calculate pagination offset
+        let start = ((page - 1) * page_size) as usize;
+        let end = (start + page_size as usize).min(all_keys.len());
+
+        // 获取当前页的事件 / Get events for current page
+        let mut events = Vec::new();
+        for key_str in all_keys.get(start..end).unwrap_or(&[]) {
+            // 解析索引键: idx_user_tc:{user}:{slot:010}:{mint}:{sig8}:{idx:03}
+            let parts: Vec<&str> = key_str.split(':').collect();
+            if parts.len() >= 6 {
+                let slot = parts[2];
+                let mint = parts[3];
+                let sig8 = parts[4];
+                let idx = parts[5];
+
+                // 构造主事件键(TokenCreated 的事件类型编码为 "tc")
+                let event_key = format!("event:{}:{}:{}:tc:{}",
+                                       slot, mint, sig8, idx);
 
                 if let Ok(Some(data)) = self.db.get(event_key.as_bytes()) {
                     if let Ok(event) = serde_json::from_slice::<PinpetEvent>(&data) {

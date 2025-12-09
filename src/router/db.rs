@@ -107,6 +107,27 @@ pub struct QueryBySignatureParams {
     pub signature: String,
 }
 
+/// 按 User 查询 TokenCreated 事件请求参数 / Query TokenCreated events by user request parameters
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct QueryUserTokenCreatedParams {
+    /// 用户钱包地址 / User wallet address
+    #[param(example = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")]
+    pub user: String,
+    /// 页码（从1开始）/ Page number (starts from 1)
+    #[param(example = 1, minimum = 1)]
+    #[serde(default = "default_page")]
+    pub page: u32,
+    /// 每页数量 / Page size
+    #[param(example = 20, minimum = 1, maximum = 100)]
+    #[serde(default = "default_page_size")]
+    pub page_size: u32,
+    /// 排序方向 / Sort order (asc: 最早创建的在前, desc: 最新创建的在前)
+    #[param(example = "desc")]
+    #[serde(default)]
+    pub sort: SortOrder,
+}
+
 /// 分页事件响应 / Paginated event response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(title = "PaginatedEvents", description = "分页事件响应")]
@@ -410,6 +431,53 @@ pub async fn query_events_by_signature(
     }
 }
 
+/// 按 User 查询 TokenCreated 事件 / Query TokenCreated events by user
+#[utoipa::path(
+    get,
+    path = "/db/events/user_token_created",
+    tag = "events",
+    summary = "按用户查询代币创建事件 | Query token creation events by user",
+    description = "按用户钱包地址查询该用户创建的所有代币(TokenCreated事件),支持分页和排序。使用专用索引,查询性能优异。 | Query all tokens created by a user (TokenCreated events), with pagination and sorting. Uses dedicated index for optimal performance.",
+    params(QueryUserTokenCreatedParams),
+    responses(
+        (status = 200, description = "查询成功 | Query successful",
+         body = crate::docs::ApiResponse<PaginatedEvents>),
+        (status = 500, description = "服务器内部错误 | Server internal error",
+         body = crate::docs::ErrorApiResponse)
+    )
+)]
+pub async fn query_user_token_created(
+    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    Query(params): Query<QueryUserTokenCreatedParams>,
+) -> ApiResult {
+    // 创建事件存储实例 / Create event storage instance
+    let event_storage = match db.create_event_storage() {
+        Ok(storage) => storage,
+        Err(e) => {
+            return Ok(ok_result::<PaginatedEvents>(Err(
+                crate::util::result::ApiError::InternalError(
+                    format!("创建事件存储失败 / Failed to create event storage: {}", e)
+                ),
+            )))
+        }
+    };
+
+    // 查询事件(使用专用索引 idx_user_tc) / Query events (using dedicated idx_user_tc index)
+    let result = event_storage.query_user_token_created_paginated(
+        &params.user,
+        params.page,
+        params.page_size,
+        params.sort == SortOrder::Asc,
+    ).await;
+
+    match result {
+        Ok(paginated) => Ok(ok_result::<PaginatedEvents>(Ok(paginated))),
+        Err(e) => Ok(ok_result::<PaginatedEvents>(Err(
+            crate::util::result::ApiError::InternalError(e.to_string()),
+        ))),
+    }
+}
+
 /// 创建数据库路由
 pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
     Router::new()
@@ -420,4 +488,5 @@ pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
         .route("/db/events/by_mint", get(query_events_by_mint))
         .route("/db/events/by_user", get(query_events_by_user))
         .route("/db/events/by_signature", get(query_events_by_signature))
+        .route("/db/events/user_token_created", get(query_user_token_created))
 }
