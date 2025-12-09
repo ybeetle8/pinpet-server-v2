@@ -128,6 +128,84 @@ pub struct QueryUserTokenCreatedParams {
     pub sort: SortOrder,
 }
 
+/// 按 Slot 范围查询请求参数 / Query by slot range request parameters
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct QueryBySlotRangeParams {
+    /// 起始 slot（包含）/ Start slot (inclusive)
+    #[param(example = 1000000)]
+    pub slot_start: u64,
+    /// 结束 slot（包含）/ End slot (inclusive)
+    #[param(example = 1001000)]
+    pub slot_end: u64,
+    /// 页码（从1开始）/ Page number (starts from 1)
+    #[param(example = 1, minimum = 1)]
+    #[serde(default = "default_page")]
+    pub page: u32,
+    /// 每页数量 / Page size
+    #[param(example = 50, minimum = 1, maximum = 500)]
+    #[serde(default = "default_slot_range_page_size")]
+    pub page_size: u32,
+    /// 排序方向（按 slot）/ Sort order (by slot)
+    #[param(example = "asc")]
+    #[serde(default)]
+    pub sort: SortOrder,
+    /// 可选的事件类型过滤（多个用逗号分隔，如 "tc,bs"）/ Optional event type filter (comma-separated, e.g., "tc,bs")
+    #[param(example = "bs,ls")]
+    pub event_types: Option<String>,
+}
+
+/// Slot 范围查询响应 / Slot range query response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(title = "SlotRangeQueryResponse", description = "Slot 范围查询响应")]
+pub struct SlotRangeQueryResponse {
+    /// 事件列表 / Event list
+    pub events: Vec<PinpetEvent>,
+    /// 本次查询的 slot 范围统计 / Slot range statistics for this query
+    pub stats: SlotRangeStats,
+    /// 分页信息 / Pagination information
+    pub pagination: PaginationInfo,
+}
+
+/// Slot 范围统计信息 / Slot range statistics
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(title = "SlotRangeStats", description = "Slot 范围统计信息")]
+pub struct SlotRangeStats {
+    /// 查询的起始 slot / Query start slot
+    #[schema(example = 1000000)]
+    pub slot_start: u64,
+    /// 查询的结束 slot / Query end slot
+    #[schema(example = 1001000)]
+    pub slot_end: u64,
+    /// 范围内的总 slot 数 / Total slots in range
+    #[schema(example = 1001)]
+    pub total_slots: u64,
+    /// 范围内的总事件数 / Total events in range
+    #[schema(example = 523)]
+    pub total_events: u64,
+    /// 范围内有事件的 slot 数 / Slots with events in range
+    #[schema(example = 87)]
+    pub slots_with_events: u64,
+}
+
+/// 分页信息 / Pagination information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(title = "PaginationInfo", description = "分页信息")]
+pub struct PaginationInfo {
+    /// 当前页码 / Current page
+    #[schema(example = 1)]
+    pub page: u32,
+    /// 每页数量 / Page size
+    #[schema(example = 50)]
+    pub page_size: u32,
+    /// 总页数 / Total pages
+    #[schema(example = 11)]
+    pub total_pages: u32,
+    /// 是否还有下一页 / Has next page
+    #[schema(example = true)]
+    pub has_next: bool,
+}
+
 /// 分页事件响应 / Paginated event response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(title = "PaginatedEvents", description = "分页事件响应")]
@@ -158,6 +236,7 @@ pub struct EventList {
 
 fn default_page() -> u32 { 1 }
 fn default_page_size() -> u32 { 20 }
+fn default_slot_range_page_size() -> u32 { 50 }
 
 /// 从 RocksDB 读取数据
 #[utoipa::path(
@@ -478,6 +557,70 @@ pub async fn query_user_token_created(
     }
 }
 
+/// 按 Slot 范围查询事件 / Query events by slot range
+#[utoipa::path(
+    get,
+    path = "/db/events/by_slot_range",
+    tag = "events",
+    summary = "按 Slot 范围查询事件 | Query events by slot range",
+    description = "通过给定的 slot_start 和 slot_end 查询时间段内的所有事件,支持分页、排序和事件类型过滤。主要用于时间范围内的事件统计分析、历史数据导出等场景。 | Query all events within a time range by slot_start and slot_end, with pagination, sorting and event type filtering. Mainly used for event statistics analysis and historical data export.",
+    params(QueryBySlotRangeParams),
+    responses(
+        (status = 200, description = "查询成功 | Query successful",
+         body = crate::docs::ApiResponse<SlotRangeQueryResponse>),
+        (status = 400, description = "参数错误 | Parameter error",
+         body = crate::docs::ErrorApiResponse,
+         example = json!({
+             "code": 400,
+             "msg": "slot_end must be >= slot_start",
+             "data": null
+         })
+        ),
+        (status = 500, description = "服务器内部错误 | Server internal error",
+         body = crate::docs::ErrorApiResponse)
+    )
+)]
+pub async fn query_events_by_slot_range(
+    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    Query(params): Query<QueryBySlotRangeParams>,
+) -> ApiResult {
+    // 创建事件存储实例 / Create event storage instance
+    let event_storage = match db.create_event_storage() {
+        Ok(storage) => storage,
+        Err(e) => {
+            return Ok(ok_result::<SlotRangeQueryResponse>(Err(
+                crate::util::result::ApiError::InternalError(
+                    format!("创建事件存储失败 / Failed to create event storage: {}", e)
+                ),
+            )))
+        }
+    };
+
+    // 解析事件类型过滤（如果提供）/ Parse event type filter (if provided)
+    let event_type_filter = params.event_types.map(|s| {
+        s.split(',')
+            .map(|t| t.trim().to_string())
+            .collect::<std::collections::HashSet<String>>()
+    });
+
+    // 查询事件 / Query events
+    let result = event_storage.query_by_slot_range_paginated(
+        params.slot_start,
+        params.slot_end,
+        params.page,
+        params.page_size,
+        params.sort == SortOrder::Asc,
+        event_type_filter,
+    ).await;
+
+    match result {
+        Ok(response) => Ok(ok_result::<SlotRangeQueryResponse>(Ok(response))),
+        Err(e) => Ok(ok_result::<SlotRangeQueryResponse>(Err(
+            crate::util::result::ApiError::InternalError(e.to_string()),
+        ))),
+    }
+}
+
 /// 创建数据库路由
 pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
     Router::new()
@@ -489,4 +632,5 @@ pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
         .route("/db/events/by_user", get(query_events_by_user))
         .route("/db/events/by_signature", get(query_events_by_signature))
         .route("/db/events/user_token_created", get(query_user_token_created))
+        .route("/db/events/by_slot_range", get(query_events_by_slot_range))
 }

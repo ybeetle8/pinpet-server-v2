@@ -70,6 +70,7 @@ pub struct ErrorApiResponse {
         crate::router::db::query_events_by_user,
         crate::router::db::query_events_by_signature,
         crate::router::db::query_user_token_created,
+        crate::router::db::query_events_by_slot_range,
         // Token 路由 / Token routes
         crate::router::token::get_token_by_mint,
         crate::router::token::get_tokens_by_symbol,
@@ -94,6 +95,9 @@ pub struct ErrorApiResponse {
             crate::router::db::SortOrder,
             crate::router::db::PaginatedEvents,
             crate::router::db::EventList,
+            crate::router::db::SlotRangeQueryResponse,
+            crate::router::db::SlotRangeStats,
+            crate::router::db::PaginationInfo,
             crate::db::DatabaseStats,
             crate::db::event_storage::IndexCounts,
             crate::solana::events::PinpetEvent,

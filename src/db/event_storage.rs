@@ -697,6 +697,100 @@ impl EventStorage {
         })
     }
 
+    /// 按 slot 范围查询事件(分页) / Query events by slot range (paginated)
+    /// 支持事件类型过滤、分页和排序 / Supports event type filtering, pagination and sorting
+    pub async fn query_by_slot_range_paginated(
+        &self,
+        slot_start: u64,
+        slot_end: u64,
+        page: u32,
+        page_size: u32,
+        ascending: bool,
+        event_type_filter: Option<std::collections::HashSet<String>>,
+    ) -> Result<crate::router::db::SlotRangeQueryResponse> {
+        // 验证参数 / Validate parameters
+        if slot_end < slot_start {
+            return Err(anyhow::anyhow!("slot_end must be >= slot_start"));
+        }
+
+        // 限制范围大小（防止超大范围查询）/ Limit range size (prevent overly large queries)
+        const MAX_SLOT_RANGE: u64 = 10_000;
+        if slot_end - slot_start > MAX_SLOT_RANGE {
+            return Err(anyhow::anyhow!(
+                "Slot range too large. Max allowed: {}. Requested: {}",
+                MAX_SLOT_RANGE,
+                slot_end - slot_start
+            ));
+        }
+
+        let mut all_events = Vec::new();
+        let mut slots_with_events = 0u64;
+
+        // 收集范围内的所有事件 / Collect all events in range
+        for slot in slot_start..=slot_end {
+            let slot_key = format!("slot_batch:{:010}", slot);
+
+            if let Ok(Some(data)) = self.db.get(slot_key.as_bytes()) {
+                let refs: Vec<EventRef> = serde_json::from_slice(&data)?;
+
+                if !refs.is_empty() {
+                    slots_with_events += 1;
+                }
+
+                for event_ref in refs {
+                    // 应用事件类型过滤 / Apply event type filter
+                    if let Some(ref filter) = event_type_filter {
+                        if !filter.contains(&event_ref.event_type) {
+                            continue;
+                        }
+                    }
+
+                    // 构造主事件键并读取 / Construct main event key and read
+                    let event_key = format!("event:{:010}:{}:{}:{}:{:03}",
+                        event_ref.slot, event_ref.mint, event_ref.sig8,
+                        event_ref.event_type, event_ref.idx);
+
+                    if let Ok(Some(event_data)) = self.db.get(event_key.as_bytes()) {
+                        if let Ok(event) = serde_json::from_slice::<PinpetEvent>(&event_data) {
+                            all_events.push(event);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 按 slot 排序 / Sort by slot
+        all_events.sort_by_key(|e| {
+            let (_, slot, _, _) = Self::extract_event_info(e);
+            if ascending { slot } else { u64::MAX - slot }
+        });
+
+        let total_events = all_events.len() as u64;
+        let total_pages = ((total_events as f64) / (page_size as f64)).ceil() as u32;
+
+        // 分页处理 / Pagination processing
+        let start = ((page - 1) * page_size) as usize;
+        let end = (start + page_size as usize).min(all_events.len());
+        let events = all_events[start..end].to_vec();
+
+        Ok(crate::router::db::SlotRangeQueryResponse {
+            events,
+            stats: crate::router::db::SlotRangeStats {
+                slot_start,
+                slot_end,
+                total_slots: slot_end - slot_start + 1,
+                total_events,
+                slots_with_events,
+            },
+            pagination: crate::router::db::PaginationInfo {
+                page,
+                page_size,
+                total_pages,
+                has_next: page < total_pages,
+            },
+        })
+    }
+
     /// 获取数据库中的总键值对数量 / Get total key-value count in database
     pub fn get_total_key_count(&self) -> Result<u64> {
         let mut count = 0u64;
