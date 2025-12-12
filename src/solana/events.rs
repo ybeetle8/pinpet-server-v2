@@ -50,7 +50,9 @@ pub struct TokenCreatedEvent {
     pub up_orderbook: String,           // 做空订单账本 (Up方向) PDA地址 / Short orderbook (Up direction) PDA
     pub down_orderbook: String,         // 做多订单账本 (Down方向) PDA地址 / Long orderbook (Down direction) PDA
     #[serde_as(as = "DisplayFromStr")]
-    pub latest_price: u128,              // 最新的价格 / Latest price
+    pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
     #[schema(value_type = String)]
     pub timestamp: DateTime<Utc>,
     pub signature: String,
@@ -67,7 +69,9 @@ pub struct BuySellEvent {
     pub token_amount: u64,               // 最终买入或卖出的token数量 / Final token amount bought/sold
     pub sol_amount: u64,                 // 最终花费或得到的sol数量 / Final SOL amount spent/received
     #[serde_as(as = "DisplayFromStr")]
-    pub latest_price: u128,              // 最新的价格 / Latest price
+    pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
     pub liquidate_indices: Vec<u16>,    // 需要清算的订单索引列表 / Liquidation order indices (indices, not order IDs!)
     #[schema(value_type = String)]
     pub timestamp: DateTime<Utc>,
@@ -84,9 +88,11 @@ pub struct LongShortEvent {
     pub order_id: u64,                   // 开仓的订单的唯一编号 / Unique order ID
     pub order_index: u16,                // 开仓的订单在订单账本中的索引 / Order index in the orderbook
     #[serde_as(as = "DisplayFromStr")]
-    pub latest_price: u128,              // 最新的价格 / Latest price
+    pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
     #[serde_as(as = "DisplayFromStr")]
-    pub open_price: u128,                // 开仓价格 / Open price
+    pub open_price: u128,                // 开仓价格(SOL单位,不转换) / Open price (SOL, not converted)
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
     #[serde_as(as = "DisplayFromStr")]
     pub lock_lp_start_price: u128,       // 锁定流动池区间开始价 / LP lock range start price
@@ -119,7 +125,9 @@ pub struct FullCloseEvent {
     pub final_sol_amount: u64,           // 最终花费或得到的sol数量 / Final SOL amount
     pub user_close_profit: u64,          // 用户平仓收入的sol数量 / User's closing profit in SOL
     #[serde_as(as = "DisplayFromStr")]
-    pub latest_price: u128,              // 最新的价格 / Latest price
+    pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
     pub order_id: u64,                   // 平仓订单的唯一编号 / Unique order ID
     pub order_index: u16,                // 平仓订单的索引 / Order index in the orderbook
     pub liquidate_indices: Vec<u16>,    // 需要清算的订单索引列表 / Liquidation indices
@@ -141,16 +149,18 @@ pub struct PartialCloseEvent {
     pub final_sol_amount: u64,           // 最终花费或得到的sol数量 / Final SOL amount
     pub user_close_profit: u64,          // 用户平仓收入的sol数量 / User's closing profit
     #[serde_as(as = "DisplayFromStr")]
-    pub latest_price: u128,              // 最新的价格 / Latest price
+    pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
     pub order_id: u64,                   // 平仓订单的唯一编号 / Order ID
     pub order_index: u16,                // 开仓的订单在订单账本中的索引 / Order index in the orderbook
     // 部分平仓订单的参数(修改后的值) / Partial close order parameters (modified values)
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
     pub user: String,                    // 开仓用户 / User who opened position
     #[serde_as(as = "DisplayFromStr")]
-    pub lock_lp_start_price: u128,       // 锁定流动池区间开始价 / LP lock range start price
+    pub lock_lp_start_price: u128,       // 锁定流动池区间开始价(SOL单位,不转换) / LP lock range start price (SOL, not converted)
     #[serde_as(as = "DisplayFromStr")]
-    pub lock_lp_end_price: u128,         // 锁定流动池区间结束价 / LP lock range end price
+    pub lock_lp_end_price: u128,         // 锁定流动池区间结束价(SOL单位,不转换) / LP lock range end price (SOL, not converted)
     pub lock_lp_sol_amount: u64,         // 锁定流动池区间sol数量 / Locked LP SOL amount
     pub lock_lp_token_amount: u64,       // 锁定流动池区间token数量 / Locked LP token amount
     pub start_time: u32,                 // 订单开始时间戳(秒) / Order start timestamp
@@ -342,6 +352,7 @@ impl EventParser {
                     up_orderbook: event.up_orderbook.to_string(),
                     down_orderbook: event.down_orderbook.to_string(),
                     latest_price: event.latest_price,
+                    latest_price_usd: None,  // USD价格稍后在 KlineEventHandler 中填充 / USD price will be filled later in KlineEventHandler
                     timestamp,
                     signature: signature.to_string(),
                     slot,
@@ -358,6 +369,7 @@ impl EventParser {
                     token_amount: event.token_amount,
                     sol_amount: event.sol_amount,
                     latest_price: event.latest_price,
+                    latest_price_usd: None,  // USD价格稍后在 KlineEventHandler 中填充 / USD price will be filled later in KlineEventHandler
                     liquidate_indices: event.liquidate_indices,
                     timestamp,
                     signature: signature.to_string(),
@@ -374,6 +386,7 @@ impl EventParser {
                     order_id: event.order_id,
                     order_index: event.order_index,
                     latest_price: event.latest_price,
+                    latest_price_usd: None,  // USD价格稍后在 KlineEventHandler 中填充 / USD price will be filled later in KlineEventHandler
                     open_price: event.open_price,
                     order_type: event.order_type,
                     lock_lp_start_price: event.lock_lp_start_price,
@@ -405,6 +418,7 @@ impl EventParser {
                     final_sol_amount: event.final_sol_amount,
                     user_close_profit: event.user_close_profit,
                     latest_price: event.latest_price,
+                    latest_price_usd: None,  // USD价格稍后在 KlineEventHandler 中填充 / USD price will be filled later in KlineEventHandler
                     order_id: event.order_id,
                     order_index: event.order_index,
                     liquidate_indices: event.liquidate_indices,
@@ -426,6 +440,7 @@ impl EventParser {
                     final_sol_amount: event.final_sol_amount,
                     user_close_profit: event.user_close_profit,
                     latest_price: event.latest_price,
+                    latest_price_usd: None,  // USD价格稍后在 KlineEventHandler 中填充 / USD price will be filled later in KlineEventHandler
                     order_id: event.order_id,
                     order_index: event.order_index,
                     order_type: event.order_type,

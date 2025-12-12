@@ -36,6 +36,39 @@ impl KlineEventHandler {
         }
     }
 
+    /// 填充事件的 USD 价格 / Fill USD price for the event
+    async fn fill_usd_price(&self, event: &mut PinpetEvent) -> Result<()> {
+        // 获取 SOL 价格
+        let sol_price_usd = match self.price_service.get_price().await {
+            Some(sol_price) => sol_price.price,
+            None => {
+                return Err(anyhow::anyhow!("SOL价格未就绪 / SOL price not ready"));
+            }
+        };
+
+        // 提取 latest_price 并转换为 USD
+        if let Some(price_in_sol) = KlineDataProcessor::extract_price_from_event(event) {
+            let price_usd = price_in_sol * sol_price_usd;
+
+            // 填充对应事件的 latest_price_usd 字段
+            match event {
+                PinpetEvent::TokenCreated(e) => e.latest_price_usd = Some(price_usd),
+                PinpetEvent::BuySell(e) => e.latest_price_usd = Some(price_usd),
+                PinpetEvent::LongShort(e) => e.latest_price_usd = Some(price_usd),
+                PinpetEvent::FullClose(e) => e.latest_price_usd = Some(price_usd),
+                PinpetEvent::PartialClose(e) => e.latest_price_usd = Some(price_usd),
+                _ => {}
+            }
+
+            debug!(
+                "填充USD价格 / Filled USD price: {} SOL × {} USD/SOL = {} USD",
+                price_in_sol, sol_price_usd, price_usd
+            );
+        }
+
+        Ok(())
+    }
+
     /// 计算时间桶 / Calculate time bucket for different intervals
     /// 返回对齐后的时间戳 / Returns the aligned timestamp for the time bucket
     fn calculate_time_bucket(timestamp: u64, interval: &str) -> u64 {
@@ -67,10 +100,15 @@ impl EventHandler for KlineEventHandler {
             // 即使内部处理失败,也继续进行K线推送 / Continue with K-line push even if inner handler fails
         }
 
-        // 2. 广播交易事件 (所有事件都推送)
-        // 2. Broadcast trading event (all events are pushed)
+        // 2. 填充 USD 价格并广播交易事件 (所有事件都推送)
+        // 2. Fill USD price and broadcast trading event (all events are pushed)
+        let mut event_with_usd = event.clone();
+        if let Err(e) = self.fill_usd_price(&mut event_with_usd).await {
+            warn!("填充USD价格失败 / Failed to fill USD price: {}", e);
+        }
+
         info!("广播交易事件 / Broadcasting trading event");
-        if let Err(e) = self.kline_service.broadcast_event_update(&event).await {
+        if let Err(e) = self.kline_service.broadcast_event_update(&event_with_usd).await {
             warn!("广播交易事件失败 / Failed to broadcast event update: {}", e);
         }
 
