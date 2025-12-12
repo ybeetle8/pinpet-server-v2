@@ -1,0 +1,53 @@
+{
+  "Binance": {
+    "success_rate": 100.0,
+    "avg_response_time": 939.1904830932617,
+    "min_response_time": 336.35473251342773,
+    "max_response_time": 1951.8213272094727,
+    "avg_price": 138.0,
+    "errors": [],
+    "no_auth_required": true
+  },
+  "Binance 24hr": {
+    "success_rate": 100.0,
+    "avg_response_time": 543.0264472961426,
+    "min_response_time": 291.58830642700195,
+    "max_response_time": 902.3053646087646,
+    "avg_price": 138.004,
+    "errors": [],
+    "no_auth_required": true
+  },
+  "CoinGecko": {
+    "success_rate": 100.0,
+    "avg_response_time": 1017.5281524658203,
+    "min_response_time": 373.03972244262695,
+    "max_response_time": 1761.035680770874,
+    "avg_price": 138.04,
+    "errors": [],
+    "no_auth_required": true
+  },
+  "CryptoCompare": {
+    "success_rate": 100.0,
+    "avg_response_time": 1741.7209148406982,
+    "min_response_time": 1301.995038986206,
+    "max_response_time": 2302.3715019226074,
+    "avg_price": 138.046,
+    "errors": [],
+    "no_auth_required": true
+  },
+  "Jupiter Price API": {
+    "success_rate": 0.0,
+    "avg_response_time": 0,
+    "min_response_time": 0,
+    "max_response_time": 0,
+    "avg_price": 0,
+    "errors": [
+      "HTTPSConnectionPool(host='price.jup.ag', port=443): Max retries exceeded with url: /v6/price?ids=So11111111111111111111111111111111111111112 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))",
+      "HTTPSConnectionPool(host='price.jup.ag', port=443): Max retries exceeded with url: /v6/price?ids=So11111111111111111111111111111111111111112 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))",
+      "HTTPSConnectionPool(host='price.jup.ag', port=443): Max retries exceeded with url: /v6/price?ids=So11111111111111111111111111111111111111112 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))",
+      "HTTPSConnectionPool(host='price.jup.ag', port=443): Max retries exceeded with url: /v6/price?ids=So11111111111111111111111111111111111111112 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))",
+      "HTTPSConnectionPool(host='price.jup.ag', port=443): Max retries exceeded with url: /v6/price?ids=So11111111111111111111111111111111111111112 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))"
+    ],
+    "no_auth_required": true
+  }
+}
