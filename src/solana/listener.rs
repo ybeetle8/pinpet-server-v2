@@ -23,6 +23,7 @@ pub trait EventListener {
     async fn start(&mut self) -> anyhow::Result<()>;
     #[allow(dead_code)]
     async fn stop(&mut self) -> anyhow::Result<()>;
+    #[allow(dead_code)]
     fn is_running(&self) -> bool;
 }
 
@@ -32,6 +33,7 @@ pub trait EventHandler: Send + Sync {
     async fn handle_event(&self, event: PinpetEvent) -> anyhow::Result<()>;
 
     /// 向下转型支持trait对象 / Downcast support for trait objects
+    #[allow(dead_code)]
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
@@ -685,6 +687,7 @@ impl EventListenerManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.listener.as_ref().map_or(false, |l| l.is_running())
     }

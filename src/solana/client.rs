@@ -108,6 +108,7 @@ impl SolanaClient {
     }
 
     /// 获取最新区块高度 / Get slot
+    #[allow(dead_code)]
     pub async fn get_slot(&self) -> Result<u64> {
         let request = json!({
             "jsonrpc": "2.0",

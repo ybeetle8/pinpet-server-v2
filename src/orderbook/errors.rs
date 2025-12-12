@@ -5,6 +5,7 @@ use thiserror::Error;
 
 /// OrderBook 错误类型
 /// OrderBook error types
+#[allow(dead_code)]
 #[derive(Error, Debug)]
 pub enum OrderBookError {
     /// RocksDB 错误 / RocksDB error

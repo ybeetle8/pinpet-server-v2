@@ -48,6 +48,7 @@ impl ClosedOrdersQuery {
     /// * `mint` - Token mint 地址
     /// * `direction` - 可选,订单方向 ("up" 或 "dn")
     /// * `limit` - 返回数量限制
+    #[allow(dead_code)]
     pub fn query_user_closed_orders_by_mint(
         &self,
         user_address: &str,
@@ -87,6 +88,7 @@ impl ClosedOrdersQuery {
     /// * `user_address` - 用户地址
     /// * `start_ts` - 开始时间戳(包含)
     /// * `end_ts` - 结束时间戳(包含)
+    #[allow(dead_code)]
     pub fn query_user_closed_orders_by_time_range(
         &self,
         user_address: &str,

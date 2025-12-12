@@ -13,4 +13,5 @@ pub mod util;
 
 // Re-export commonly used types
 // 重导出常用类型
-pub use orderbook::{MarginOrder, MarginOrderUpdateData, OrderBookDBManager, OrderBookHeader};
+pub use orderbook::{MarginOrder, MarginOrderUpdateData, OrderBookDBManager};
+pub use orderbook::types::OrderBookHeader;

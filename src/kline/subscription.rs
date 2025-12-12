@@ -8,6 +8,7 @@ use std::time::Instant;
 pub struct ClientConnection {
     pub subscriptions: HashSet<String>,  // "mint:interval" 格式的订阅键 / Subscription keys in "mint:interval" format
     pub last_activity: Instant,          // 最后活动时间 / Last activity time
+    #[allow(dead_code)]
     pub connection_time: Instant,        // 连接建立时间 / Connection establishment time
     pub subscription_count: usize,       // 当前订阅数量 / Current subscription count
     pub kline_data_sent_count: u64,      // kline_data 发送次数 / kline_data sent count
@@ -177,6 +178,7 @@ impl SubscriptionManager {
     }
 
     /// 获取超时的客户端 / Get timeout clients
+    #[allow(dead_code)]
     pub fn get_timeout_clients(&self, timeout_duration: std::time::Duration) -> Vec<String> {
         let now = Instant::now();
         self.connections

@@ -37,6 +37,7 @@ impl<T: Serialize> CommonResult<T> {
     }
 
     /// 直接返回错误响应
+    #[allow(dead_code)]
     pub fn error_response(code: u32, msg: String) -> Response {
         Self::error(code, msg).into_response()
     }
@@ -57,6 +58,7 @@ pub fn ok_result<T: Serialize>(result: Result<T, ApiError>) -> Response {
 }
 
 /// API 错误枚举
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum ApiError {
     /// 直接返回的响应

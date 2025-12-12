@@ -142,12 +142,14 @@ impl OrderBookStorage {
     }
 
     /// 获取数据库统计信息 / Get database statistics
+    #[allow(dead_code)]
     pub fn get_stats(&self) -> Result<String> {
         let stats = self.db.property_value("rocksdb.stats")?;
         Ok(stats.unwrap_or_else(|| "No stats available".to_string()))
     }
 
     /// 获取所有已缓存的 OrderBook 管理器数量 / Get count of cached OrderBook managers
+    #[allow(dead_code)]
     pub fn get_manager_count(&self) -> usize {
         self.managers.read().unwrap().len()
     }

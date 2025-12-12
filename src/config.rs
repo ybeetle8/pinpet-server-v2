@@ -105,10 +105,12 @@ pub struct KlineServiceConfig {
     #[serde(default = "default_kline_enable")]
     pub enable_kline_service: bool,         // 是否启用K线服务 / Enable K-line service
     #[serde(default = "default_connection_timeout")]
+    #[allow(dead_code)]
     pub connection_timeout_secs: u64,       // 连接超时时间(秒) / Connection timeout (seconds)
     #[serde(default = "default_max_subscriptions")]
     pub max_subscriptions_per_client: usize, // 每客户端最大订阅数 / Max subscriptions per client
     #[serde(default = "default_history_limit")]
+    #[allow(dead_code)]
     pub history_data_limit: usize,          // 历史数据默认条数 / History data default limit
     #[serde(default = "default_ping_interval")]
     pub ping_interval_secs: u64,            // 心跳间隔(秒) / Ping interval (seconds)

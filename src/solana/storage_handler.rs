@@ -666,6 +666,7 @@ impl StorageEventHandler {
 }
 
 /// 处理包含多个事件的交易 / Process transactions containing multiple events
+#[allow(dead_code)]
 pub async fn process_transaction_events(
     event_storage: &EventStorage,
     signature: &str,
@@ -685,6 +686,7 @@ pub async fn process_transaction_events(
 }
 
 /// 处理包含强平的BuySell事件 / Process BuySell events with force liquidations
+#[allow(dead_code)]
 pub async fn process_buy_sell_with_liquidations(
     event_storage: &EventStorage,
     buy_sell_event: PinpetEvent,

@@ -159,6 +159,7 @@ impl KlineDataProcessor {
     }
 
     /// 将价格转换为K线数据 (用于实时推送) / Convert price to K-line data (for real-time push)
+    #[allow(dead_code)]
     pub fn price_to_kline_data(&self, price: f64, timestamp: u64) -> KlineRealtimeData {
         KlineRealtimeData {
             time: timestamp,

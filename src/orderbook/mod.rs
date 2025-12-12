@@ -12,7 +12,7 @@ pub mod user_query;
 pub use errors::{OrderBookError, Result};
 pub use manager::OrderBookDBManager;
 pub use types::{
-    ClosedOrderRecord, CloseInfo, MarginOrder, MarginOrderUpdateData, OrderBookHeader,
+    ClosedOrderRecord, CloseInfo, MarginOrder, MarginOrderUpdateData,
 };
 pub use user_query::UserOrderQueryService;
 

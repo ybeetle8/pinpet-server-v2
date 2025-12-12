@@ -269,6 +269,7 @@ impl OrderBookDBManager {
 
     /// 通过 order_id 获取订单
     /// Get order by order_id
+    #[allow(dead_code)]
     pub fn get_order_by_id(&self, order_id: u64) -> Result<MarginOrder> {
         // 1. 通过 ID 映射获取 index
         // 1. Get index through ID mapping
@@ -296,6 +297,7 @@ impl OrderBookDBManager {
 
     /// 获取所有活跃订单
     /// Get all active orders
+    #[allow(dead_code)]
     pub fn get_all_active_orders(&self) -> Result<Vec<(u16, MarginOrder)>> {
         let indices = self.load_active_indices()?;
         let mut orders = Vec::with_capacity(indices.len());
@@ -496,6 +498,7 @@ impl OrderBookDBManager {
     /// # 返回值 / Returns
     /// 返回 (插入的订单索引, 订单ID)
     /// Returns (inserted order index, order ID)
+    #[allow(dead_code)]
     pub fn insert_before(
         &self,
         before_index: u16,
@@ -1498,6 +1501,7 @@ impl OrderBookDBManager {
     ///
     /// # 返回值 / Returns
     /// `(prev_index: Option<u16>, next_index: Option<u16>)`
+    #[allow(dead_code)]
     pub fn get_insert_neighbors(&self, insert_pos: u16) -> Result<(Option<u16>, Option<u16>)> {
         let header = self.load_header()?;
 

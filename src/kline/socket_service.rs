@@ -23,6 +23,7 @@ pub struct KlineSocketService {
     event_storage: Arc<EventStorage>,                        // 事件存储 / Event storage
     subscriptions: Arc<RwLock<SubscriptionManager>>,         // 订阅管理器 / Subscription manager
     data_processor: Arc<KlineDataProcessor>,                 // 数据处理器 / Data processor
+    #[allow(dead_code)]
     config: KlineConfig,                                     // 配置 / Configuration
 }
 
@@ -465,6 +466,7 @@ impl KlineSocketService {
     }
 
     /// 获取服务统计信息 / Get service statistics
+    #[allow(dead_code)]
     pub async fn get_service_stats(&self) -> serde_json::Value {
         let manager = self.subscriptions.read().await;
 
@@ -481,6 +483,7 @@ impl KlineSocketService {
     }
 
     /// 获取详细的订阅状态和通讯统计 / Get detailed subscription status and communication statistics
+    #[allow(dead_code)]
     pub async fn get_subscription_details(&self) -> serde_json::Value {
         let manager = self.subscriptions.read().await;
         let now = Instant::now();

@@ -236,6 +236,7 @@ pub struct MarginOrderUpdateData {
 
 /// 遍历结果
 /// Traversal result
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct TraversalResult {
     /// 本次处理的订单数量
