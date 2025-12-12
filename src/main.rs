@@ -3,6 +3,7 @@ mod db;
 mod docs;
 mod kline;
 mod orderbook;
+mod price;
 mod router;
 mod solana;
 mod util;
@@ -81,6 +82,14 @@ async fn main() {
         }
     };
     tracing::info!("✅ OrderBook 数据库初始化成功 / OrderBook database initialized successfully");
+
+    // 初始化 SOL 价格服务 / Initialize SOL price service
+    tracing::info!("🚀 初始化 SOL 价格服务 / Initializing SOL price service");
+    let price_service = Arc::new(price::SolPriceService::new());
+
+    // 启动定时更新任务 / Start periodic update task
+    price_service.clone().start_periodic_update();
+    tracing::info!("✅ SOL 价格服务初始化成功 / SOL price service initialized successfully");
 
     // 初始化 K线推送服务 (如果启用) / Initialize K-line WebSocket service (if enabled)
     let (kline_socket_service, socketio_layer) = if config.kline.enable_kline_service {
@@ -239,6 +248,7 @@ async fn main() {
         token_storage_for_api,
         orderbook_storage.clone(),
         kline_storage_for_api,
+        price_service.clone(),
     );
 
     // 创建 Swagger UI

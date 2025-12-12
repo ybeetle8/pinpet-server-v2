@@ -3,6 +3,7 @@ pub mod health;
 pub mod kline;
 pub mod orderbook;
 pub mod orderbook_history;
+pub mod price;
 pub mod token;
 
 use axum::Router;
@@ -14,6 +15,7 @@ pub fn create_router(
     token_storage: Arc<crate::db::TokenStorage>,
     orderbook_storage: Arc<crate::db::OrderBookStorage>,
     kline_storage: Arc<crate::db::KlineStorage>,
+    price_service: Arc<crate::price::SolPriceService>,
 ) -> Router {
     // 创建 Token 状态
     let token_state = token::TokenState {
@@ -25,6 +27,11 @@ pub fn create_router(
         kline_storage: kline_storage.clone(),
     };
 
+    // 创建价格状态 / Create price state
+    let price_state = price::PriceState {
+        price_service: price_service.clone(),
+    };
+
     Router::new()
         .merge(health::routes())
         .merge(db::routes().with_state(db))
@@ -32,4 +39,5 @@ pub fn create_router(
         .merge(orderbook::routes().with_state(orderbook_storage.clone()))
         .merge(orderbook_history::routes().with_state(orderbook_storage))
         .merge(kline::routes().with_state(kline_state))
+        .merge(price::routes().with_state(price_state))
 }

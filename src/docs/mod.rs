@@ -85,6 +85,8 @@ pub struct ErrorApiResponse {
         crate::router::orderbook_history::get_user_history,
         // K线查询路由 / K-line Query routes
         crate::router::kline::get_kline,
+        // 价格查询路由 / Price Query routes
+        crate::router::price::get_sol_price,
     ),
     components(
         schemas(
@@ -131,6 +133,8 @@ pub struct ErrorApiResponse {
             // K线查询结构体 / K-line Query structures
             crate::kline::types::KlineData,
             crate::kline::types::KlineQueryResponse,
+            // 价格查询结构体 / Price Query structures
+            crate::price::SolPrice,
             EmptyResponse,
             ErrorApiResponse,
         )
@@ -142,6 +146,7 @@ pub struct ErrorApiResponse {
         (name = "tokens", description = "Token代币查询接口 / Token query APIs"),
         (name = "OrderBook", description = "OrderBook保证金订单查询接口 / OrderBook margin order query APIs"),
         (name = "K线查询 / K-line Query", description = "K线数据查询接口 / K-line data query APIs"),
+        (name = "价格查询 / Price Query", description = "SOL价格查询接口 / SOL price query APIs"),
     ),
     info(
         title = "Pinpet Server API",
