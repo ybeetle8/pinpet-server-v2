@@ -1,7 +1,6 @@
 // Solana客户端模块 / Solana client module
 use anyhow::Result;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
 use tracing::{debug, error, info};
@@ -133,7 +132,8 @@ impl SolanaClient {
     }
 
     /// 获取程序账户 / Get program accounts
-    pub async fn get_program_accounts(&self, program_id: &str) -> Result<Vec<ProgramAccount>> {
+    #[allow(dead_code)]
+    pub async fn get_program_accounts(&self, program_id: &str) -> Result<Vec<Value>> {
         let request = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -156,28 +156,14 @@ impl SolanaClient {
         let body: Value = response.json().await?;
 
         if let Some(result) = body.get("result") {
-            let accounts: Vec<ProgramAccount> = serde_json::from_value(result.clone())?;
-            Ok(accounts)
+            if let Some(accounts) = result.as_array() {
+                Ok(accounts.clone())
+            } else {
+                Ok(Vec::new())
+            }
         } else {
             Ok(Vec::new())
         }
     }
 }
 
-/// 程序账户数据结构 / Program account data structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProgramAccount {
-    pub pubkey: String,
-    pub account: AccountData,
-}
-
-/// 账户数据结构 / Account data structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountData {
-    pub data: Vec<String>,
-    pub executable: bool,
-    pub lamports: u64,
-    pub owner: String,
-    #[serde(rename = "rentEpoch")]
-    pub rent_epoch: u64,
-}

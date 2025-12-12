@@ -297,17 +297,3 @@ pub struct CloseInfo {
     pub close_reason: u8,
 }
 
-/// 关闭原因枚举
-/// Close reason enum
-#[repr(u8)]
-#[derive(Debug, Clone, Copy)]
-pub enum CloseReason {
-    /// 用户主动平仓 / User initiated
-    UserInitiated = 1,
-    /// 强制清算 / Forced liquidation
-    ForcedLiquidation = 2,
-    /// 到期自动平仓 / Expired
-    Expired = 3,
-    /// 爆仓清算 / Margin call
-    MarginCall = 4,
-}

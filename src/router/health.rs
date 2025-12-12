@@ -1,6 +1,5 @@
 use axum::{routing::get, Router};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use utoipa::ToSchema;
 
 use crate::util::{ok_result, ApiResult};

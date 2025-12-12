@@ -112,15 +112,12 @@ pub struct HistoryRequest {
     pub symbol: String,        // mint地址 / mint address
     pub interval: String,      // 时间间隔 / time interval
     pub limit: Option<usize>,  // 返回数量限制 / Return limit
-    pub from: Option<u64>,     // 开始时间戳(秒) / Start timestamp (seconds)
 }
 
 /// K线配置 / K-line configuration
 #[derive(Debug, Clone)]
 pub struct KlineConfig {
-    pub connection_timeout_secs: u64,        // 连接超时时间(秒) / Connection timeout (seconds)
     pub max_subscriptions_per_client: usize, // 每客户端最大订阅数 / Max subscriptions per client
-    pub history_data_limit: usize,           // 历史数据默认条数 / History data default limit
     pub ping_interval_secs: u64,             // 心跳间隔(秒) / Ping interval (seconds)
     pub ping_timeout_secs: u64,              // 心跳超时(秒) / Ping timeout (seconds)
 }
@@ -128,9 +125,7 @@ pub struct KlineConfig {
 impl Default for KlineConfig {
     fn default() -> Self {
         Self {
-            connection_timeout_secs: 60,
             max_subscriptions_per_client: 100,
-            history_data_limit: 100,
             ping_interval_secs: 25,
             ping_timeout_secs: 60,
         }

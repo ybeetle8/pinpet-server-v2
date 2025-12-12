@@ -9,12 +9,10 @@ pub mod user_query;
 
 // Re-export main types
 // 重导出主要类型
-pub use closed_orders::ClosedOrdersQuery;
 pub use errors::{OrderBookError, Result};
 pub use manager::OrderBookDBManager;
 pub use types::{
-    ClosedOrderRecord, CloseInfo, CloseReason, MarginOrder, MarginOrderUpdateData,
-    OrderBookHeader, TraversalResult,
+    ClosedOrderRecord, CloseInfo, MarginOrder, MarginOrderUpdateData, OrderBookHeader,
 };
 pub use user_query::UserOrderQueryService;
 

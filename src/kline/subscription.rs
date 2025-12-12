@@ -6,12 +6,10 @@ use std::time::Instant;
 /// 客户端连接信息 / Client connection information
 #[derive(Debug, Clone)]
 pub struct ClientConnection {
-    pub socket_id: String,               // Socket ID
     pub subscriptions: HashSet<String>,  // "mint:interval" 格式的订阅键 / Subscription keys in "mint:interval" format
     pub last_activity: Instant,          // 最后活动时间 / Last activity time
     pub connection_time: Instant,        // 连接建立时间 / Connection establishment time
     pub subscription_count: usize,       // 当前订阅数量 / Current subscription count
-    pub user_agent: Option<String>,      // 客户端信息 / Client user agent
     pub kline_data_sent_count: u64,      // kline_data 发送次数 / kline_data sent count
     pub history_data_sent_count: u64,    // history_data 发送次数 / history_data sent count
     pub total_messages_sent: u64,        // 总消息发送次数 / Total messages sent count
@@ -47,14 +45,12 @@ impl SubscriptionManager {
     /// 添加客户端连接 / Add client connection
     pub fn add_connection(&mut self, socket_id: String) {
         self.connections.insert(
-            socket_id.clone(),
+            socket_id,
             ClientConnection {
-                socket_id,
                 subscriptions: HashSet::new(),
                 last_activity: Instant::now(),
                 connection_time: Instant::now(),
                 subscription_count: 0,
-                user_agent: None,
                 kline_data_sent_count: 0,
                 history_data_sent_count: 0,
                 total_messages_sent: 0,

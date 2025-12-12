@@ -367,6 +367,7 @@ impl EventStorage {
     }
 
     /// 按user查询事件 / Query events by user
+    #[allow(dead_code)]
     pub async fn query_by_user(&self, user: &str, mint: Option<&str>, limit: Option<usize>) -> Result<Vec<PinpetEvent>> {
         let prefix = match mint {
             Some(m) => format!("idx_user:{}:{}:", user, m),
@@ -418,6 +419,7 @@ impl EventStorage {
     }
 
     /// 按slot查询事件 / Query events by slot
+    #[allow(dead_code)]
     pub async fn query_by_slot(&self, slot: u64) -> Result<Vec<PinpetEvent>> {
         let slot_key = format!("slot_batch:{:010}", slot);
 
@@ -444,6 +446,7 @@ impl EventStorage {
     }
 
     /// 按slot范围查询事件 / Query events by slot range
+    #[allow(dead_code)]
     pub async fn query_by_slot_range(&self, start_slot: u64, end_slot: u64) -> Result<Vec<PinpetEvent>> {
         let mut all_events = Vec::new();
 

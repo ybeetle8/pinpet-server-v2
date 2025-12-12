@@ -95,6 +95,7 @@ impl RocksDbStorage {
     }
 
     /// 写入键值对
+    #[allow(dead_code)]
     pub fn put(&self, key: &str, value: &str) -> Result<()> {
         self.db.put(key.as_bytes(), value.as_bytes())?;
         Ok(())

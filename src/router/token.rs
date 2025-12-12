@@ -20,13 +20,6 @@ pub struct TokenState {
     pub token_storage: Arc<TokenStorage>,
 }
 
-/// 根据mint查询Token参数 / Get token by mint parameters
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct GetTokenByMintParams {
-    /// Token mint地址 / Token mint address
-    pub mint: String,
-}
-
 /// 根据symbol查询Token列表参数 / Get tokens by symbol parameters
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct GetTokensBySymbolParams {

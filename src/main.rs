@@ -103,9 +103,7 @@ async fn main() {
 
         // 创建K线配置 / Create K-line config
         let kline_config = kline::KlineConfig {
-            connection_timeout_secs: config.kline.connection_timeout_secs,
             max_subscriptions_per_client: config.kline.max_subscriptions_per_client,
-            history_data_limit: config.kline.history_data_limit,
             ping_interval_secs: config.kline.ping_interval_secs,
             ping_timeout_secs: config.kline.ping_timeout_secs,
         };

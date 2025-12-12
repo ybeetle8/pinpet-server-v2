@@ -7,7 +7,6 @@ use std::time::Duration;
 /// Binance API 响应结构 / Binance API response structure
 #[derive(Debug, Deserialize)]
 struct BinancePrice {
-    symbol: String,
     price: String,
 }
 /// CoinGecko API 响应结构 / CoinGecko API response structure

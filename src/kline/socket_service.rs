@@ -12,7 +12,6 @@ use anyhow::Result;
 use chrono::Utc;
 use socketioxide::extract::{Data, SocketRef};
 use socketioxide::SocketIo;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -69,7 +68,7 @@ impl KlineSocketService {
         // K线命名空间 - 合并所有事件处理器到一个命名空间 / K-line namespace - merge all event handlers into one namespace
         self.socketio.ns("/kline", {
             let subscriptions = subscriptions.clone();
-            let event_storage = event_storage.clone();
+            let _event_storage = event_storage.clone();
             let data_processor = data_processor.clone();
 
             move |socket: SocketRef| {
@@ -474,7 +473,6 @@ impl KlineSocketService {
             "total_subscriptions": manager.client_subscriptions.values().map(|s| s.len()).sum::<usize>(),
             "monitored_mints": manager.mint_subscribers.len(),
             "config": {
-                "connection_timeout": self.config.connection_timeout_secs,
                 "max_subscriptions_per_client": self.config.max_subscriptions_per_client,
                 "ping_interval": self.config.ping_interval_secs,
                 "ping_timeout": self.config.ping_timeout_secs

@@ -17,7 +17,6 @@ pub struct RemovedOrderInfo {
     pub user: String,
     pub position_asset_amount: u64,
     pub margin_sol_amount: u64,
-    pub order_id: u64,
 }
 
 /// OrderBook 数据库管理器
@@ -230,6 +229,7 @@ impl OrderBookDBManager {
 
     /// 更新 OrderBook header
     /// Update OrderBook header
+    #[allow(dead_code)]
     fn save_header(&self, header: &OrderBookHeader) -> Result<()> {
         let key = self.header_key();
         self.db.put(key.as_bytes(), &header.to_bytes()?)?;
@@ -1040,7 +1040,6 @@ impl OrderBookDBManager {
                             user: order.user.clone(),
                             position_asset_amount: order.position_asset_amount,
                             margin_sol_amount: order.margin_sol_amount,
-                            order_id: order.order_id,
                         });
                     }
                     Err(e) => {
@@ -1065,6 +1064,7 @@ impl OrderBookDBManager {
 
     /// 内部辅助函数: 从链表中摘除节点
     /// Internal helper: Unlink node from linked list
+    #[allow(dead_code)]
     fn unlink_node_internal(
         &self,
         batch: &mut WriteBatch,
@@ -1115,6 +1115,7 @@ impl OrderBookDBManager {
 
     /// 内部辅助函数: 将末尾节点移动到指定索引
     /// Internal helper: Move tail node to specified index
+    #[allow(dead_code)]
     fn move_tail_to_index_internal(
         &self,
         batch: &mut WriteBatch,
@@ -1170,6 +1171,7 @@ impl OrderBookDBManager {
 
     /// 内部辅助函数: 删除全部订单
     /// Internal helper: Remove all orders
+    #[allow(dead_code)]
     fn batch_remove_all(&self) -> Result<()> {
         let mut batch = WriteBatch::default();
 

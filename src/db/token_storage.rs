@@ -226,6 +226,7 @@ impl TokenStorage {
     }
 
     /// 使用WriteBatch原子保存Token及其索引 / Save token with indexes atomically using WriteBatch
+    #[allow(dead_code)]
     fn save_token_with_indexes(&self, detail: &TokenDetail) -> Result<()> {
         let mut batch = WriteBatch::default();
 
@@ -425,6 +426,7 @@ impl TokenStorage {
     }
 
     /// 批量获取Token详情 / Batch get tokens
+    #[allow(dead_code)]
     pub fn batch_get_tokens(&self, mints: Vec<String>) -> Result<Vec<TokenDetail>> {
         let mut tokens = Vec::new();
         for mint in mints {
