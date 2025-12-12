@@ -3,6 +3,7 @@
 
 use crate::db::EventStorage;
 use crate::kline::{data_processor::KlineDataProcessor, socket_service::KlineSocketService};
+use crate::price::SolPriceService;
 use crate::solana::{EventHandler, PinpetEvent};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -16,6 +17,7 @@ pub struct KlineEventHandler {
     inner: Arc<dyn EventHandler>,           // 内部事件处理器 / Inner event handler
     kline_service: Arc<KlineSocketService>, // K线推送服务 / K-line push service
     event_storage: Arc<EventStorage>,       // 事件存储(用于读取K线数据) / Event storage (for reading K-line data)
+    price_service: Arc<SolPriceService>,    // SOL价格服务(用于SOL->USD转换) / SOL price service (for SOL->USD conversion)
 }
 
 impl KlineEventHandler {
@@ -24,11 +26,13 @@ impl KlineEventHandler {
         inner: Arc<dyn EventHandler>,
         kline_service: Arc<KlineSocketService>,
         event_storage: Arc<EventStorage>,
+        price_service: Arc<SolPriceService>,
     ) -> Self {
         Self {
             inner,
             kline_service,
             event_storage,
+            price_service,
         }
     }
 
@@ -72,7 +76,25 @@ impl EventHandler for KlineEventHandler {
 
         // 3. 如果事件包含价格数据,生成并广播K线更新
         // 3. If event contains price data, generate and broadcast K-line update
-        if let Some(current_price) = KlineDataProcessor::extract_price_from_event(&event) {
+        if let Some(price_in_sol) = KlineDataProcessor::extract_price_from_event(&event) {
+            // 获取当前SOL价格(USD) / Get current SOL price (USD)
+            let sol_price_usd = match self.price_service.get_price().await {
+                Some(sol_price) => sol_price.price,
+                None => {
+                    warn!("⚠️ SOL价格未就绪,跳过K线推送 / SOL price not ready, skipping K-line push");
+                    return Ok(());
+                }
+            };
+
+            // 将SOL价格转换为USD价格 / Convert SOL price to USD price
+            // Token价格(SOL) × SOL价格(USD) = Token价格(USD)
+            let current_price = price_in_sol * sol_price_usd;
+
+            debug!(
+                "价格转换 / Price conversion: {} SOL × {} USD/SOL = {} USD",
+                price_in_sol, sol_price_usd, current_price
+            );
+
             let mint = KlineDataProcessor::get_mint_from_event(&event);
             let timestamp = Utc::now().timestamp() as u64;
 

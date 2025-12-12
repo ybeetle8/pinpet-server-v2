@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::solana::events::PinpetEvent;
 use crate::router::db::PaginatedEvents;
+use crate::price::SolPriceService;
 
 /// 事件引用结构 - 用于索引 / Event reference structure - for indexing
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -33,13 +34,14 @@ struct SignatureRef {
 pub struct EventStorage {
     db: Arc<DB>,
     kline_storage: crate::db::KlineStorage,
+    price_service: Arc<SolPriceService>,  // SOL价格服务(用于K线价格转换) / SOL price service (for K-line price conversion)
 }
 
 impl EventStorage {
     /// 创建新的事件存储服务 / Create new event storage service
-    pub fn new(db: Arc<DB>) -> Result<Self> {
+    pub fn new(db: Arc<DB>, price_service: Arc<SolPriceService>) -> Result<Self> {
         let kline_storage = crate::db::KlineStorage::new(Arc::clone(&db));
-        Ok(Self { db, kline_storage })
+        Ok(Self { db, kline_storage, price_service })
     }
 
     /// 生成8位短签名 / Generate 8-character short signature
@@ -187,11 +189,21 @@ impl EventStorage {
 
         // 9. 处理K线数据（对于包含价格信息的事件）/ Process K-line data (for events with price info)
         // 在事件存储完成后异步处理,避免阻塞 / Process asynchronously after event storage to avoid blocking
+
+        // 获取当前SOL价格(USD) / Get current SOL price (USD)
+        let sol_price_usd = match self.price_service.get_price().await {
+            Some(sol_price) => sol_price.price,
+            None => {
+                tracing::warn!("⚠️ SOL价格未就绪,跳过K线数据处理 / SOL price not ready, skipping K-line data processing");
+                return Ok(());
+            }
+        };
+
         for event in &events {
             match event {
                 PinpetEvent::TokenCreated(e) => {
                     if let Err(err) = self.kline_storage
-                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp, sol_price_usd)
                         .await
                     {
                         tracing::error!("❌ Failed to process kline data for TokenCreated event: {}", err);
@@ -199,7 +211,7 @@ impl EventStorage {
                 }
                 PinpetEvent::BuySell(e) => {
                     if let Err(err) = self.kline_storage
-                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp, sol_price_usd)
                         .await
                     {
                         tracing::error!("❌ Failed to process kline data for BuySell event: {}", err);
@@ -207,7 +219,7 @@ impl EventStorage {
                 }
                 PinpetEvent::LongShort(e) => {
                     if let Err(err) = self.kline_storage
-                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp, sol_price_usd)
                         .await
                     {
                         tracing::error!("❌ Failed to process kline data for LongShort event: {}", err);
@@ -215,7 +227,7 @@ impl EventStorage {
                 }
                 PinpetEvent::FullClose(e) => {
                     if let Err(err) = self.kline_storage
-                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp, sol_price_usd)
                         .await
                     {
                         tracing::error!("❌ Failed to process kline data for FullClose event: {}", err);
@@ -223,7 +235,7 @@ impl EventStorage {
                 }
                 PinpetEvent::PartialClose(e) => {
                     if let Err(err) = self.kline_storage
-                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp)
+                        .process_kline_data(&e.mint_account, e.latest_price, e.timestamp, sol_price_usd)
                         .await
                     {
                         tracing::error!("❌ Failed to process kline data for PartialClose event: {}", err);

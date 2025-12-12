@@ -61,8 +61,8 @@ async fn main() {
     tracing::info!("✅ 配置加载成功");
 
     // 初始化 RocksDB
-    let db_storage = match db::RocksDbStorage::new(&config) {
-        Ok(storage) => Arc::new(storage),
+    let mut db_storage = match db::RocksDbStorage::new(&config) {
+        Ok(storage) => storage,
         Err(e) => {
             tracing::error!("❌ RocksDB 初始化失败: {}", e);
             std::process::exit(1);
@@ -90,6 +90,12 @@ async fn main() {
     // 启动定时更新任务 / Start periodic update task
     price_service.clone().start_periodic_update();
     tracing::info!("✅ SOL 价格服务初始化成功 / SOL price service initialized successfully");
+
+    // 设置价格服务到 db_storage (必须在创建 EventStorage 之前) / Set price service to db_storage (must be before creating EventStorage)
+    db_storage.set_price_service(price_service.clone());
+
+    // 现在将 db_storage 转为 Arc / Now convert db_storage to Arc
+    let db_storage = Arc::new(db_storage);
 
     // 初始化 K线推送服务 (如果启用) / Initialize K-line WebSocket service (if enabled)
     let (kline_socket_service, socketio_layer) = if config.kline.enable_kline_service {
@@ -188,6 +194,7 @@ async fn main() {
                 storage_handler,
                 kline_service.clone(),
                 event_storage,  // 传入event_storage用于读取K线数据 / Pass event_storage for reading K-line data
+                price_service.clone(),  // 传入price_service用于SOL->USD转换 / Pass price_service for SOL->USD conversion
             ))
         } else {
             // 不使用K线服务,直接使用 StorageEventHandler / Without K-line service, use StorageEventHandler directly

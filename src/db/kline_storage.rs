@@ -106,8 +106,18 @@ impl KlineStorage {
         mint_account: &str,
         latest_price: u128,
         timestamp: DateTime<Utc>,
+        sol_price_usd: f64,  // SOL价格(USD) / SOL price (USD)
     ) -> Result<()> {
-        let price = self.convert_price_to_f64(latest_price);
+        // 将SOL价格转换为USD价格 / Convert SOL price to USD price
+        // Token价格(SOL) × SOL价格(USD) = Token价格(USD)
+        let price_in_sol = self.convert_price_to_f64(latest_price);
+        let price = price_in_sol * sol_price_usd;
+
+        debug!(
+            "K线价格转换 / K-line price conversion: {} SOL × {} USD/SOL = {} USD",
+            price_in_sol, sol_price_usd, price
+        );
+
         let unix_timestamp = timestamp.timestamp() as u64;
 
         let intervals = [KLINE_INTERVAL_1S, KLINE_INTERVAL_30S, KLINE_INTERVAL_5M];

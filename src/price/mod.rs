@@ -10,7 +10,6 @@ struct BinancePrice {
     symbol: String,
     price: String,
 }
-
 /// CoinGecko API 响应结构 / CoinGecko API response structure
 #[derive(Debug, Deserialize)]
 struct CoinGeckoResponse {

@@ -4,11 +4,13 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::config::Config;
+use crate::price::SolPriceService;
 
 /// RocksDB 存储服务
 pub struct RocksDbStorage {
     pub(crate) db: Arc<DB>,
     config: Config,
+    price_service: Option<Arc<SolPriceService>>,  // SOL价格服务(可选,用于EventStorage) / SOL price service (optional, for EventStorage)
 }
 
 impl RocksDbStorage {
@@ -82,7 +84,14 @@ impl RocksDbStorage {
         Ok(Self {
             db: Arc::new(db),
             config: config.clone(),
+            price_service: None,  // 初始化为None,稍后通过set_price_service设置 / Initialize as None, will be set later via set_price_service
         })
+    }
+
+    /// 设置SOL价格服务 / Set SOL price service
+    /// 必须在创建EventStorage之前调用 / Must be called before creating EventStorage
+    pub fn set_price_service(&mut self, price_service: Arc<SolPriceService>) {
+        self.price_service = Some(price_service);
     }
 
     /// 写入键值对
@@ -113,7 +122,9 @@ impl RocksDbStorage {
 
     /// 创建事件存储实例 / Create event storage instance
     pub fn create_event_storage(&self) -> Result<crate::db::EventStorage> {
-        crate::db::EventStorage::new(Arc::clone(&self.db))
+        let price_service = self.price_service.clone()
+            .ok_or_else(|| anyhow::anyhow!("Price service not set. Call set_price_service() first."))?;
+        crate::db::EventStorage::new(Arc::clone(&self.db), price_service)
     }
 
     /// 创建 Token 存储实例 / Create Token storage instance
