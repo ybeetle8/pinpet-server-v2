@@ -103,7 +103,7 @@ pub struct CreateToken<'info> {
         // 支付账户
         payer = payer,
         // 设置代币精度
-        mint::decimals = 6,
+        mint::decimals = 9,
         // 设置铸造权限拥有者为curve_account(PDA)
         mint::authority = curve_account.key(),
         // 设置冻结权限拥有者为curve_account(PDA)

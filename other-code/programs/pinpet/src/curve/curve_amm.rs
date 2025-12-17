@@ -6,11 +6,11 @@ use rust_decimal::prelude::*;
 // /// SOL计算使用的精度因子 (10^9)
 // pub const SOL_PRECISION_FACTOR: u64 = 1_000_000_000;
 
-// /// Token计算使用的精度因子 (10^6)
-// pub const TOKEN_PRECISION_FACTOR: u64 = 1_000_000;
+// /// Token计算使用的精度因子 (10^9)
+// pub const TOKEN_PRECISION_FACTOR: u64 = 1_000_000_000;
 
-// /// 价格计算使用的精度因子 (10^28)
-// pub const PRICE_PRECISION_FACTOR: u128 = 10_000_000_000_000_000_000_000_000_000;
+// /// 价格计算使用的精度因子 (10^23) / Price precision factor (10^23)
+// pub const PRICE_PRECISION_FACTOR: u128 = 100_000_000_000_000_000_000_000;
 
 /// 手续费计算使用的分母 (10^5)
 pub const FEE_DENOMINATOR: u64 = 100_000;
@@ -33,6 +33,7 @@ pub struct CurveAMM;
 impl CurveAMM {
 
     pub const INITIAL_SOL_RESERVE_DECIMAL: Decimal = Decimal::from_parts(30, 0, 0, false, 0);
+    // 1073000000000 (token reserve with 9 decimal precision) / token储备量(9位小数精度)
     pub const INITIAL_TOKEN_RESERVE_DECIMAL: Decimal = Decimal::from_parts(1073000000, 0, 0, false, 0);
     //pub const INITIAL_K_DECIMAL: Decimal = Decimal::from_parts(2125228928, 7, 0, false, 0);
     /// 可以出现的最小价格，低于这个价格，可能溢出
@@ -42,13 +43,16 @@ impl CurveAMM {
     //pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(2764472320, 232830, 0, false, 0);
     /// 精度因子的Decimal表示 = 10^28
     //pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(268435456, 1042612833, 542101086, false, 0);
+    // 精度因子的Decimal表示 = 10^23
+    pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(4135583744, 46653770, 5421, false, 0);
+    
     // /// 精度因子的Decimal表示 = 10^24
     // pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(2701131776, 466537709, 54210, false, 0);
-    /// 精度因子的Decimal表示 = 10^26
-    pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(3825205248, 3704098002, 5421010, false, 0);
+    // /// 精度因子的Decimal表示 = 10^26
+    //pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(3825205248, 3704098002, 5421010, false, 0);
 
-    /// Token精度因子的Decimal表示 = 1000000
-    pub const TOKEN_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(1000000, 0, 0, false, 0);
+    /// Token精度因子的Decimal表示 = 1000000000
+    pub const TOKEN_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(1000000000, 0, 0, false, 0);
     
     /// SOL精度因子的Decimal表示 = 1000000000
     pub const SOL_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(1000000000, 0, 0, false, 0);
@@ -57,7 +61,7 @@ impl CurveAMM {
     pub const MAX_U64: u64 = 3046744073709551614;
 
     /// AMM价格计算上限 - 防止 Decimal 运算溢出/panic
-    pub const PRICE_CALCULATION_LIMIT: u128 = 50_000_000_000_000_000_000_000_000_000;
+    pub const PRICE_CALCULATION_LIMIT: u128 = 50_000_000_000_000_000_000_000_000_000_000;
 
 
     /// 将u128价格转换为Decimal

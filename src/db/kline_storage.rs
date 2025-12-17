@@ -12,8 +12,8 @@ pub const KLINE_INTERVAL_1S: &str = "s1";   // 1秒 / 1 second
 pub const KLINE_INTERVAL_30S: &str = "s30"; // 30秒 / 30 seconds
 pub const KLINE_INTERVAL_5M: &str = "m5";   // 5分钟 / 5 minutes
 
-/// 价格精度常量(26位小数) / Precision constant for u128 to f64 conversion (26 decimal places)
-pub const PRICE_PRECISION: u128 = 10_u128.pow(26);
+/// 价格精度常量(23位小数) / Precision constant for u128 to f64 conversion (23 decimal places)
+pub const PRICE_PRECISION: u128 = 10_u128.pow(23);
 
 /// K线存储服务 / K-line storage service
 pub struct KlineStorage {

@@ -5,8 +5,8 @@ use anyhow::Result;
 use chrono::Utc;
 use std::sync::Arc;
 
-/// 价格精度常量 (26位小数) / Precision constant for u128 to f64 conversion (26 decimal places)
-pub const PRICE_PRECISION: u128 = 10_u128.pow(26);
+/// 价格精度常量 (23位小数) / Precision constant for u128 to f64 conversion (23 decimal places)
+pub const PRICE_PRECISION: u128 = 10_u128.pow(23);
 
 /// K线数据处理器 / K-line data processor
 pub struct KlineDataProcessor {
@@ -20,11 +20,11 @@ impl KlineDataProcessor {
     }
 
     /// 将u128价格转换为f64 / Convert u128 price to f64 with precision handling
-    /// 价格存储为u128类型，精度为10^26，需要除以PRICE_PRECISION转换为f64
-    /// Price is stored as u128 with 26 decimal places precision, needs to be divided by PRICE_PRECISION to convert to f64
+    /// 价格存储为u128类型，精度为10^23，需要除以PRICE_PRECISION转换为f64
+    /// Price is stored as u128 with 23 decimal places precision, needs to be divided by PRICE_PRECISION to convert to f64
     pub fn convert_price_to_f64(price_u128: u128) -> f64 {
         // 将u128转换为f64并除以精度常量 / Convert u128 to f64 and divide by precision constant
-        // Since u128 has 26 decimal places, we divide by 10^26
+        // Since u128 has 23 decimal places, we divide by 10^23
         // But f64 has limited precision, so we might lose some accuracy
         let price_f64 = price_u128 as f64 / PRICE_PRECISION as f64;
 
