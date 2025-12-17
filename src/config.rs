@@ -11,7 +11,7 @@ pub struct Config {
     pub kline: KlineServiceConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)] 
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
