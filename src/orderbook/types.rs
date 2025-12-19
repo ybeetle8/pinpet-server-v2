@@ -313,6 +313,8 @@ pub struct CloseInfo {
     /// - 2: 强制清算 / Forced liquidation
     /// - 3: 到期自动平仓 / Expired auto-close
     /// - 4: 爆仓清算 / Margin call liquidation
+    /// - 5: 用户主动平半仓 
+    /// - 6: 到期平半仓 
     pub close_reason: u8,
 }
 

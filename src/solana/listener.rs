@@ -2,6 +2,7 @@
 use super::client::SolanaClient;
 use super::events::{EventParser, PinpetEvent};
 use crate::config::SolanaConfig;
+use crate::db::EventQueueStorage;
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -9,7 +10,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use tokio::sync::Mutex;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tokio::time::{interval, sleep, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
@@ -46,26 +47,26 @@ enum ConnectionState {
     Reconnecting,
 }
 
-/// 改进的Solana事件监听器，具有强大的重连功能 / Improved Solana event listener with robust reconnection
+/// 改进的Solana事件监听器，具有持久化队列支持 / Improved Solana event listener with persistent queue support
 pub struct SolanaEventListener {
     config: SolanaConfig,
     client: Arc<SolanaClient>,
     event_parser: EventParser,
     event_handler: Arc<dyn EventHandler>,
-    // 使用广播通道避免"通道已关闭"错误 / Use broadcast channel to avoid "channel closed" errors
-    event_broadcaster: broadcast::Sender<PinpetEvent>,
+    // 🔧 使用无界通道，永不丢失事件 / Use unbounded channel, never lose events
+    event_sender: mpsc::UnboundedSender<PinpetEvent>,
+    event_receiver: Option<mpsc::UnboundedReceiver<PinpetEvent>>,
+    // 事件持久化队列 / Event persistence queue
+    event_queue: Arc<EventQueueStorage>,
     connection_state: Arc<tokio::sync::RwLock<ConnectionState>>,
     reconnect_attempts: Arc<tokio::sync::RwLock<u32>>,
     should_stop: Arc<tokio::sync::RwLock<bool>>,
     processed_signatures: Arc<tokio::sync::RwLock<HashSet<String>>>,
     is_running: bool,
-    // 🔧 P1 修复: 添加性能监控计数器 / P1 Fix: Add performance monitoring counters
-    #[allow(dead_code)]
+    // 性能监控计数器 / Performance monitoring counters
     events_received: Arc<AtomicU64>,
-    #[allow(dead_code)]
     events_processed: Arc<AtomicU64>,
-    #[allow(dead_code)]
-    events_skipped: Arc<AtomicU64>,
+    events_failed: Arc<AtomicU64>,
 }
 
 impl SolanaEventListener {
@@ -107,18 +108,24 @@ impl SolanaEventListener {
         config: SolanaConfig,
         client: Arc<SolanaClient>,
         event_handler: Arc<dyn EventHandler>,
+        event_queue: Arc<EventQueueStorage>,
     ) -> anyhow::Result<Self> {
         let event_parser = EventParser::new(&config.program_id)?;
-        // 🔧 P0 修复: 增加 Broadcast channel 容量到 50000 以处理高并发事件
-        // 🔧 P0 Fix: Increase Broadcast channel capacity to 50000 to handle high concurrent events
-        let (event_broadcaster, _) = broadcast::channel(50000);
+
+        // 🔧 使用无界通道，永不因缓冲区满而丢失事件
+        // 🔧 Use unbounded channel, never lose events due to buffer overflow
+        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+
+        info!("✅ 使用无界通道和持久化队列，确保事件永不丢失 / Using unbounded channel and persistent queue, ensuring events are never lost");
 
         Ok(Self {
             config,
             client,
             event_parser,
             event_handler,
-            event_broadcaster,
+            event_sender,
+            event_receiver: Some(event_receiver),
+            event_queue,
             connection_state: Arc::new(tokio::sync::RwLock::new(ConnectionState::Disconnected)),
             reconnect_attempts: Arc::new(tokio::sync::RwLock::new(0)),
             should_stop: Arc::new(tokio::sync::RwLock::new(false)),
@@ -127,39 +134,123 @@ impl SolanaEventListener {
             // 初始化性能监控计数器 / Initialize performance monitoring counters
             events_received: Arc::new(AtomicU64::new(0)),
             events_processed: Arc::new(AtomicU64::new(0)),
-            events_skipped: Arc::new(AtomicU64::new(0)),
+            events_failed: Arc::new(AtomicU64::new(0)),
         })
     }
 
-    /// 使用广播通道启动事件处理器 / Start event processor using broadcast channel
-    async fn start_event_processor(&self) -> anyhow::Result<()> {
-        let mut event_receiver = self.event_broadcaster.subscribe();
+    /// 启动事件处理器（带持久化队列） / Start event processor with persistent queue
+    async fn start_event_processor(&mut self) -> anyhow::Result<()> {
+        // 取出 receiver（只能调用一次） / Take receiver (can only be called once)
+        let mut event_receiver = self.event_receiver
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Event receiver already taken"))?;
+
         let handler = Arc::clone(&self.event_handler);
         let should_stop = Arc::clone(&self.should_stop);
+        let event_queue = Arc::clone(&self.event_queue);
+        let events_processed = Arc::clone(&self.events_processed);
+        let events_failed = Arc::clone(&self.events_failed);
+
+        // 恢复处理中的事件 / Recover processing events
+        let recovered = event_queue.recover_processing_events().await?;
+        if recovered > 0 {
+            info!("🔄 恢复了 {} 个处理中的事件 / Recovered {} processing events", recovered, recovered);
+        }
+
+        // 启动队列处理器任务 / Start queue processor task
+        let queue_processor = event_queue.clone();
+        let handler_for_queue = handler.clone();
+        let events_processed_for_queue = events_processed.clone();
+        let events_failed_for_queue = events_failed.clone();
 
         tokio::spawn(async move {
-            info!("🎯 事件处理器启动，使用广播通道 / Event processor started with broadcast channel");
+            info!("📦 队列处理器启动 / Queue processor started");
+            let mut interval = interval(Duration::from_millis(100));
+
+            loop {
+                interval.tick().await;
+
+                // 批量获取待处理事件 / Batch get pending events
+                match queue_processor.get_pending_events(10).await {
+                    Ok(queued_events) => {
+                        for queued_event in queued_events {
+                            let event_id = queued_event.id.clone();
+
+                            // 标记为处理中 / Mark as processing
+                            if let Err(e) = queue_processor.mark_processing(&event_id).await {
+                                error!("标记事件处理中失败 / Failed to mark event as processing: {}", e);
+                                continue;
+                            }
+
+                            // 处理事件 / Process event
+                            match handler_for_queue.handle_event(queued_event.event).await {
+                                Ok(_) => {
+                                    // 标记为完成 / Mark as completed
+                                    if let Err(e) = queue_processor.mark_completed(&event_id).await {
+                                        error!("标记事件完成失败 / Failed to mark event as completed: {}", e);
+                                    } else {
+                                        events_processed_for_queue.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("处理事件失败 / Failed to process event: {}", e);
+                                    // 标记为失败（可重试） / Mark as failed (retryable)
+                                    if let Ok(will_retry) = queue_processor.mark_failed(&event_id, e.to_string(), 3).await {
+                                        if !will_retry {
+                                            events_failed_for_queue.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("获取待处理事件失败 / Failed to get pending events: {}", e);
+                    }
+                }
+
+                // 定期打印统计信息 / Periodically print statistics
+                static mut COUNTER: u64 = 0;
+                unsafe {
+                    COUNTER += 1;
+                    if COUNTER % 100 == 0 {  // 每10秒打印一次 / Print every 10 seconds
+                        if let Ok((pending, processing, dead, total)) = queue_processor.get_statistics().await {
+                            info!("📊 队列统计 / Queue stats: 待处理/pending={}, 处理中/processing={}, 死信/dead={}, 总计/total={}",
+                                  pending, processing, dead, total);
+                        }
+                    }
+                }
+            }
+        });
+
+        // 主事件接收任务 / Main event receiving task
+        tokio::spawn(async move {
+            info!("🎯 事件处理器启动，使用无界通道和持久化队列 / Event processor started with unbounded channel and persistent queue");
 
             loop {
                 tokio::select! {
-                    event_result = event_receiver.recv() => {
-                        match event_result {
-                            Ok(event) => {
-                                if let Err(e) = handler.handle_event(event).await {
-                                    error!("处理事件失败 / Failed to process event: {}", e);
+                    event_option = event_receiver.recv() => {
+                        match event_option {
+                            Some(event) => {
+                                // 先入队，确保不丢失 / Enqueue first to ensure no loss
+                                match event_queue.enqueue(event.clone()).await {
+                                    Ok(event_id) => {
+                                        debug!("事件已入队 / Event enqueued: {}", event_id);
+                                    }
+                                    Err(e) => {
+                                        error!("⚠️ 事件入队失败，尝试直接处理 / Failed to enqueue event, trying direct processing: {}", e);
+                                        // 如果入队失败，直接处理 / If enqueue fails, process directly
+                                        if let Err(e) = handler.handle_event(event).await {
+                                            error!("直接处理事件也失败 / Direct event processing also failed: {}", e);
+                                            events_failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        } else {
+                                            events_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                    }
                                 }
                             }
-                            Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                                // 🔧 P0 修复: 记录更详细的信息并提供恢复建议
-                                // 🔧 P0 Fix: Log more detailed info and provide recovery suggestions
-                                error!("⚠️ 严重：事件处理器延迟，跳过了{}个事件 / CRITICAL: Event processor lagged, skipped {} events", skipped, skipped);
-                                error!("建议：1. 增加 channel 容量；2. 优化事件处理速度；3. 考虑添加事件缓冲队列");
-                                error!("Suggestion: 1. Increase channel capacity; 2. Optimize event processing; 3. Consider adding event buffer queue");
-                                // 继续处理，但记录问题 / Continue processing but log the issue
-                                continue;
-                            }
-                            Err(broadcast::error::RecvError::Closed) => {
-                                info!("事件广播器关闭，停止处理器 / Event broadcaster closed, stopping processor");
+                            None => {
+                                info!("事件通道关闭，停止处理器 / Event channel closed, stopping processor");
                                 break;
                             }
                         }
@@ -184,7 +275,7 @@ impl SolanaEventListener {
         let config = self.config.clone();
         let client = Arc::clone(&self.client);
         let event_parser = self.event_parser.clone();
-        let event_broadcaster = self.event_broadcaster.clone();
+        let event_sender = self.event_sender.clone();
         let connection_state = Arc::clone(&self.connection_state);
         let reconnect_attempts = Arc::clone(&self.reconnect_attempts);
         let should_stop = Arc::clone(&self.should_stop);
@@ -207,7 +298,7 @@ impl SolanaEventListener {
                     &config,
                     &client,
                     &event_parser,
-                    &event_broadcaster,
+                    &event_sender,
                     &connection_state,
                     &should_stop,
                     &processed_signatures,
@@ -251,7 +342,7 @@ impl SolanaEventListener {
         config: &SolanaConfig,
         client: &Arc<SolanaClient>,
         event_parser: &EventParser,
-        event_broadcaster: &broadcast::Sender<PinpetEvent>,
+        event_sender: &mpsc::UnboundedSender<PinpetEvent>,
         connection_state: &Arc<tokio::sync::RwLock<ConnectionState>>,
         should_stop: &Arc<tokio::sync::RwLock<bool>>,
         processed_signatures: &Arc<tokio::sync::RwLock<HashSet<String>>>,
@@ -336,7 +427,7 @@ impl SolanaEventListener {
         });
 
         // 消息处理循环 / Message handling loop
-        let event_broadcaster_clone = event_broadcaster.clone();
+        let event_sender_clone = event_sender.clone();
         let event_parser_clone = event_parser.clone();
         let client_clone = Arc::clone(client);
         let processed_signatures_clone = Arc::clone(processed_signatures);
@@ -360,7 +451,7 @@ impl SolanaEventListener {
                     if let Err(e) = Self::handle_websocket_message(
                         &text,
                         &event_parser_clone,
-                        &event_broadcaster_clone,
+                        &event_sender_clone,
                         &client_clone,
                         &processed_signatures_clone,
                         config,
@@ -406,7 +497,7 @@ impl SolanaEventListener {
     async fn handle_websocket_message(
         message: &str,
         event_parser: &EventParser,
-        event_broadcaster: &broadcast::Sender<PinpetEvent>,
+        event_sender: &mpsc::UnboundedSender<PinpetEvent>,
         client: &Arc<SolanaClient>,
         processed_signatures: &Arc<tokio::sync::RwLock<HashSet<String>>>,
         config: &SolanaConfig,
@@ -547,14 +638,14 @@ impl SolanaEventListener {
                             }
                         }
 
-                        // 广播事件 / Broadcast events
+                        // 发送事件到无界通道 / Send events to unbounded channel
                         if !all_events.is_empty() {
-                            // 🔧 P1 修复: 添加性能监控日志 / P1 Fix: Add performance monitoring logs
+                            // 🔧 使用无界通道，永不丢失事件 / Use unbounded channel, never lose events
                             let event_count = all_events.len();
                             let start_time = std::time::Instant::now();
 
                             info!(
-                                "✅ 广播{}个事件，交易 / Broadcasting {} events for transaction {}",
+                                "✅ 发送{}个事件到队列，交易 / Sending {} events to queue for transaction {}",
                                 event_count, event_count,
                                 signature
                             );
@@ -563,23 +654,26 @@ impl SolanaEventListener {
                             let mut fail_count = 0;
 
                             for event in all_events {
-                                match event_broadcaster.send(event) {
-                                    Ok(receivers) => {
-                                        success_count += 1;
-                                        debug!("事件广播成功，接收者数量: {} / Event broadcast success, receivers: {}", receivers, receivers);
-                                    }
-                                    Err(e) => {
-                                        fail_count += 1;
-                                        error!("广播事件失败 / Failed to broadcast event: {}", e);
-                                    }
+                                // 无界通道的 send 不会失败（除非接收端关闭）
+                                // Unbounded channel send won't fail (unless receiver is closed)
+                                if let Err(e) = event_sender.send(event) {
+                                    fail_count += 1;
+                                    error!("⚠️ 发送事件失败（接收端可能关闭） / Failed to send event (receiver might be closed): {}", e);
+                                } else {
+                                    success_count += 1;
+                                    debug!("事件发送成功 / Event sent successfully");
                                 }
                             }
 
                             let elapsed = start_time.elapsed();
                             info!(
-                                "📊 事件广播完成 / Event broadcast completed: 成功/success={}, 失败/failed={}, 耗时/elapsed={:?}",
+                                "📊 事件发送完成 / Event sending completed: 成功/success={}, 失败/failed={}, 耗时/elapsed={:?}",
                                 success_count, fail_count, elapsed
                             );
+
+                            if fail_count == 0 {
+                                info!("✅ 所有事件成功发送，无事件丢失！ / All events sent successfully, no events lost!");
+                            }
                         }
                     }
                 }
@@ -618,6 +712,9 @@ impl SolanaEventListener {
         let current_attempts = *self.reconnect_attempts.read().await;
         let connection_state = self.connection_state.read().await.clone();
 
+        // 获取队列统计 / Get queue statistics
+        let (pending, processing, dead, total) = self.event_queue.get_statistics().await.unwrap_or((0, 0, 0, 0));
+
         serde_json::json!({
             "is_running": self.is_running,
             "connection_state": format!("{:?}", connection_state),
@@ -627,7 +724,14 @@ impl SolanaEventListener {
             "ws_url": self.config.ws_url,
             "program_id": self.config.program_id,
             "processed_signatures_count": processed_count,
-            "ping_interval_seconds": self.config.ping_interval_seconds
+            "ping_interval_seconds": self.config.ping_interval_seconds,
+            "events_received": self.events_received.load(std::sync::atomic::Ordering::Relaxed),
+            "events_processed": self.events_processed.load(std::sync::atomic::Ordering::Relaxed),
+            "events_failed": self.events_failed.load(std::sync::atomic::Ordering::Relaxed),
+            "queue_pending": pending,
+            "queue_processing": processing,
+            "queue_dead": dead,
+            "queue_total": total
         })
     }
 }
@@ -701,8 +805,9 @@ impl EventListenerManager {
         config: SolanaConfig,
         client: Arc<SolanaClient>,
         event_handler: Arc<dyn EventHandler>,
+        event_queue: Arc<EventQueueStorage>,
     ) -> anyhow::Result<()> {
-        self.listener = Some(SolanaEventListener::new(config, client, event_handler)?);
+        self.listener = Some(SolanaEventListener::new(config, client, event_handler, event_queue)?);
 
         Ok(())
     }

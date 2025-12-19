@@ -139,6 +139,19 @@ async fn main() {
         (None, None)
     };
 
+    // 初始化事件队列存储（用于持久化） / Initialize event queue storage (for persistence)
+    let event_queue_storage = if config.solana.enable_event_listener {
+        match db::EventQueueStorage::new("./data/event_queue") {
+            Ok(storage) => Some(Arc::new(storage)),
+            Err(e) => {
+                tracing::error!("❌ 事件队列存储初始化失败 / Failed to initialize event queue storage: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
     // 初始化 Solana 事件监听器 / Initialize Solana event listener
     if config.solana.enable_event_listener {
         tracing::info!("🚀 初始化 Solana 事件监听器 / Initializing Solana event listener");
@@ -202,10 +215,14 @@ async fn main() {
         // 创建事件监听器管理器 / Create event listener manager
         let mut listener_manager = solana::EventListenerManager::new();
 
+        // 使用之前创建的事件队列存储 / Use previously created event queue storage
+        let event_queue = event_queue_storage.as_ref().unwrap().clone();
+
         if let Err(e) = listener_manager.initialize(
             config.solana.clone(),
             solana_client,
             event_handler,
+            event_queue,
         ) {
             tracing::error!("❌ 事件监听器初始化失败 / Failed to initialize event listener: {}", e);
             std::process::exit(1);
@@ -219,6 +236,42 @@ async fn main() {
         });
 
         tracing::info!("✅ Solana 事件监听器已启动 / Solana event listener started");
+
+        // 启动事件队列清理任务 / Start event queue cleanup task
+        if let Some(ref event_queue) = event_queue_storage {
+            let queue_for_cleanup = event_queue.clone();
+            tokio::spawn(async move {
+                tracing::info!("🧹 启动事件队列清理任务 / Starting event queue cleanup task");
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 每小时执行一次 / Run every hour
+
+                loop {
+                    interval.tick().await;
+
+                    // 清理24小时前的已完成事件 / Clean up completed events older than 24 hours
+                    let older_than_ms = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+                    match queue_for_cleanup.cleanup_completed(older_than_ms).await {
+                        Ok(count) => {
+                            if count > 0 {
+                                tracing::info!("🧹 清理了 {} 个过期事件 / Cleaned up {} expired events", count, count);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("清理事件队列失败 / Failed to cleanup event queue: {}", e);
+                        }
+                    }
+
+                    // 打印队列健康统计 / Print queue health statistics
+                    if let Ok((pending, processing, dead, total)) = queue_for_cleanup.get_statistics().await {
+                        tracing::info!("📊 事件队列统计 / Event queue stats: 待处理/pending={}, 处理中/processing={}, 死信/dead={}, 总计/total={}",
+                                      pending, processing, dead, total);
+
+                        if dead > 100 {
+                            tracing::warn!("⚠️ 死信队列过大，请检查处理逻辑 / Dead letter queue too large, please check processing logic");
+                        }
+                    }
+                }
+            });
+        }
     } else {
         tracing::info!("⏭️ Solana 事件监听器已禁用 / Solana event listener disabled");
     }
