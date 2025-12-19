@@ -66,7 +66,11 @@ pub struct BuySellEvent {
     pub payer: String,
     pub mint_account: String,
     pub is_buy: bool,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub token_amount: u64,               // 最终买入或卖出的token数量 / Final token amount bought/sold
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub sol_amount: u64,                 // 最终花费或得到的sol数量 / Final SOL amount spent/received
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
@@ -98,12 +102,22 @@ pub struct LongShortEvent {
     pub lock_lp_start_price: u128,       // 锁定流动池区间开始价 / LP lock range start price
     #[serde_as(as = "DisplayFromStr")]
     pub lock_lp_end_price: u128,         // 锁定流动池区间结束价 / LP lock range end price
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_sol_amount: u64,         // 锁定流动池区间sol数量 / Locked LP SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_token_amount: u64,       // 锁定流动池区间token数量 / Locked LP token amount
     pub start_time: u32,                 // 订单开始时间戳(秒) / Order start timestamp (seconds)
     pub end_time: u32,                   // 贷款到期时间戳(秒) / Loan expiry timestamp (seconds)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub margin_sol_amount: u64,          // 保证金SOL数量 / Margin SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub borrow_amount: u64,              // 贷款数量 / Borrowed amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub position_asset_amount: u64,      // 当前持仓币的数量 / Current position asset amount
     pub borrow_fee: u16,                 // 保证金交易手续费 / Margin trading fee
     pub liquidate_indices: Vec<u16>,    // 需要清算的订单索引列表 / Liquidation order indices
@@ -121,8 +135,14 @@ pub struct FullCloseEvent {
     pub user_sol_account: String,        // close_order的开仓用户SOL账户 / User's SOL account
     pub mint_account: String,
     pub is_close_long: bool,             // 是否为平多 / Is closing long position
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub final_token_amount: u64,         // 最终买入或卖出的token数量 / Final token amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub final_sol_amount: u64,           // 最终花费或得到的sol数量 / Final SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub user_close_profit: u64,          // 用户平仓收入的sol数量 / User's closing profit in SOL
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
@@ -145,8 +165,14 @@ pub struct PartialCloseEvent {
     pub user_sol_account: String,        // close_order的开仓用户SOL账户 / User's SOL account
     pub mint_account: String,
     pub is_close_long: bool,             // 是否为平多 / Is closing long position
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub final_token_amount: u64,         // 最终买入或卖出的token数量 / Final token amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub final_sol_amount: u64,           // 最终花费或得到的sol数量 / Final SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub user_close_profit: u64,          // 用户平仓收入的sol数量 / User's closing profit
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
@@ -161,14 +187,26 @@ pub struct PartialCloseEvent {
     pub lock_lp_start_price: u128,       // 锁定流动池区间开始价(SOL单位,不转换) / LP lock range start price (SOL, not converted)
     #[serde_as(as = "DisplayFromStr")]
     pub lock_lp_end_price: u128,         // 锁定流动池区间结束价(SOL单位,不转换) / LP lock range end price (SOL, not converted)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_sol_amount: u64,         // 锁定流动池区间sol数量 / Locked LP SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_token_amount: u64,       // 锁定流动池区间token数量 / Locked LP token amount
     pub start_time: u32,                 // 订单开始时间戳(秒) / Order start timestamp
     pub end_time: u32,                   // 贷款到期时间戳(秒) / Loan expiry timestamp
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub margin_sol_amount: u64,          // 保证金SOL数量 / Margin SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub borrow_amount: u64,              // 贷款数量 / Borrowed amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub position_asset_amount: u64,      // 当前持仓数量 / Current position amount
     pub borrow_fee: u16,                 // 保证金交易手续费 / Margin trading fee
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub realized_sol_amount: u64,        // 实现盈亏的sol数量 / Realized P&L in SOL
     pub liquidate_indices: Vec<u16>,    // 需要清算的订单索引列表 / Liquidation indices
     #[schema(value_type = String)]
@@ -594,13 +632,18 @@ struct MilestoneDiscountRaw {
 }
 
 /// 清算事件 (服务端合成事件) / Liquidation event (server-side synthetic event)
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LiquidateEvent {
     pub payer: String,                    // 清算触发者 / Liquidation initiator
     pub user_sol_account: String,         // 被清算用户SOL账户 / Liquidated user's SOL account
     pub mint_account: String,             // 代币mint地址 / Token mint address
     pub is_close_long: bool,              // 是否为平多 / Is closing long (true) or short (false)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub final_token_amount: u64,         // 最终token数量 / Final token amount (u64)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub final_sol_amount: u64,           // 最终SOL数量 / Final SOL amount (u64, lamports)
     pub order_index: u16,                // 订单索引 / Order index (u16)
     #[schema(value_type = String)]

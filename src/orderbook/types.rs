@@ -126,40 +126,58 @@ pub struct MarginOrder {
 
     /// 锁定流动池区间 SOL 数量 (精确值,lamports)
     /// Locked LP range SOL amount (exact value, lamports)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_sol_amount: u64,
 
     /// 锁定流动池区间 Token 数量 (精确值,最小单位)
     /// Locked LP range Token amount (exact value, smallest unit)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub lock_lp_token_amount: u64,
 
     /// 到后个节点,流动池区间 SOL 数量
     /// Next node LP range SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub next_lp_sol_amount: u64,
 
     /// 到后个节点,流动池区间 Token 数量
     /// Next node LP range Token amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub next_lp_token_amount: u64,
 
     /// 初始保证金 SOL 数量 (主要作为记录用,不参与计算)
     /// Initial margin SOL amount (mainly for record, not used in calculations)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub margin_init_sol_amount: u64,
 
     /// 保证金 SOL 数量
     /// Margin SOL amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub margin_sol_amount: u64,
 
     /// 贷款数量: 如果是做多则借出 SOL,如果是做空则借出 Token
     /// Borrow amount: SOL for long, Token for short
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub borrow_amount: u64,
 
     /// 当前持仓币的数量 (做空时是 SOL,做多时是 Token)
     /// Current position asset amount (SOL for short, Token for long)
     /// 注意: 做多时这值完全等于 lock_lp_token_amount
     /// Note: For long positions, this equals lock_lp_token_amount
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub position_asset_amount: u64,
 
     /// 已实现的 SOL 利润
     /// Realized SOL profit
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
     pub realized_sol_amount: u64,
 
     // ========== 4-byte 对齐字段 (u32) ==========
