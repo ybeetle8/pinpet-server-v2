@@ -7,6 +7,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::Mutex;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{interval, sleep, Duration};
@@ -58,6 +59,13 @@ pub struct SolanaEventListener {
     should_stop: Arc<tokio::sync::RwLock<bool>>,
     processed_signatures: Arc<tokio::sync::RwLock<HashSet<String>>>,
     is_running: bool,
+    // 🔧 P1 修复: 添加性能监控计数器 / P1 Fix: Add performance monitoring counters
+    #[allow(dead_code)]
+    events_received: Arc<AtomicU64>,
+    #[allow(dead_code)]
+    events_processed: Arc<AtomicU64>,
+    #[allow(dead_code)]
+    events_skipped: Arc<AtomicU64>,
 }
 
 impl SolanaEventListener {
@@ -101,9 +109,9 @@ impl SolanaEventListener {
         event_handler: Arc<dyn EventHandler>,
     ) -> anyhow::Result<Self> {
         let event_parser = EventParser::new(&config.program_id)?;
-        // 🔧 P1 修复: 增加 Broadcast channel 容量从 1000 到 10000 以避免事件丢失
-        // 🔧 P1 Fix: Increase Broadcast channel capacity from 1000 to 10000 to avoid event loss
-        let (event_broadcaster, _) = broadcast::channel(10000);
+        // 🔧 P0 修复: 增加 Broadcast channel 容量到 50000 以处理高并发事件
+        // 🔧 P0 Fix: Increase Broadcast channel capacity to 50000 to handle high concurrent events
+        let (event_broadcaster, _) = broadcast::channel(50000);
 
         Ok(Self {
             config,
@@ -116,6 +124,10 @@ impl SolanaEventListener {
             should_stop: Arc::new(tokio::sync::RwLock::new(false)),
             processed_signatures: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
             is_running: false,
+            // 初始化性能监控计数器 / Initialize performance monitoring counters
+            events_received: Arc::new(AtomicU64::new(0)),
+            events_processed: Arc::new(AtomicU64::new(0)),
+            events_skipped: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -138,7 +150,12 @@ impl SolanaEventListener {
                                 }
                             }
                             Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                                warn!("事件处理器延迟，跳过了{}个事件 / Event processor lagged, skipped {} events", skipped, skipped);
+                                // 🔧 P0 修复: 记录更详细的信息并提供恢复建议
+                                // 🔧 P0 Fix: Log more detailed info and provide recovery suggestions
+                                error!("⚠️ 严重：事件处理器延迟，跳过了{}个事件 / CRITICAL: Event processor lagged, skipped {} events", skipped, skipped);
+                                error!("建议：1. 增加 channel 容量；2. 优化事件处理速度；3. 考虑添加事件缓冲队列");
+                                error!("Suggestion: 1. Increase channel capacity; 2. Optimize event processing; 3. Consider adding event buffer queue");
+                                // 继续处理，但记录问题 / Continue processing but log the issue
                                 continue;
                             }
                             Err(broadcast::error::RecvError::Closed) => {
@@ -532,17 +549,37 @@ impl SolanaEventListener {
 
                         // 广播事件 / Broadcast events
                         if !all_events.is_empty() {
+                            // 🔧 P1 修复: 添加性能监控日志 / P1 Fix: Add performance monitoring logs
+                            let event_count = all_events.len();
+                            let start_time = std::time::Instant::now();
+
                             info!(
                                 "✅ 广播{}个事件，交易 / Broadcasting {} events for transaction {}",
-                                all_events.len(), all_events.len(),
+                                event_count, event_count,
                                 signature
                             );
 
+                            let mut success_count = 0;
+                            let mut fail_count = 0;
+
                             for event in all_events {
-                                if let Err(e) = event_broadcaster.send(event) {
-                                    error!("广播事件失败 / Failed to broadcast event: {}", e);
+                                match event_broadcaster.send(event) {
+                                    Ok(receivers) => {
+                                        success_count += 1;
+                                        debug!("事件广播成功，接收者数量: {} / Event broadcast success, receivers: {}", receivers, receivers);
+                                    }
+                                    Err(e) => {
+                                        fail_count += 1;
+                                        error!("广播事件失败 / Failed to broadcast event: {}", e);
+                                    }
                                 }
                             }
+
+                            let elapsed = start_time.elapsed();
+                            info!(
+                                "📊 事件广播完成 / Event broadcast completed: 成功/success={}, 失败/failed={}, 耗时/elapsed={:?}",
+                                success_count, fail_count, elapsed
+                            );
                         }
                     }
                 }

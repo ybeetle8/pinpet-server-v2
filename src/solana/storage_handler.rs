@@ -79,16 +79,21 @@ impl EventHandler for StorageEventHandler {
         // 这样可以确保在删除订单时获取的是上一次的价格,而不是当前事件的价格
         // This ensures we get the previous price when deleting orders, not the current event's price
 
-        // 🔧 P0 修复: 使用 spawn_blocking 包装所有同步 OrderBook 操作
-        // 🔧 P0 Fix: Use spawn_blocking to wrap all synchronous OrderBook operations
-        // 🔧 返回生成的 LiquidateEvent 列表 / Return generated LiquidateEvent list
+        // 🔧 P0 修复: 串行化处理 OrderBook 操作和价格更新，避免竞态条件
+        // 🔧 P0 Fix: Serialize OrderBook operations and price updates to avoid race conditions
+        // 在单个 spawn_blocking 任务中按顺序执行所有操作
+        // Execute all operations sequentially in a single spawn_blocking task
         let this = self.clone();
-        let event_for_blocking = event.clone();
+        let event_for_processing = event.clone();
+        let token_storage = self.token_storage.clone();
+
         let liquidate_events = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<PinpetEvent>> {
             let mut additional_events = Vec::new();
 
+            // ====== 第一步：处理订单操作 / Step 1: Process order operations ======
+
             // 如果是 LongShortEvent，插入到 OrderBook / If LongShortEvent, insert to OrderBook
-            if let PinpetEvent::LongShort(ref ls_event) = event_for_blocking {
+            if let PinpetEvent::LongShort(ref ls_event) = event_for_processing {
                 match this.handle_long_short_event(ls_event) {
                     Ok(events) => additional_events.extend(events),
                     Err(e) => {
@@ -99,7 +104,7 @@ impl EventHandler for StorageEventHandler {
             }
 
             // 如果是 BuySellEvent，处理清算 / If BuySellEvent, handle liquidations
-            if let PinpetEvent::BuySell(ref bs_event) = event_for_blocking {
+            if let PinpetEvent::BuySell(ref bs_event) = event_for_processing {
                 match this.handle_buy_sell_event(bs_event) {
                     Ok(events) => additional_events.extend(events),
                     Err(e) => {
@@ -110,7 +115,7 @@ impl EventHandler for StorageEventHandler {
             }
 
             // 如果是 FullCloseEvent，处理清算 / If FullCloseEvent, handle liquidations
-            if let PinpetEvent::FullClose(ref fc_event) = event_for_blocking {
+            if let PinpetEvent::FullClose(ref fc_event) = event_for_processing {
                 match this.handle_full_close_event(fc_event) {
                     Ok(events) => additional_events.extend(events),
                     Err(e) => {
@@ -121,7 +126,7 @@ impl EventHandler for StorageEventHandler {
             }
 
             // 如果是 PartialCloseEvent，处理更新和清算 / If PartialCloseEvent, handle update and liquidations
-            if let PinpetEvent::PartialClose(ref pc_event) = event_for_blocking {
+            if let PinpetEvent::PartialClose(ref pc_event) = event_for_processing {
                 match this.handle_partial_close_event(pc_event) {
                     Ok(events) => additional_events.extend(events),
                     Err(e) => {
@@ -131,16 +136,10 @@ impl EventHandler for StorageEventHandler {
                 }
             }
 
-            Ok(additional_events)
-        }).await??;
+            // ====== 第二步：更新价格（在同一个任务中串行执行）/ Step 2: Update price (execute serially in same task) ======
 
-        // 更新Token的latest_price（所有带latest_price的事件）/ Update token's latest_price (all events with latest_price)
-        // 🔧 P0 修复: 使用 spawn_blocking 包装 TokenStorage 的同步写操作
-        // 🔧 P0 Fix: Use spawn_blocking to wrap synchronous TokenStorage write operations
-        let token_storage = self.token_storage.clone();
-        let event_for_token = event.clone();
-        tokio::task::spawn_blocking(move || {
-            match &event_for_token {
+            // 更新Token的latest_price（所有带latest_price的事件）/ Update token's latest_price (all events with latest_price)
+            match &event_for_processing {
                 PinpetEvent::TokenCreated(_e) => {
                     // TokenCreated已经在store_token_created中设置了初始价格 / Initial price already set in store_token_created
                 }
@@ -179,7 +178,9 @@ impl EventHandler for StorageEventHandler {
                     // LiquidateEvent 不包含 latest_price,无需更新 / LiquidateEvent doesn't contain latest_price, no update needed
                 }
             }
-        }).await?;
+
+            Ok(additional_events)
+        }).await??;
 
         // 🔧 P1 修复: 批量存储主事件和清算事件,避免签名映射被覆盖
         // 🔧 P1 Fix: Batch store main event and liquidate events to avoid sig_map overwrite
@@ -375,6 +376,8 @@ impl StorageEventHandler {
 
             // ✅ 先获取平仓前的价格(上一次记录的价格)
             // ✅ First get the previous price (last recorded price before this event)
+            // 🔧 P0 修复: 获取当前数据库中的价格，即事件发生前的价格
+            // 🔧 P0 Fix: Get price from database, which is the price before event
             let previous_price = self.get_previous_price(&event.mint_account)?;
 
             let liquidate_manager = self.orderbook_storage

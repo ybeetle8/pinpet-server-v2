@@ -87,12 +87,22 @@ impl OrderBookStorage {
     ) -> Result<Arc<OrderBookDBManager>> {
         let key = format!("{}:{}", mint, direction);
 
-        // 尝试从缓存获取 / Try to get from cache
+        // 第一次检查（读锁）- 快速路径 / First check (read lock) - fast path
         {
             let managers = self.managers.read().unwrap();
             if let Some(manager) = managers.get(&key) {
                 return Ok(manager.clone());
             }
+        }
+
+        // 获取写锁并进行第二次检查 / Acquire write lock and double check
+        let mut managers = self.managers.write().unwrap();
+
+        // 🔧 P0 修复: 双重检查锁定防止竞态条件
+        // 🔧 P0 Fix: Double-checked locking to prevent race condition
+        // 第二次检查 - 防止其他线程已经创建了管理器 / Second check - prevent other thread already created
+        if let Some(manager) = managers.get(&key) {
+            return Ok(manager.clone());
         }
 
         // 创建新的 manager / Create new manager
@@ -132,11 +142,8 @@ impl OrderBookStorage {
             }
         }
 
-        // 缓存 manager / Cache manager
-        {
-            let mut managers = self.managers.write().unwrap();
-            managers.insert(key, manager.clone());
-        }
+        // 缓存 manager - 在持有写锁时直接插入 / Cache manager - insert while holding write lock
+        managers.insert(key, manager.clone());
 
         Ok(manager)
     }
