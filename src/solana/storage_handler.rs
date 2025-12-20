@@ -565,7 +565,80 @@ impl StorageEventHandler {
         let manager = self.orderbook_storage
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
 
-        // 1. 先更新订单 / First update the order
+        // 0. 在更新前先加载当前订单,用于记录半平仓历史
+        // 0. Load current order before update for recording partial close history
+        let current_order = manager.get_order(event.order_index)?;
+
+        // 验证 order_id 是否匹配 / Verify order_id matches
+        if current_order.order_id != event.order_id {
+            return Err(anyhow::anyhow!(
+                "Order ID mismatch: current={}, event={}",
+                current_order.order_id, event.order_id
+            ));
+        }
+
+        // 计算本次半平仓产生的利润 / Calculate profit from this partial close
+        // realized_sol_amount_delta = 事件的 realized_sol_amount - 当前仓位的 realized_sol_amount
+        // realized_sol_amount_delta = event's realized_sol_amount - current position's realized_sol_amount
+        let realized_sol_amount_delta = event.realized_sol_amount.saturating_sub(current_order.realized_sol_amount);
+
+        info!(
+            "📊 半平仓利润计算 / Partial close profit calculation: event_realized={}, current_realized={}, delta={}",
+            event.realized_sol_amount, current_order.realized_sol_amount, realized_sol_amount_delta
+        );
+
+        // 构建"被平掉部分"的订单记录 / Build order record for "closed portion"
+        // 这个记录代表被平掉的那部分仓位 / This record represents the closed portion of the position
+        let closed_portion_order = MarginOrder {
+            user: current_order.user.clone(),
+            lock_lp_start_price: current_order.lock_lp_start_price,
+            lock_lp_end_price: current_order.lock_lp_end_price,
+            open_price: current_order.open_price,
+            order_id: current_order.order_id,
+            // 被平掉的部分数量 = 原数量 - 新数量
+            // Closed portion amount = old amount - new amount
+            lock_lp_sol_amount: current_order.lock_lp_sol_amount.saturating_sub(event.lock_lp_sol_amount),
+            lock_lp_token_amount: current_order.lock_lp_token_amount.saturating_sub(event.lock_lp_token_amount),
+            next_lp_sol_amount: current_order.next_lp_sol_amount,
+            next_lp_token_amount: current_order.next_lp_token_amount,
+            margin_init_sol_amount: current_order.margin_init_sol_amount,
+            // 被平掉部分的保证金 = 原保证金 - 新保证金
+            // Closed portion margin = old margin - new margin
+            margin_sol_amount: current_order.margin_sol_amount.saturating_sub(event.margin_sol_amount),
+            // 被平掉部分的借款 = 原借款 - 新借款
+            // Closed portion borrow = old borrow - new borrow
+            borrow_amount: current_order.borrow_amount.saturating_sub(event.borrow_amount),
+            // 被平掉部分的持仓 = 原持仓 - 新持仓
+            // Closed portion position = old position - new position
+            position_asset_amount: current_order.position_asset_amount.saturating_sub(event.position_asset_amount),
+            // 本次半平仓产生的利润 / Profit from this partial close
+            realized_sol_amount: realized_sol_amount_delta,
+            version: current_order.version,
+            start_time: current_order.start_time,
+            end_time: current_order.end_time,
+            next_order: current_order.next_order,
+            prev_order: current_order.prev_order,
+            borrow_fee: current_order.borrow_fee,
+            order_type: current_order.order_type,
+        };
+
+        // 保存半平仓历史记录 / Save partial close history record
+        // 使用 close_reason = 5 (用户主动半平仓 / User initiated partial close)
+        // 使用最新价格 (即当前事件的价格) / Use latest price (current event's price)
+        self.save_partial_close_record(
+            &event.mint_account,
+            direction,
+            &closed_portion_order,
+            event.timestamp.timestamp() as u32,
+            event.latest_price,
+        )?;
+
+        info!(
+            "✅ 半平仓历史记录已保存 / Partial close history record saved: order_id={}, delta_realized={}",
+            event.order_id, realized_sol_amount_delta
+        );
+
+        // 1. 更新订单 / Update the order
         use crate::orderbook::MarginOrderUpdateData;
         let update_data = MarginOrderUpdateData {
             lock_lp_start_price: Some(event.lock_lp_start_price),
@@ -665,6 +738,64 @@ impl StorageEventHandler {
                 Err(anyhow::anyhow!("Failed to get token: {}", e))
             }
         }
+    }
+
+    /// 保存半平仓历史记录
+    /// Save partial close history record
+    ///
+    /// # 参数 / Parameters
+    /// * `mint` - Token mint 地址 / Token mint address
+    /// * `direction` - 订单方向 / Order direction
+    /// * `closed_portion` - 被平掉部分的订单数据 / Closed portion order data
+    /// * `close_timestamp` - 平仓时间戳 / Close timestamp
+    /// * `close_price` - 平仓价格 / Close price
+    fn save_partial_close_record(
+        &self,
+        mint: &str,
+        direction: &str,
+        closed_portion: &MarginOrder,
+        close_timestamp: u32,
+        close_price: u128,
+    ) -> anyhow::Result<()> {
+        use crate::orderbook::types::{ClosedOrderRecord, CloseInfo};
+
+        // 构建关闭信息 / Build close info
+        let close_info = CloseInfo {
+            close_timestamp,
+            close_price,
+            close_reason: 5, // 用户主动半平仓 / User initiated partial close
+        };
+
+        // 构建已关闭订单记录 / Build closed order record
+        let close_record = ClosedOrderRecord {
+            mint: mint.to_string(),
+            direction: direction.to_string(),
+            order: closed_portion.clone(),
+            close_info,
+        };
+
+        // 生成键 / Generate key
+        // 键格式: orderbook_user_closed:{user}:{close_timestamp:010}:{mint}:{direction}:{order_id:020}
+        // Key format: orderbook_user_closed:{user}:{close_timestamp:010}:{mint}:{direction}:{order_id:020}
+        let close_key = format!(
+            "orderbook_user_closed:{}:{:010}:{}:{}:{:020}",
+            closed_portion.user,
+            close_timestamp,
+            mint,
+            direction,
+            closed_portion.order_id
+        );
+
+        // 序列化并保存到数据库 / Serialize and save to database
+        let value = serde_json::to_vec(&close_record)?;
+        self.orderbook_storage.db().put(close_key.as_bytes(), value)?;
+
+        info!(
+            "📝 半平仓记录已保存 / Partial close record saved: key={}",
+            close_key
+        );
+
+        Ok(())
     }
 }
 
