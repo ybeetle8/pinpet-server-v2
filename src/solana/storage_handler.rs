@@ -14,6 +14,7 @@ pub struct StorageEventHandler {
     token_storage: Arc<TokenStorage>,
     orderbook_storage: Arc<OrderBookStorage>,
     kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
+    sync_monitor: Option<Arc<crate::orderbook_sync::OrderBookSyncMonitor>>,
 }
 
 impl StorageEventHandler {
@@ -28,6 +29,7 @@ impl StorageEventHandler {
             token_storage,
             orderbook_storage,
             kline_socket_service: None,
+            sync_monitor: None,
         }
     }
 
@@ -35,6 +37,11 @@ impl StorageEventHandler {
     /// Set K-line socket service (for pushing LiquidateEvent)
     pub fn set_kline_socket_service(&mut self, service: Arc<crate::kline::KlineSocketService>) {
         self.kline_socket_service = Some(service);
+    }
+
+    /// 设置 OrderBook 同步监控器 / Set OrderBook sync monitor
+    pub fn set_sync_monitor(&mut self, monitor: Arc<crate::orderbook_sync::OrderBookSyncMonitor>) {
+        self.sync_monitor = Some(monitor);
     }
 }
 
@@ -185,6 +192,17 @@ impl EventHandler for StorageEventHandler {
         // 🔧 P1 修复: 批量存储主事件和清算事件,避免签名映射被覆盖
         // 🔧 P1 Fix: Batch store main event and liquidate events to avoid sig_map overwrite
 
+        // 提取 mint 地址用于更新同步监控器 / Extract mint address for sync monitor
+        let mint = match &event {
+            PinpetEvent::TokenCreated(e) => e.mint_account.clone(),
+            PinpetEvent::BuySell(e) => e.mint_account.clone(),
+            PinpetEvent::LongShort(e) => e.mint_account.clone(),
+            PinpetEvent::FullClose(e) => e.mint_account.clone(),
+            PinpetEvent::PartialClose(e) => e.mint_account.clone(),
+            PinpetEvent::MilestoneDiscount(e) => e.mint_account.clone(),
+            PinpetEvent::Liquidate(e) => e.mint_account.clone(),
+        };
+
         // 合并主事件和清算事件 / Merge main event and liquidate events
         let mut all_events = vec![event];
         let liquidate_events_count = liquidate_events.len();
@@ -201,6 +219,11 @@ impl EventHandler for StorageEventHandler {
                 error!("❌ 批量存储事件失败 / Failed to batch store events: {}", e);
                 return Err(e);
             }
+        }
+
+        // 更新同步监控器的事件时间 / Update sync monitor's event time
+        if let Some(ref sync_monitor) = self.sync_monitor {
+            sync_monitor.update_event_time(&mint).await;
         }
 
         // 推送清算事件到 Socket.IO (如果服务可用) / Push liquidate events to Socket.IO (if service available)

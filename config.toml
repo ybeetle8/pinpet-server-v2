@@ -50,3 +50,19 @@ gateway_url = "https://pinpet.mypinata.cloud/ipfs/"
 request_timeout_seconds = 30
 max_retries = 3
 retry_delay_seconds = 5
+
+[orderbook_sync]
+# 是否启用延迟对比同步 / Enable delayed comparison sync
+enabled = true
+# 触发对比的空闲时间阈值（秒）/ Idle threshold for triggering comparison (seconds)
+idle_threshold_seconds = 30
+# 检查间隔（秒）/ Check interval (seconds)
+check_interval_seconds = 5
+# 最大并发同步任务数 / Maximum concurrent sync tasks
+max_concurrent_syncs = 3
+# 是否自动修复差异 / Auto repair differences
+auto_repair = true
+# 同步失败重试次数 / Retry count on sync failure
+retry_count = 3
+# 重试延迟（秒）/ Retry delay (seconds)
+retry_delay_seconds = 5

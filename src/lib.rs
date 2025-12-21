@@ -6,6 +6,7 @@ pub mod db;
 pub mod docs;
 pub mod kline;
 pub mod orderbook;
+pub mod orderbook_sync;
 pub mod price;
 pub mod router;
 pub mod solana;

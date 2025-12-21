@@ -9,6 +9,8 @@ pub struct Config {
     pub ipfs: IpfsConfig,
     #[serde(default)]
     pub kline: KlineServiceConfig,
+    #[serde(default)]
+    pub orderbook_sync: OrderBookSyncConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)] 
@@ -153,6 +155,74 @@ fn default_ping_interval() -> u64 {
 
 fn default_ping_timeout() -> u64 {
     60
+}
+
+/// OrderBook 同步配置 / OrderBook sync configuration
+#[derive(Debug, Deserialize, Clone)]
+pub struct OrderBookSyncConfig {
+    /// 是否启用延迟对比同步 / Enable delayed comparison sync
+    #[serde(default = "default_orderbook_sync_enabled")]
+    pub enabled: bool,
+    /// 触发对比的空闲时间阈值（秒）/ Idle threshold for triggering comparison (seconds)
+    #[serde(default = "default_idle_threshold_seconds")]
+    pub idle_threshold_seconds: u64,
+    /// 检查间隔（秒）/ Check interval (seconds)
+    #[serde(default = "default_check_interval_seconds")]
+    pub check_interval_seconds: u64,
+    /// 最大并发同步任务数 / Maximum concurrent sync tasks
+    #[serde(default = "default_max_concurrent_syncs")]
+    pub max_concurrent_syncs: usize,
+    /// 是否自动修复差异 / Auto repair differences
+    #[serde(default = "default_auto_repair")]
+    pub auto_repair: bool,
+    /// 同步失败重试次数 / Retry count on sync failure
+    #[serde(default = "default_retry_count")]
+    pub retry_count: u32,
+    /// 重试延迟（秒）/ Retry delay (seconds)
+    #[serde(default = "default_retry_delay_seconds")]
+    pub retry_delay_seconds: u64,
+}
+
+impl Default for OrderBookSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            idle_threshold_seconds: 30,
+            check_interval_seconds: 5,
+            max_concurrent_syncs: 3,
+            auto_repair: true,
+            retry_count: 3,
+            retry_delay_seconds: 5,
+        }
+    }
+}
+
+fn default_orderbook_sync_enabled() -> bool {
+    true
+}
+
+fn default_idle_threshold_seconds() -> u64 {
+    30
+}
+
+fn default_check_interval_seconds() -> u64 {
+    5
+}
+
+fn default_max_concurrent_syncs() -> usize {
+    3
+}
+
+fn default_auto_repair() -> bool {
+    true
+}
+
+fn default_retry_count() -> u32 {
+    3
+}
+
+fn default_retry_delay_seconds() -> u64 {
+    5
 }
 
 impl Config {

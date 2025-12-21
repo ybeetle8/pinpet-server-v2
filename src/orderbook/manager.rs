@@ -1590,4 +1590,134 @@ impl OrderBookDBManager {
         })
     }
 
+    // ==================== 链上数据同步 / Chain Data Sync ====================
+
+    /// 从链上数据重建本地 OrderBook / Rebuild local OrderBook from chain data
+    ///
+    /// # 参数 / Parameters
+    /// * `chain_header` - 链上 OrderBook Header / Chain OrderBook header
+    /// * `chain_orders` - 链上订单列表 (index, order) / Chain order list (index, order)
+    ///
+    /// # 注意 / Note
+    /// 此方法会清空现有数据并从链上数据完全重建
+    /// This method will clear existing data and completely rebuild from chain data
+    pub fn rebuild_from_chain_data(
+        &self,
+        chain_header: crate::solana::orderbook_reader::ChainOrderBookHeader,
+        chain_orders: Vec<(u16, MarginOrder)>,
+    ) -> Result<()> {
+        use crate::solana::orderbook_reader::ChainOrderBookHeader;
+
+        let _lock = self.operation_lock.lock().unwrap();
+
+        info!(
+            "🔄 开始重建 OrderBook / Starting OrderBook rebuild: mint={}, direction={}, orders={}",
+            &self.mint[..8.min(self.mint.len())], self.direction, chain_orders.len()
+        );
+
+        // 使用批处理提高性能 / Use batch for better performance
+        let mut batch = WriteBatch::default();
+
+        // 1. 清空现有数据 / Clear existing data
+        self.clear_all_data(&mut batch)?;
+
+        // 2. 重建 Header / Rebuild header
+        let new_header = OrderBookHeader {
+            version: chain_header.version,
+            order_type: chain_header.order_type,
+            authority: chain_header.authority.to_string(),
+            order_id_counter: chain_header.order_id_counter,
+            created_at: chain_header.created_at,
+            last_modified: chain_header.last_modified,
+            total_capacity: chain_header.total_capacity,
+            head: chain_header.head,
+            tail: chain_header.tail,
+            total: chain_header.total,
+        };
+
+        let header_key = self.header_key();
+        batch.put(header_key.as_bytes(), &new_header.to_bytes()?);
+
+        // 3. 重建订单数据 / Rebuild order data
+        for (index, order) in &chain_orders {
+            // 写入订单槽位 / Write order slot
+            let slot_key = self.slot_key(*index);
+            batch.put(slot_key.as_bytes(), &order.to_bytes()?);
+
+            // 写入 ID 映射 / Write ID mapping
+            let id_map_key = self.id_map_key(order.order_id);
+            batch.put(id_map_key.as_bytes(), &index.to_le_bytes());
+
+            // 添加用户活跃订单索引 / Add user active order index
+            self.add_user_active_index(&mut batch, &order.user, order.start_time, order.order_id);
+        }
+
+        // 4. 重建活跃索引列表 / Rebuild active indices list
+        if !chain_orders.is_empty() {
+            let active_indices: Vec<u16> = chain_orders.iter().map(|(idx, _)| *idx).collect();
+            let active_indices_bytes: Vec<u8> = active_indices
+                .iter()
+                .flat_map(|&idx| idx.to_le_bytes())
+                .collect();
+            let active_key = self.active_indices_key();
+            batch.put(active_key.as_bytes(), &active_indices_bytes);
+        }
+
+        // 5. 提交批处理 / Commit batch
+        self.db.write(batch)?;
+
+        info!(
+            "✅ OrderBook 重建完成 / OrderBook rebuild completed: mint={}, direction={}, total={}",
+            &self.mint[..8.min(self.mint.len())], self.direction, chain_orders.len()
+        );
+
+        Ok(())
+    }
+
+    /// 清空所有数据（内部使用）/ Clear all data (internal use)
+    fn clear_all_data(&self, batch: &mut WriteBatch) -> Result<()> {
+        // 清空 header / Clear header
+        let header_key = self.header_key();
+        batch.delete(header_key.as_bytes());
+
+        // 读取现有 header 以获取订单信息
+        if let Ok(header) = self.load_header() {
+            // 清空所有订单槽位 / Clear all order slots
+            for i in 0..header.total_capacity {
+                let slot_key = self.slot_key(i as u16);
+                batch.delete(slot_key.as_bytes());
+            }
+
+            // 遍历并清空所有订单相关数据
+            if header.total > 0 {
+                // 使用遍历来获取所有订单
+                let mut orders = Vec::new();
+                let _ = self.traverse(
+                    u16::MAX,
+                    0,
+                    |_index, order| {
+                        orders.push(order.clone());
+                        Ok(true)
+                    },
+                );
+
+                // 清空 ID 映射和用户索引
+                for order in orders {
+                    // 清空 ID 映射
+                    let id_map_key = self.id_map_key(order.order_id);
+                    batch.delete(id_map_key.as_bytes());
+
+                    // 清空用户活跃订单索引
+                    self.remove_user_active_index(batch, &order.user, order.start_time, order.order_id);
+                }
+            }
+        }
+
+        // 清空活跃索引列表 / Clear active indices list
+        let active_key = self.active_indices_key();
+        batch.delete(active_key.as_bytes());
+
+        Ok(())
+    }
+
 }

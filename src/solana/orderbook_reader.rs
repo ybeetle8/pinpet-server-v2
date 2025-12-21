@@ -34,6 +34,7 @@ impl ChainOrderBookHeader {
 }
 
 /// 链上 OrderBook 读取器 / On-chain OrderBook reader
+#[derive(Clone)]
 pub struct OrderBookReader {
     client: SolanaClient,
     program_id: Pubkey,

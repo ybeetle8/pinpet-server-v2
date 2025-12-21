@@ -3,6 +3,7 @@ mod db;
 mod docs;
 mod kline;
 mod orderbook;
+mod orderbook_sync;
 mod price;
 mod router;
 mod solana;
@@ -198,6 +199,56 @@ async fn main() {
         // If K-line service is enabled, set it in StorageEventHandler for pushing LiquidateEvent
         if let Some(ref kline_service) = kline_socket_service {
             storage_handler.set_kline_socket_service(kline_service.clone());
+        }
+
+        // 创建并集成 OrderBook 同步监控服务 / Create and integrate OrderBook sync monitor service
+        if config.orderbook_sync.enabled {
+            tracing::info!("🚀 初始化 OrderBook 同步监控服务 / Initializing OrderBook sync monitor service");
+
+            // 创建 OrderBook 读取器 / Create OrderBook reader
+            let orderbook_reader = match solana::orderbook_reader::OrderBookReader::new(
+                solana_client.clone(),
+                config.solana.program_id.clone(),
+            ) {
+                Ok(reader) => reader,
+                Err(e) => {
+                    tracing::error!("❌ OrderBook 读取器创建失败 / Failed to create OrderBook reader: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // 创建 OrderBook 对比器 / Create OrderBook comparator
+            let orderbook_comparator = solana::orderbook_comparator::OrderBookComparator::new(
+                orderbook_reader.clone(),
+                orderbook_storage.clone(),
+            );
+
+            // 创建同步服务 / Create sync service
+            let sync_service = Arc::new(orderbook_sync::OrderBookSyncService::new(
+                orderbook_reader,
+                orderbook_comparator,
+                orderbook_storage.clone(),
+                config.orderbook_sync.clone(),
+            ));
+
+            // 创建同步监控器 / Create sync monitor
+            let sync_monitor = Arc::new(orderbook_sync::OrderBookSyncMonitor::new(
+                config.orderbook_sync.clone(),
+                sync_service,
+            ));
+
+            // 设置到 StorageEventHandler / Set to StorageEventHandler
+            storage_handler.set_sync_monitor(sync_monitor.clone());
+
+            // 启动监控任务 / Start monitor task
+            let sync_monitor_task = sync_monitor.clone();
+            tokio::spawn(async move {
+                sync_monitor_task.start().await;
+            });
+
+            tracing::info!("✅ OrderBook 同步监控服务已启动 / OrderBook sync monitor service started");
+        } else {
+            tracing::info!("ℹ️ OrderBook 同步监控服务已禁用 / OrderBook sync monitor service disabled");
         }
 
         let storage_handler = Arc::new(storage_handler);
