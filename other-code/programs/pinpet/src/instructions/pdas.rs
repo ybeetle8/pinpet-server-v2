@@ -77,25 +77,27 @@ pub struct BorrowingBondingCurve {
     pub up_orderbook: Pubkey,  // 做空订单账本地址 (新)
     #[max_len(32)]
     pub down_orderbook: Pubkey,  // 做多订单账本地址 (新)
+    #[max_len(32)]
+    pub creator: Pubkey, // 代币创建者地址
     #[max_len(1)]
     pub bump: u8, // PDA bump
 }
 
-/// 交易冷却时间PDA
-/// 用于防止高频交易和转账绕过攻击
+// 交易冷却时间PDA
+// 用于防止高频交易和转账绕过攻击
 #[account]
 #[derive(InitSpace)]
 pub struct TradeCooldown {
-    /// 最近一次交易的时间戳 (Unix timestamp, 秒) - 4 bytes
+    // 最近一次交易的时间戳 (Unix timestamp, 秒) - 4 bytes
     #[max_len(4)]
     pub last_trade_time: u32,
 
-    /// 允许交易的token数量 (上次交易后的余额快照) - 8 bytes
-    /// 用于防止用户通过转账绕过冷却时间
+    // 允许交易的token数量 (上次交易后的余额快照) - 8 bytes
+    // 用于防止用户通过转账绕过冷却时间
     #[max_len(8)]
     pub approval_token_amount: u64,
 
-    /// PDA bump - 1 byte
+    // PDA bump - 1 byte
     #[max_len(1)]
     pub bump: u8,
 }

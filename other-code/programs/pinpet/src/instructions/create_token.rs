@@ -2,6 +2,10 @@
 use {
     // 导入曲线AMM模块
     crate::curve::curve_amm::CurveAMM,
+    // 导入常量定义
+    crate::constants::{MAX_NAME_LENGTH, MAX_SYMBOL_LENGTH, MAX_URI_LENGTH},
+    // 导入错误类型
+    crate::error::ErrorCode,
     // 导入参数结构和账户结构
     crate::instructions::contexts::CreateToken,
     crate::instructions::events::TokenCreatedEvent,
@@ -28,6 +32,37 @@ pub fn create_token(
     // 代币元数据URI
     uri: String,
 ) -> Result<()> {
+    // ======== 参数验证 ========
+    // 验证 name
+    require!(
+        !name.is_empty(),
+        ErrorCode::NameEmpty
+    );
+    require!(
+        name.len() <= MAX_NAME_LENGTH,
+        ErrorCode::NameTooLong
+    );
+
+    // 验证 symbol - 允许 Unicode 字符
+    require!(
+        !symbol.is_empty(),
+        ErrorCode::SymbolEmpty
+    );
+    require!(
+        symbol.len() <= MAX_SYMBOL_LENGTH,
+        ErrorCode::SymbolTooLong
+    );
+
+    // 验证 uri
+    require!(
+        !uri.is_empty(),
+        ErrorCode::UriEmpty
+    );
+    require!(
+        uri.len() <= MAX_URI_LENGTH,
+        ErrorCode::UriTooLong
+    );
+
     // 输出日志消息，在交易日志中可见
     // msg!("正在创建基本代币");
     // msg!("名称: {}", name);
@@ -61,6 +96,7 @@ pub fn create_token(
     ctx.accounts.curve_account.fee_split = ctx.accounts.params.fee_split;
 
     ctx.accounts.curve_account.mint = ctx.accounts.mint_account.key();
+    ctx.accounts.curve_account.creator = ctx.accounts.payer.key(); // 设置代币创建者地址
 
     // msg!("借贷流动池账户地址: {}", curve_address);
     // msg!("设置交换费率: {}", ctx.accounts.curve_account.swap_fee);
@@ -78,7 +114,7 @@ pub fn create_token(
 
     // 初始化为低池值 代币为1073个 SOL为0.03个 价格为 28
     // 这里只能手续费 直接设置成大家都有的 否则谁来换?
-    ctx.accounts.curve_account.lp_token_reserve = 1073000000000000;
+    ctx.accounts.curve_account.lp_token_reserve = 1073000000000000000;
     ctx.accounts.curve_account.mint = ctx.accounts.mint_account.key();
 
     // 设置新的订单账本地址
@@ -137,11 +173,11 @@ pub fn create_token(
                 &[curve_bump],
             ]],
         ),
-        1073000000000000, // 铸造1,073,000,000个代币
+        1073000000000000000, // 铸造1,073,000,000个代币（9位精度）
     )?;
 
     // 更新流动池代币余额
-    ctx.accounts.curve_account.lp_token_reserve = 1073000000000000;
+    ctx.accounts.curve_account.lp_token_reserve = 1073000000000000000;
 
     // // 给流动池sol账户转入 0.03 SOL
     // invoke(
@@ -159,7 +195,6 @@ pub fn create_token(
     //ctx.accounts.curve_account.lp_sol_reserve = 30000000000;
 
     // 铸币到借贷池代币账户
-    // msg!("铸币给借贷: {} 个代币", 536500000000000i64);
     mint_to(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -174,11 +209,11 @@ pub fn create_token(
                 &[curve_bump],
             ]],
         ),
-        536500000000000, // 铸造536500000000000个代币
+        160950000000000000, // 160950000000000000=15%（9位精度）
     )?;
 
     // 更新借贷池代币余额
-    ctx.accounts.curve_account.borrow_token_reserve = 536500000000000;
+    ctx.accounts.curve_account.borrow_token_reserve = 160950000000000000;
     // 更新虚拟借贷池sol的数量 1千万个sol永远用不完
     ctx.accounts.curve_account.borrow_sol_reserve = 10000000000000000;
     // 更新虚拟流动池sol的数量

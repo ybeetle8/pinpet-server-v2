@@ -227,12 +227,12 @@ pub struct TradeLongShort<'info> {
     pub rent: Sysvar<'info, Rent>,
 
     // 合作伙伴手续费接收账户
-    /// CHECK: 合作伙伴手续费接收账户，地址在运行时从curve_account.fee_recipient验证
+    // CHECK: 合作伙伴手续费接收账户，地址在运行时从curve_account.fee_recipient验证
     #[account(mut)]
     pub fee_recipient_account: UncheckedAccount<'info>,
 
     // 技术提供方基础手续费接收账户
-    /// CHECK: 基础手续费接收账户，地址在运行时从curve_account.base_fee_recipient验证
+    // CHECK: 基础手续费接收账户，地址在运行时从curve_account.base_fee_recipient验证
     #[account(mut)]
     pub base_fee_recipient_account: UncheckedAccount<'info>,
 
@@ -323,17 +323,17 @@ pub struct TradeBuySell<'info> {
     pub associated_token_program: Program<'info, AssociatedToken>,
 
     // 合作伙伴手续费接收账户
-    /// CHECK: 合作伙伴手续费接收账户，地址在运行时从curve_account.fee_recipient验证
+    // CHECK: 合作伙伴手续费接收账户，地址在运行时从curve_account.fee_recipient验证
     #[account(mut)]
     pub fee_recipient_account: UncheckedAccount<'info>,
 
     // 技术提供方基础手续费接收账户
-    /// CHECK: 基础手续费接收账户，地址在运行时从curve_account.base_fee_recipient验证
+    // CHECK: 基础手续费接收账户，地址在运行时从curve_account.base_fee_recipient验证
     #[account(mut)]
     pub base_fee_recipient_account: UncheckedAccount<'info>,
 
-    /// 交易冷却时间PDA
-    /// 首次交易时自动创建，后续交易验证冷却时间
+    // 交易冷却时间PDA
+    // 首次交易时自动创建，后续交易验证冷却时间
     #[account(
         init_if_needed,
         payer = payer,
@@ -386,7 +386,7 @@ pub struct TradeClose<'info> {
     pub pool_sol_account: AccountInfo<'info>,
 
     // close_order 的开仓用户SOL账户 - 用于接收SOL（保证金返还或平仓收益）
-    /// CHECK: 用户SOL账户，地址在运行时从close_order.user验证
+    // CHECK: 用户SOL账户，地址在运行时从close_order.user验证
     #[account(mut)]
     pub user_sol_account: UncheckedAccount<'info>,
 
@@ -398,12 +398,12 @@ pub struct TradeClose<'info> {
     pub rent: Sysvar<'info, Rent>,
 
     // 合作伙伴手续费接收账户
-    /// CHECK: 合作伙伴手续费接收账户，地址在运行时从curve_account.fee_recipient验证
+    // CHECK: 合作伙伴手续费接收账户，地址在运行时从curve_account.fee_recipient验证
     #[account(mut)]
     pub fee_recipient_account: UncheckedAccount<'info>,
 
     // 技术提供方基础手续费接收账户
-    /// CHECK: 基础手续费接收账户，地址在运行时从curve_account.base_fee_recipient验证
+    // CHECK: 基础手续费接收账户，地址在运行时从curve_account.base_fee_recipient验证
     #[account(mut)]
     pub base_fee_recipient_account: UncheckedAccount<'info>,
 
@@ -425,24 +425,69 @@ pub struct TradeClose<'info> {
 
 }
 
-// 手动关闭 TradeCooldown PDA 的上下文结构
+// 批准交易冷却时间的轻量级上下文
+// 与 CloseCooldown 形成对称的操作对
 #[derive(Accounts)]
-pub struct CloseCooldown<'info> {
-    /// 发起关闭请求的用户(必须是PDA的owner)
+pub struct ApproveCooldown<'info> {
+    // 发起批准的用户
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// 代币mint地址
+    // 代币 mint 账户（用于 PDA seed）
     pub mint_account: Box<Account<'info, Mint>>,
 
-    /// 用户的token账户(用于验证余额)
+    // 用户的代币账户（读取余额）
     #[account(
         associated_token::mint = mint_account,
         associated_token::authority = payer,
     )]
     pub user_token_account: Box<Account<'info, TokenAccount>>,
 
-    /// 要关闭的TradeCooldown PDA
+    // 交易冷却时间 PDA
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = 8 + TradeCooldown::INIT_SPACE,
+        seeds = [
+            b"trade_cooldown",
+            mint_account.key().as_ref(),
+            payer.key().as_ref()
+        ],
+        bump,
+    )]
+    pub cooldown: Account<'info, TradeCooldown>,
+
+    // SPL Token 程序
+    pub token_program: Program<'info, Token>,
+
+    // Associated Token 程序
+    pub associated_token_program: Program<'info, AssociatedToken>,
+
+    // 系统程序
+    pub system_program: Program<'info, System>,
+
+    // 租金系统变量
+    pub rent: Sysvar<'info, Rent>,
+}
+
+// 手动关闭 TradeCooldown PDA 的上下文结构
+#[derive(Accounts)]
+pub struct CloseCooldown<'info> {
+    // 发起关闭请求的用户(必须是PDA的owner)
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    // 代币mint地址
+    pub mint_account: Box<Account<'info, Mint>>,
+
+    // 用户的token账户(用于验证余额)
+    #[account(
+        associated_token::mint = mint_account,
+        associated_token::authority = payer,
+    )]
+    pub user_token_account: Box<Account<'info, TokenAccount>>,
+
+    // 要关闭的TradeCooldown PDA
     #[account(
         mut,
         close = payer,  // 租金返还给payer

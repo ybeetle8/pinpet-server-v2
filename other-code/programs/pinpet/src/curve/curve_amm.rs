@@ -1,16 +1,6 @@
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
 
-// Decimal::from(u128) 转换本身最大只能处理 79228162514264337593543950335 的数字
-
-// /// SOL计算使用的精度因子 (10^9)
-// pub const SOL_PRECISION_FACTOR: u64 = 1_000_000_000;
-
-// /// Token计算使用的精度因子 (10^9)
-// pub const TOKEN_PRECISION_FACTOR: u64 = 1_000_000_000;
-
-// /// 价格计算使用的精度因子 (10^23) / Price precision factor (10^23)
-// pub const PRICE_PRECISION_FACTOR: u128 = 100_000_000_000_000_000_000_000;
 
 /// 手续费计算使用的分母 (10^5)
 pub const FEE_DENOMINATOR: u64 = 100_000;
@@ -18,14 +8,6 @@ pub const FEE_DENOMINATOR: u64 = 100_000;
 /// 最大手续费率（10%）
 pub const MAX_FEE_RATE: u16 = 10_000;
 
-// /// 最小价格变因子 （单笔交易中用的，未来需要思考后决定）
-// pub const MIN_PRICE_SPAN: u64 = 100;
-
-/// 取整偏差因子 - 用于让取整更严格地对用户不利，保护流动池
-//pub const ROUNDING_BIAS_FACTOR: u64 = 0;
-
-/// 调试开关：是否打印取整偏差
-//pub const DEBUG_PRINT_ROUNDING_DEVIATION: bool = false;
 
 /// 传统AMM交易模型结构体
 pub struct CurveAMM;
@@ -33,7 +15,6 @@ pub struct CurveAMM;
 impl CurveAMM {
 
     pub const INITIAL_SOL_RESERVE_DECIMAL: Decimal = Decimal::from_parts(30, 0, 0, false, 0);
-    // 1073000000000 (token reserve with 9 decimal precision) / token储备量(9位小数精度)
     pub const INITIAL_TOKEN_RESERVE_DECIMAL: Decimal = Decimal::from_parts(1073000000, 0, 0, false, 0);
     //pub const INITIAL_K_DECIMAL: Decimal = Decimal::from_parts(2125228928, 7, 0, false, 0);
     /// 可以出现的最小价格，低于这个价格，可能溢出
@@ -43,13 +24,13 @@ impl CurveAMM {
     //pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(2764472320, 232830, 0, false, 0);
     /// 精度因子的Decimal表示 = 10^28
     //pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(268435456, 1042612833, 542101086, false, 0);
-    // 精度因子的Decimal表示 = 10^23
-    pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(4135583744, 46653770, 5421, false, 0);
-    
     // /// 精度因子的Decimal表示 = 10^24
     // pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(2701131776, 466537709, 54210, false, 0);
-    // /// 精度因子的Decimal表示 = 10^26
-    //pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(3825205248, 3704098002, 5421010, false, 0);
+    /// 精度因子的Decimal表示 = 10^26
+    // pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(3825205248, 3704098002, 5421010, false, 0);
+
+    /// 精度因子的Decimal表示 = 10^23
+    pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(4135583744, 46653770, 5421, false, 0);
 
     /// Token精度因子的Decimal表示 = 1000000000
     pub const TOKEN_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(1000000000, 0, 0, false, 0);
@@ -643,21 +624,52 @@ impl CurveAMM {
         if fee > MAX_FEE_RATE {
             return None;
         }
-        
-        // 将fee转换为u64以防止溢出
-        let fee_u64 = u64::from(fee);
-        
+
+        // 使用 u128 进行中间计算以避免溢出
+        let sol_amount_u128 = sol_amount as u128;
+        let fee_u128 = fee as u128;
+        let fee_denominator_u128 = FEE_DENOMINATOR as u128;
+
         // 计算分子：net_amount * (FEE_DENOMINATOR + fee)
-        let numerator = sol_amount
-            .checked_mul(FEE_DENOMINATOR.checked_add(fee_u64)?)?;
-        
+        let numerator = sol_amount_u128
+            .checked_mul(fee_denominator_u128.checked_add(fee_u128)?)?;
+
         // 使用向上取整除法：(numerator + FEE_DENOMINATOR - 1) / FEE_DENOMINATOR
-        let total_amount = numerator
-            .checked_add(FEE_DENOMINATOR)?
+        let total_amount_u128 = numerator
+            .checked_add(fee_denominator_u128)?
             .checked_sub(1)?
-            .checked_div(FEE_DENOMINATOR)?;
-        
-        Some(total_amount)
+            .checked_div(fee_denominator_u128)?;
+
+        // 检查结果是否能安全转换回 u64
+        if total_amount_u128 > u64::MAX as u128 {
+            return None;
+        }
+
+        Some(total_amount_u128 as u64)
     }
+
+    // ============ 原始版本（已注释）============
+    // #[inline(always)]
+    // pub fn calculate_total_amount_with_fee(sol_amount: u64, fee: u16) -> Option<u64> {
+    //     // 检查手续费率是否有效（必须小于等于10%）
+    //     if fee > MAX_FEE_RATE {
+    //         return None;
+    //     }
+    //
+    //     // 将fee转换为u64以防止溢出
+    //     let fee_u64 = u64::from(fee);
+    //
+    //     // 计算分子：net_amount * (FEE_DENOMINATOR + fee)
+    //     let numerator = sol_amount
+    //         .checked_mul(FEE_DENOMINATOR.checked_add(fee_u64)?)?;
+    //
+    //     // 使用向上取整除法：(numerator + FEE_DENOMINATOR - 1) / FEE_DENOMINATOR
+    //     let total_amount = numerator
+    //         .checked_add(FEE_DENOMINATOR)?
+    //         .checked_sub(1)?
+    //         .checked_div(FEE_DENOMINATOR)?;
+    //
+    //     Some(total_amount)
+    // }
 
 }

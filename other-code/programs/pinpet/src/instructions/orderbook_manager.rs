@@ -1217,6 +1217,7 @@ impl OrderBookManager {
 #[derive(Debug, Clone, Copy)]
 pub struct TraversalResult {
     /// 本次处理的订单数量
+    #[allow(dead_code)]
     pub processed: u32,
 
     /// 下一个待处理的索引（u16::MAX 表示已完成）

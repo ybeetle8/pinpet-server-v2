@@ -273,7 +273,7 @@ pub fn long_trade(
     // 保存实际分配的 order_index
     let mut actual_order_index: u16 = 0;
 
-    for (idx, &insert_index) in close_insert_indices.iter().enumerate() {
+    for (_idx, &insert_index) in close_insert_indices.iter().enumerate() {
         // msg!(
         //     "尝试第 {} 个插入位置: index={}, 订单类型={}, 止损价={}",
         //     idx + 1,
@@ -929,6 +929,8 @@ pub fn short_trade(
         margin_sol_amount: real_margin_sol,
         // 借款数量（做空借Token）
         borrow_amount: borrow_sell_token_amount,
+        //borrow_amount: calc_sell_result.sell_token,
+
         // 持仓资产数量（做空持有SOL）
         position_asset_amount: calc_sell_result.output_sol,
         // 已实现的SOL利润 (初始为0)
@@ -988,7 +990,7 @@ pub fn short_trade(
     // 保存实际分配的 order_index
     let mut actual_order_index: u16 = 0;
 
-    for (idx, &insert_index) in close_insert_indices.iter().enumerate() {
+    for (_idx, &insert_index) in close_insert_indices.iter().enumerate() {
         // msg!(
         //     "尝试第 {} 个插入位置: index={}, 订单类型={}, 止损价={}",
         //     idx + 1,

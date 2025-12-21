@@ -113,14 +113,14 @@ pub fn buy_amounts<'info>(
         // msg!("能获得的token数量: {}", output_token_amount);
         // msg!("交易后的价格: {}", target_price);
 
-        // 2. 计算加上手续费后的总金额
+        // //2. 计算加上手续费后的总金额
         // msg!("开始计算手续费...");
         // msg!("手续费率: {}", fee);
 
         let total_sol_with_fee = CurveAMM::calculate_total_amount_with_fee(required_sol, fee)
             .ok_or(ErrorCode::TotalAmountWithFeeError)?;
 
-        // msg!("加上手续费后的总SOL数量: {}", total_sol_with_fee);
+        //msg!("加上手续费后的总SOL数量: {}", total_sol_with_fee);
 
         // 3. 计算手续费金额
         let fee_sol = total_sol_with_fee
@@ -163,7 +163,7 @@ pub fn buy_amounts<'info>(
             CurveAMM::buy_from_price_to_price(current_price, head_lock_start_price)
                 .ok_or(ErrorCode::BuyPriceRangeCalculationError)?;
 
-        let (head_required_sol, head_available_token) = head_range_result;
+        let (_head_required_sol, head_available_token) = head_range_result;
 
         // 6. 打印头部订单分析数据
         // msg!("--- 头部订单分析 ---");
@@ -234,7 +234,7 @@ pub fn buy_amounts<'info>(
             // 存储最终的买入结果
             let mut buy_result: Option<BuyAmountsResult> = None;
 
-            let traversal_result = OrderBookManager::traverse(
+            let _traversal_result = OrderBookManager::traverse(
                 &data,
                 head_index, // 从头部开始
                 0,          // limit=0 表示无限制遍历
@@ -304,7 +304,8 @@ pub fn buy_amounts<'info>(
                         } else {
                             // 跳过订单, 要从开始价算
                             CurveAMM::buy_from_price_with_token_output(
-                                current_order.lock_lp_end_price,
+                                //current_order.lock_lp_end_price, <- 这个应该是写错了, 需验证
+                                current_order.lock_lp_start_price,
                                 remaining_token_amount,
                             )
                         };
@@ -312,7 +313,9 @@ pub fn buy_amounts<'info>(
                         let remaining_end_price = match remaining_calc_result {
                             Some((remaining_end_price, _remaining_sol_cost)) => remaining_end_price,
                             None => {
-                                // msg!("错误：剩余区间交易计算失败");
+                                // msg!("剩余区间计算失败: lock_lp_end_price={}", current_order.lock_lp_end_price);
+                                // msg!("remaining_token_amount={}", remaining_token_amount);
+                                // msg!("is_pass={} previous_available_token={}", is_pass, previous_available_token);
                                 return Err(ErrorCode::RemainingRangeCalculationError.into());
                             }
                         };
@@ -577,7 +580,7 @@ pub fn sell_amounts<'info>(
 
         //let (required_token, available_sol) = price_range_result;
 
-        let (head_available_token, head_required_sol) = head_range_result;
+        let (head_available_token, _head_required_sol) = head_range_result;
 
         // 6. 打印头部订单分析数据
         // msg!("--- 头部订单分析 ---");
@@ -655,7 +658,7 @@ pub fn sell_amounts<'info>(
             //     total_token_amount
             // );
 
-            let traversal_result = OrderBookManager::traverse(
+            let _traversal_result = OrderBookManager::traverse(
                 &data,
                 head_index, // 从头部开始
                 0,          // limit=0 表示无限制遍历

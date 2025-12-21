@@ -52,13 +52,13 @@ pub fn close_long_trade(
     // 获取 down_orderbook 账户信息
     let down_orderbook_info = ctx.accounts.down_orderbook.to_account_info();
 
-    // TODO: 临时调试代码，以后删除 - 打印 orderbook 总订单数量
-    {
-        let orderbook_data = down_orderbook_info.data.borrow();
-        let orderbook = OrderBookManager::load_orderbook_header(&orderbook_data)?;
-        // msg!("[调试] down_orderbook 总订单数量: {}", orderbook.total);
-        drop(orderbook_data);
-    }
+    // // TODO: 临时调试代码，以后删除 - 打印 orderbook 总订单数量
+    // {
+    //     let orderbook_data = down_orderbook_info.data.borrow();
+    //     //let orderbook = OrderBookManager::load_orderbook_header(&orderbook_data)?;
+    //     // msg!("[调试] down_orderbook 总订单数量: {}", orderbook.total);
+    //     drop(orderbook_data);
+    // }
 
     // 定义找到的订单变量
     let mut close_margin_order: Option<crate::instructions::structs::MarginOrder> = None;
@@ -66,7 +66,7 @@ pub fn close_long_trade(
     let mut close_margin_index: u16 = u16::MAX; 
 
     // 遍历 close_order_indices 查找匹配的订单
-    for (attempt_idx, &current_index) in close_order_indices.iter().enumerate() {
+    for (_attempt_idx, &current_index) in close_order_indices.iter().enumerate() {
         // msg!("尝试第 {} 个索引: {}", attempt_idx + 1, current_index);
 
         // 借用 orderbook 数据
@@ -165,6 +165,7 @@ pub fn close_long_trade(
 
     // 验证卖出数量不能超过订单持有的代币数量
     if sell_token_amount > close_margin_order.lock_lp_token_amount {
+        msg!("卖出数量({}) 大于 订单持有的代币数量({})", sell_token_amount, close_margin_order.lock_lp_token_amount);
         return Err(ErrorCode::SellAmountExceedsOrderAmount.into());
     }
 
@@ -634,13 +635,13 @@ pub fn close_short_trade(
     // 获取 up_orderbook 账户信息（做空订单在 up_orderbook 中）
     let up_orderbook_info = ctx.accounts.up_orderbook.to_account_info();
 
-    // TODO: 临时调试代码，以后删除 - 打印 orderbook 总订单数量
-    {
-        let orderbook_data = up_orderbook_info.data.borrow();
-        let orderbook = OrderBookManager::load_orderbook_header(&orderbook_data)?;
-        // msg!("[调试] up_orderbook 总订单数量: {}", orderbook.total);
-        drop(orderbook_data);
-    }
+    // // TODO: 临时调试代码，以后删除 - 打印 orderbook 总订单数量
+    // {
+    //     let orderbook_data = up_orderbook_info.data.borrow();
+    //     //let orderbook = OrderBookManager::load_orderbook_header(&orderbook_data)?;
+    //     // msg!("[调试] up_orderbook 总订单数量: {}", orderbook.total);
+    //     drop(orderbook_data);
+    // }
 
     // 定义找到的订单变量
     let mut close_margin_order: Option<crate::instructions::structs::MarginOrder> = None;
@@ -648,7 +649,7 @@ pub fn close_short_trade(
     let mut close_margin_index: u16 = u16::MAX;
 
     // 遍历 close_order_indices 查找匹配的订单
-    for (attempt_idx, &current_index) in close_order_indices.iter().enumerate() {
+    for (_attempt_idx, &current_index) in close_order_indices.iter().enumerate() {
         // msg!("尝试第 {} 个索引: {}", attempt_idx + 1, current_index);
 
         // 借用 orderbook 数据
@@ -827,7 +828,10 @@ pub fn close_short_trade(
         )
         .ok_or(ErrorCode::CloseShortFeeOverflow)?;
 
-        let profit_sol =  close_reduced_sol_with_fee  - calc_result.required_sol - calc_result.fee_sol ;
+        let profit_sol = close_reduced_sol_with_fee
+            .checked_sub(calc_result.required_sol)
+            .and_then(|temp| temp.checked_sub(calc_result.fee_sol))
+            .ok_or(ErrorCode::CloseShortProfitOverflow)?;
 
 
         // 3. 归还借币池 向 curve_account.borrow_token_reserve 加上 close_order.borrow_amount

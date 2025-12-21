@@ -659,6 +659,29 @@ impl OrderBookDBManager {
         sorted_indices.sort_unstable_by(|a, b| b.cmp(a)); // 降序 / Descending
         sorted_indices.dedup();
 
+        // 2. 调用内部实现（假设锁已持有）
+        // 2. Call internal implementation (assumes lock is held)
+        self.batch_remove_by_indices_internal(&sorted_indices, close_reason, previous_price)
+    }
+
+    /// 内部批量删除逻辑（不获取锁，由调用方保证锁已持有）
+    /// Internal batch removal logic (does not acquire lock, caller guarantees lock is held)
+    ///
+    /// # 重要 / Important
+    /// 此函数假设调用方已持有 operation_lock。
+    /// This function assumes the caller already holds the operation_lock.
+    ///
+    /// # 参数 / Parameters
+    /// * `sorted_indices` - 已排序（降序）且去重的索引切片 / Sorted (descending) and deduplicated indices
+    /// * `close_reason` - 关闭原因 / Close reason
+    /// * `previous_price` - 平仓前的价格 / Previous price before close
+    fn batch_remove_by_indices_internal(
+        &self,
+        sorted_indices: &[u16],
+        close_reason: u8,
+        previous_price: u128,
+    ) -> Result<()> {
+
         // 2. 读取初始状态
         // 2. Read initial state
         let mut header = self.load_header()?;
@@ -672,7 +695,7 @@ impl OrderBookDBManager {
 
         // 验证所有索引都在范围内
         // Verify all indices are within range
-        for &index in &sorted_indices {
+        for &index in sorted_indices {
             if index >= old_total {
                 return Err(OrderBookError::InvalidSlotIndex {
                     index,
@@ -712,7 +735,7 @@ impl OrderBookDBManager {
         // ✅ 新增: 获取当前时间戳 / Get current timestamp
         let now = chrono::Utc::now().timestamp() as u32;
 
-        for &remove_index in &sorted_indices {
+        for &remove_index in sorted_indices {
             // 3.1 读取被删除节点
             // 3.1 Read node to be deleted
             let removed_order = get_order_cached(&order_cache, remove_index)?;
@@ -1003,63 +1026,62 @@ impl OrderBookDBManager {
             return Ok(Vec::new());
         }
 
-        // 1. 先收集被删除订单的信息 (在独立的作用域中获取锁)
-        // First collect info of orders to be removed (acquire lock in separate scope)
-        let removed_orders = {
-            // 获取操作锁 / Acquire operation lock
-            let _lock = self.operation_lock.lock().unwrap();
+        // ✅ 关键修复: 在单次锁定内完成所有操作，消除 TOCTOU 竞态
+        // ✅ Critical fix: Complete all operations in a single lock, eliminating TOCTOU race
+        let _lock = self.operation_lock.lock().unwrap();
 
-            // 克隆、去重并降序排序索引 / Clone, deduplicate and sort indices in descending order
-            let mut sorted_indices = indices.to_vec();
-            sorted_indices.sort_unstable_by(|a, b| b.cmp(a)); // 降序 / Descending
-            sorted_indices.dedup();
+        // 1. 克隆、去重并降序排序索引
+        // 1. Clone, deduplicate and sort indices in descending order
+        let mut sorted_indices = indices.to_vec();
+        sorted_indices.sort_unstable_by(|a, b| b.cmp(a)); // 降序 / Descending
+        sorted_indices.dedup();
 
-            // 读取初始状态 / Read initial state
-            let header = self.load_header()?;
-            let old_total = header.total;
+        // 2. 读取初始状态并验证
+        // 2. Read initial state and validate
+        let header = self.load_header()?;
+        let old_total = header.total;
 
-            // 验证链表非空 / Verify linked list is not empty
-            if old_total == 0 {
-                return Err(OrderBookError::EmptyOrderBook);
+        // 验证链表非空 / Verify linked list is not empty
+        if old_total == 0 {
+            return Err(OrderBookError::EmptyOrderBook);
+        }
+
+        // 验证所有索引都在范围内 / Verify all indices are within range
+        for &index in &sorted_indices {
+            if index >= old_total {
+                return Err(OrderBookError::InvalidSlotIndex {
+                    index,
+                    total: old_total,
+                });
             }
+        }
 
-            // 验证所有索引都在范围内 / Verify all indices are within range
-            for &index in &sorted_indices {
-                if index >= old_total {
-                    return Err(OrderBookError::InvalidSlotIndex {
+        // 3. 收集被删除订单的信息（在删除前）
+        // 3. Collect info of removed orders (before deletion)
+        let mut removed_orders = Vec::new();
+        for &index in &sorted_indices {
+            match self.get_order(index) {
+                Ok(order) => {
+                    removed_orders.push(RemovedOrderInfo {
                         index,
-                        total: old_total,
+                        user: order.user.clone(),
+                        position_asset_amount: order.position_asset_amount,
+                        margin_sol_amount: order.margin_sol_amount,
                     });
                 }
-            }
-
-            // 收集被删除订单的信息 / Collect info of removed orders
-            let mut orders = Vec::new();
-            for &index in &sorted_indices {
-                match self.get_order(index) {
-                    Ok(order) => {
-                        orders.push(RemovedOrderInfo {
-                            index,
-                            user: order.user.clone(),
-                            position_asset_amount: order.position_asset_amount,
-                            margin_sol_amount: order.margin_sol_amount,
-                        });
-                    }
-                    Err(e) => {
-                        warn!(
-                            "⚠️ 无法读取订单索引 {} 的信息: {} / Cannot read order info for index {}: {}",
-                            index, e, index, e
-                        );
-                        // 继续处理其他订单 / Continue with other orders
-                    }
+                Err(e) => {
+                    warn!(
+                        "⚠️ 无法读取订单索引 {} 的信息: {} / Cannot read order info for index {}: {}",
+                        index, e, index, e
+                    );
+                    // 继续处理其他订单 / Continue with other orders
                 }
             }
-            orders
-        }; // 锁在这里被释放 / Lock is released here
+        }
 
-        // 2. 执行删除 (此时锁已释放,batch_remove_by_indices_unsafe 可以正常获取锁)
-        // Perform deletion (lock released, batch_remove_by_indices_unsafe can acquire lock normally)
-        self.batch_remove_by_indices_unsafe(indices, close_reason, previous_price)?;
+        // 4. 执行删除（调用内部版本，不重新获取锁）
+        // 4. Perform deletion (call internal version, no re-locking)
+        self.batch_remove_by_indices_internal(&sorted_indices, close_reason, previous_price)?;
 
         info!("✅ Batch removed {} orders with info", removed_orders.len());
         Ok(removed_orders)

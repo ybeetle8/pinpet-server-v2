@@ -17,11 +17,11 @@ declare_id!("HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw");
 pub mod pinpet {
     use super::*;
 
-    // 初始化函数
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        // msg!("Greetings from: {:?}", ctx.program_id);
-        Ok(())
-    }
+    // 初始化函数 (已废弃 - 功能已被 update_admin 的 init_if_needed 替代)
+    // pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
+    //     // msg!("Greetings from: {:?}", ctx.program_id);
+    //     Ok(())
+    // }
 
     // 更新 Admin 配置指令
     pub fn update_admin(
@@ -146,11 +146,11 @@ pub mod pinpet {
         instructions::buy_sell::sell_trade(ctx, sell_token_amount, min_sol_output)
     }
 
-    /// 批准当前token余额用于交易
-    /// 用于以下场景:
-    /// 1. 从其他地址转入token后想要立即交易
-    /// 2. 重新激活冷却PDA
-    pub fn approve_trade(ctx: Context<TradeBuySell>) -> Result<()> {
+    // 批准当前token余额用于交易
+    // 用于以下场景:
+    // 1. 从其他地址转入token后想要立即交易
+    // 2. 重新激活冷却PDA
+    pub fn approve_trade(ctx: Context<ApproveCooldown>) -> Result<()> {
         // msg!("批准token用于交易");
 
         // ========== 如果PDA已存在，验证冷却时间 ==========
@@ -172,23 +172,31 @@ pub mod pinpet {
         Ok(())
     }
 
-    /// 手动关闭TradeCooldown PDA并回收租金
-    ///
-    /// 使用条件:
-    /// 1. 只能关闭自己的PDA(通过seeds验证)
-    ///
-    /// 使用场景:
-    /// - 用户想要回收租金
-    /// - 清理不再使用的PDA
-    /// - 管理员批量清理过期PDA
-    ///
-    /// 注意:
-    /// - 无需验证代币余额，关闭后可通过approve_trade重新创建
-    /// - PDA关闭后，下次buy或approve会自动重新创建
+    // 手动关闭TradeCooldown PDA并回收租金
+    //
+    // 使用条件:
+    // 1. 只能关闭自己的PDA(通过seeds验证)
+    //
+    // 使用场景:
+    // - 用户想要回收租金
+    // - 清理不再使用的PDA
+    //
+    // 安全要求:
+    // - 必须已过冷却时间
+    // - 代币余额必须为0
+    // - PDA关闭后，下次buy或approve会自动重新创建
     pub fn close_trade_cooldown(ctx: Context<CloseCooldown>) -> Result<()> {
         // msg!("手动关闭TradeCooldown PDA");
 
+        // 验证1: 检查是否处于冷却时间
+        validate_trade_cooldown(&ctx.accounts.cooldown)?;
+
+        // 验证2: 检查代币余额必须为0
         let token_balance = ctx.accounts.user_token_account.amount;
+        if token_balance != 0 {
+            return Err(error::ErrorCode::CannotCloseCooldownWithBalance.into());
+        }
+
         // msg!("当前代币余额: {}, PDA关闭成功，租金返还给用户", token_balance);
 
         // PDA会自动关闭(通过close = payer约束)
@@ -231,5 +239,6 @@ pub mod pinpet {
     }
 }
 
-#[derive(Accounts)]
-pub struct Initialize {} // 初始化
+// Initialize 结构体已废弃 - 初始化功能已被 update_admin 的 init_if_needed 替代
+// #[derive(Accounts)]
+// pub struct Initialize {} // 初始化

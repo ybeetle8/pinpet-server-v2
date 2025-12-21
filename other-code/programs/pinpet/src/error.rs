@@ -2,304 +2,322 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("计算溢出错误")]
+    #[msg("Arithmetic overflow error")]
     ArithmeticOverflow,
 
-    // ==================== 交易计算溢出错误 ====================
-    #[msg("买入交易计算溢出")]
+    // ==================== Trade Calculation Overflow Errors ====================
+    #[msg("Buy trade calculation overflow")]
     BuyCalculationOverflow,
 
-    #[msg("买入手续费计算溢出")]
+    #[msg("Buy fee calculation overflow")]
     BuyFeeCalculationOverflow,
 
-    #[msg("卖出交易计算溢出")]
+    #[msg("Sell trade calculation overflow")]
     SellCalculationOverflow,
 
-    #[msg("卖出手续费计算溢出")]
+    #[msg("Sell fee calculation overflow")]
     SellFeeCalculationOverflow,
 
-    // ==================== 保证金交易溢出错误 ====================
-    #[msg("做多保证金计算溢出")]
+    // ==================== Margin Trade Overflow Errors ====================
+    #[msg("Long margin calculation overflow")]
     LongMarginCalculationOverflow,
 
-    #[msg("做多借款计算溢出")]
+    #[msg("Long borrow calculation overflow")]
     LongBorrowCalculationOverflow,
 
-    #[msg("做多手续费计算溢出")]
+    #[msg("Long fee calculation overflow")]
     LongFeeCalculationOverflow,
 
-    #[msg("做多价格计算溢出")]
+    #[msg("Long price calculation overflow")]
     LongPriceCalculationOverflow,
 
-    #[msg("做空保证金计算溢出")]
+    #[msg("Short margin calculation overflow")]
     ShortMarginCalculationOverflow,
 
-    #[msg("做空借款计算溢出")]
+    #[msg("Short borrow calculation overflow")]
     ShortBorrowCalculationOverflow,
 
-    #[msg("做空手续费计算溢出")]
+    #[msg("Short fee calculation overflow")]
     ShortFeeCalculationOverflow,
 
-    #[msg("做空价格计算溢出")]
+    #[msg("Short price calculation overflow")]
     ShortPriceCalculationOverflow,
 
-    // ==================== 平仓操作溢出错误 ====================
-    #[msg("平多仓利润计算溢出")]
+    // ==================== Position Close Overflow Errors ====================
+    #[msg("Close long profit calculation overflow")]
     CloseLongProfitOverflow,
 
-    #[msg("平多仓还款计算溢出")]
+    #[msg("Close long repayment calculation overflow")]
     CloseLongRepaymentOverflow,
 
-    #[msg("平多仓剩余计算溢出")]
+    #[msg("Close long remaining calculation overflow")]
     CloseLongRemainingOverflow,
 
-    #[msg("平多仓手续费溢出")]
+    #[msg("Close long fee overflow")]
     CloseLongFeeOverflow,
 
-    #[msg("平空仓利润计算溢出")]
+    #[msg("Close short profit calculation overflow")]
     CloseShortProfitOverflow,
 
-    #[msg("平空仓还款计算溢出")]
+    #[msg("Close short repayment calculation overflow")]
     CloseShortRepaymentOverflow,
 
-    #[msg("平空仓剩余计算溢出")]
+    #[msg("Close short remaining calculation overflow")]
     CloseShortRemainingOverflow,
 
-    #[msg("平空仓手续费溢出")]
+    #[msg("Close short fee overflow")]
     CloseShortFeeOverflow,
 
-    // ==================== 手续费管理溢出错误 ====================
-    #[msg("手续费分配计算溢出")]
+    // ==================== Fee Management Overflow Errors ====================
+    #[msg("Fee split calculation overflow")]
     FeeSplitCalculationOverflow,
 
-    #[msg("手续费累加溢出")]
+    #[msg("Fee accumulation overflow")]
     FeeAccumulationOverflow,
 
-    #[msg("合作伙伴手续费增加溢出")]
+    #[msg("Partner fee addition overflow")]
     PartnerFeeAdditionOverflow,
 
-    #[msg("基础手续费增加溢出")]
+    #[msg("Base fee addition overflow")]
     BaseFeeAdditionOverflow,
 
-    #[msg("资金池手续费扣除溢出")]
+    #[msg("Pool fee deduction overflow")]
     PoolFeeDeductionOverflow,
 
-    #[msg("手续费随机优惠计算溢出")]
+    #[msg("Fee random discount calculation overflow")]
     FeeRandomDiscountOverflow,
 
-    // ==================== 流动性管理溢出错误 ====================
-    #[msg("SOL储备增加溢出")]
+    // ==================== Liquidity Management Overflow Errors ====================
+    #[msg("SOL reserve addition overflow")]
     SolReserveAdditionOverflow,
 
-    #[msg("SOL储备扣除溢出")]
+    #[msg("SOL reserve deduction overflow")]
     SolReserveDeductionOverflow,
 
-    #[msg("代币储备增加溢出")]
+    #[msg("Token reserve addition overflow")]
     TokenReserveAdditionOverflow,
 
-    // ==================== 转账操作溢出错误 ====================
-    #[msg("Lamports增加溢出")]
+    // ==================== Transfer Operation Overflow Errors ====================
+    #[msg("Lamports addition overflow")]
     LamportsAdditionOverflow,
 
-    #[msg("Lamports扣除溢出")]
+    #[msg("Lamports deduction overflow")]
     LamportsDeductionOverflow,
 
-    // ==================== 时间与计数器溢出错误 ====================
-    #[msg("到期时间计算溢出")]
+    // ==================== Time and Counter Overflow Errors ====================
+    #[msg("Deadline calculation overflow")]
     DeadlineCalculationOverflow,
 
-    #[msg("手续费优惠标志计算溢出")]
+    #[msg("Fee discount flag calculation overflow")]
     FeeDiscountFlagOverflow,
 
-    #[msg("未授权的操作")]
+    #[msg("Unauthorized operation")]
     Unauthorized,
 
-    #[msg("初始化时所有参数都是必需的")]
+    #[msg("All parameters are required during initialization")]
     RequiredParameter,
 
-    #[msg("曲线计算错误")]
+    #[msg("Curve calculation error")]
     CurveCalculationError,
 
-    #[msg("初始价格计算失败")]
+    #[msg("Initial price calculation failed")]
     InitialPriceCalculationError,
 
-    #[msg("储备量重算失败（买入后）")]
+    #[msg("Reserve recalculation failed (after buy)")]
     BuyReserveRecalculationError,
 
-    #[msg("储备量重算失败（卖出后）")]
+    #[msg("Reserve recalculation failed (after sell)")]
     SellReserveRecalculationError,
 
-    #[msg("含手续费总额计算失败")]
+    #[msg("Total amount with fee calculation failed")]
     TotalAmountWithFeeError,
 
-    #[msg("扣费后金额计算失败")]
+    #[msg("Amount after fee calculation failed")]
     AmountAfterFeeError,
 
-    #[msg("买入价格区间计算失败")]
+    #[msg("Buy price range calculation failed")]
     BuyPriceRangeCalculationError,
 
-    #[msg("卖出价格区间计算失败")]
+    #[msg("Sell price range calculation failed")]
     SellPriceRangeCalculationError,
 
-    #[msg("剩余区间交易计算失败")]
+    #[msg("Remaining range calculation failed")]
     RemainingRangeCalculationError,
 
-    #[msg("全区间交易计算失败")]
+    #[msg("Full range calculation failed")]
     FullRangeCalculationError,
 
-    #[msg("曲线函数返回None：buy_from_price_with_token_output")]
+    #[msg("Curve function returned None: buy_from_price_with_token_output")]
     BuyFromPriceWithTokenNoneError,
 
-    #[msg("曲线函数返回None：sell_from_price_with_token_input")]
+    #[msg("Curve function returned None: sell_from_price_with_token_input")]
     SellFromPriceWithTokenNoneError,
 
-    #[msg("用户设置的最大SOL可使用金额不足")]
+    #[msg("User-set max SOL amount insufficient")]
     ExceedsMaxSolAmount,
 
-    #[msg("获得的SOL数量不足")]
+    #[msg("Insufficient SOL output")]
     InsufficientSolOutput,
 
-    #[msg("平仓收益不足以偿还借款")]
+    #[msg("Close proceeds insufficient to repay loan")]
     InsufficientRepayment,
 
-    #[msg("借款请求超过可用储备")]
+    #[msg("Borrow request exceeds available reserve")]
     InsufficientBorrowingReserve,
 
-    #[msg("实际卖出的代币数量不足")]
+    #[msg("Insufficient token sale amount")]
     InsufficientTokenSale,
 
-    #[msg("当前订单可提供的流动性不足")]
+    #[msg("Insufficient liquidity available in current order")]
     InsufficientLiquidity,
 
-    #[msg("市场流动性不足，即使清算所有止损订单也无法满足交易需求")]
+    #[msg("Insufficient market liquidity, cannot satisfy trade even after liquidating all stop-loss orders")]
     InsufficientMarketLiquidity,
 
-    #[msg("保证金交易时,区间计算误差值太大")]
+    #[msg("Range calculation error too large in margin trade")]
     TokenAmountDifferenceOutOfRange,
 
-    #[msg("借款金额与锁定代币数量不匹配")]
+    #[msg("Borrow amount does not match locked token amount")]
     BorrowAmountMismatch,
 
-    #[msg("平仓手续费计算错误")]
+    #[msg("Close fee calculation error")]
     CloseFeeCalculationError,
 
-    #[msg("保证金不足")]
+    #[msg("Insufficient margin")]
     InsufficientMargin,
 
-    #[msg("保证金低于最小限制")]
+    #[msg("Margin below minimum requirement")]
     InsufficientMinimumMargin,
 
-    #[msg("账户所有者不正确")]
+    #[msg("Invalid account owner")]
     InvalidAccountOwner,
 
-    #[msg("卖出数量超过订单持有的代币数量")]
+    #[msg("Sell amount exceeds order's token holdings")]
     SellAmountExceedsOrderAmount,
 
-    #[msg("未超时订单必须由开仓者平仓")]
+    #[msg("Non-expired order must be closed by owner")]
     OrderNotExpiredMustCloseByOwner,
 
-    #[msg("结算地址必须是开仓地址")]
+    #[msg("Settlement address must be owner address")]
     SettlementAddressMustBeOwnerAddress,
 
-    #[msg("买入数量超过订单持有的代币数量")]
+    #[msg("Buy amount exceeds order's token holdings")]
     BuyAmountExceedsOrderAmount,
 
-    #[msg("交易数量低于最小限制")]
+    #[msg("Trade amount below minimum requirement")]
     InsufficientTradeAmount,
 
-    #[msg("交易冷却期未结束，请稍后再试")]
+    #[msg("Trade cooldown period not expired, please try again later")]
     TradeCooldownNotExpired,
 
-    #[msg("卖出数量超过批准额度，请先调用approval函数")]
+    #[msg("Sell amount exceeds approved amount, please call approval function first")]
     ExceedApprovalAmount,
 
-    #[msg("Sell交易需要先调用approval或buy函数初始化冷却PDA")]
+    #[msg("Sell trade requires calling approval or buy function first to initialize cooldown PDA")]
     CooldownNotInitialized,
 
-    #[msg("代币余额不为0，无法关闭冷却PDA")]
+    #[msg("Cannot close cooldown PDA with non-zero token balance")]
     CannotCloseCooldownWithBalance,
 
-    #[msg("传入的 cooldown PDA 地址不正确")]
-    InvalidCooldownPDA,
-
-    #[msg("剩余代币数量低于最小交易限制")]
+    #[msg("Remaining token amount below minimum trade requirement")]
     RemainingTokenAmountTooSmall,
 
-    #[msg("价格计算错误")]
+    #[msg("Price calculation error")]
     PriceCalculationError,
 
-    #[msg("手续费接收账户地址不匹配")]
+    #[msg("Fee recipient account address mismatch")]
     InvalidFeeRecipientAccount,
 
-    #[msg("订单mint地址与curve账户mint不匹配")]
+    #[msg("Order mint address does not match curve account mint")]
     InvalidOrderMintAddress,
 
-    #[msg("手续费分配比例必须在0-100之间")]
+    #[msg("Fee percentage must be between 0-100")]
     InvalidFeePercentage,
 
+    #[msg("Fee rate exceeds maximum limit (10%)")]
+    InvalidFeeRate,
 
-    #[msg("止损价格不满足最小间隔要求")]
+    #[msg("Stop loss price does not meet minimum interval requirement")]
     InvalidStopLossPrice,
 
-    #[msg("无盈利资金可转移")]
+    #[msg("No profitable funds to transfer")]
     NoProfitableFunds,
 
-    #[msg("池子资金不足")]
+    #[msg("Insufficient pool funds")]
     InsufficientPoolFunds,
 
-    // ==================== OrderBook Manager 错误 ====================
-    #[msg("数学运算溢出")]
+    // ==================== OrderBook Manager Errors ====================
+    #[msg("Math operation overflow")]
     OrderBookManagerOverflow,
 
-    #[msg("无效的槽位索引")]
+    #[msg("Invalid slot index")]
     OrderBookManagerInvalidSlotIndex,
 
-    #[msg("无效的账户数据")]
+    #[msg("Invalid account data")]
     OrderBookManagerInvalidAccountData,
 
-    #[msg("新容量超过最大限制")]
+    #[msg("New capacity exceeds maximum limit")]
     OrderBookManagerExceedsMaxCapacity,
 
-    #[msg("账户大小超过 10MB 限制")]
+    #[msg("Account size exceeds 10MB limit")]
     OrderBookManagerExceedsAccountSizeLimit,
 
-    #[msg("订单 ID 不匹配")]
+    #[msg("Order ID mismatch")]
     OrderBookManagerOrderIdMismatch,
 
-    #[msg("订单簿为空")]
+    #[msg("Order book is empty")]
     OrderBookManagerEmptyOrderBook,
 
-    #[msg("账户不可写")]
+    #[msg("Account is not writable")]
     OrderBookManagerAccountNotWritable,
 
-    #[msg("账户未达到 rent-exempt")]
+    #[msg("Account not rent-exempt")]
     OrderBookManagerNotRentExempt,
 
-    #[msg("租金余额无效")]
+    #[msg("Invalid rent balance")]
     OrderBookManagerInvalidRentBalance,
 
-    #[msg("余额不足")]
+    #[msg("Insufficient funds")]
     OrderBookManagerInsufficientFunds,
 
-    #[msg("无效的账户所有者")]
+    #[msg("Invalid account owner")]
     OrderBookManagerInvalidAccountOwner,
 
-    #[msg("数据访问越界")]
+    #[msg("Data access out of bounds")]
     OrderBookManagerDataOutOfBounds,
 
-    // ==================== 做多/做空订单插入错误 ====================
-    #[msg("无法找到合适的插入位置，所有候选位置均因价格区间重叠而失败")]
+    // ==================== Long/Short Order Insert Errors ====================
+    #[msg("Cannot find valid insert position, all candidates failed due to price range overlap")]
     NoValidInsertPosition,
 
-    #[msg("close_insert_indices 数组不能为空")]
+    #[msg("close_insert_indices array cannot be empty")]
     EmptyCloseInsertIndices,
 
-    #[msg("close_insert_indices 数组元素数量不能超过 20 个")]
+    #[msg("close_insert_indices array cannot exceed 20 elements")]
     TooManyCloseInsertIndices,
 
-    #[msg("未找到指定的平仓订单")]
+    #[msg("Specified close order not found")]
     CloseOrderNotFound,
 
-    #[msg("链表删除计数异常：删除前后计数不一致")]
+    #[msg("Linked list delete count mismatch: count inconsistent before/after deletion")]
     LinkedListDeleteCountMismatch,
+
+    // ==================== Parameter Validation Errors ====================
+    #[msg("Token name too long, max 32 bytes")]
+    NameTooLong,
+
+    #[msg("Token name cannot be empty")]
+    NameEmpty,
+
+    #[msg("Token symbol too long, max 10 bytes")]
+    SymbolTooLong,
+
+    #[msg("Token symbol cannot be empty")]
+    SymbolEmpty,
+
+    #[msg("URI too long, max 200 bytes")]
+    UriTooLong,
+
+    #[msg("URI cannot be empty")]
+    UriEmpty,
 }

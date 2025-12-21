@@ -366,10 +366,22 @@ pub fn sell_trade(
         return Err(ErrorCode::SellReserveRecalculationError.into());
     }
 
-    // ========== 交易成功后，检查是否需要回收PDA ==========
+    // ========== 交易成功后，更新冷却记录 ==========
     ctx.accounts.user_token_account.reload()?;
     let new_token_balance = ctx.accounts.user_token_account.amount;
 
+    // 无论余额是否为0，都先更新冷却记录
+    // 这样可以确保：
+    // 1. 批准额度被正确更新为当前代币余额
+    // 2. 冷却时间被重置
+    // 3. 防止批准额度被重复使用
+    crate::instructions::update_cooldown_record(
+        &mut ctx.accounts.cooldown,
+        new_token_balance,
+        ctx.bumps.cooldown,
+    )?;
+
+    // 检查是否需要回收PDA
     if new_token_balance == 0 {
         // 用户卖出了所有代币，回收PDA释放租金
         // msg!("检测到代币余额为0，回收TradeCooldown PDA并释放租金");
@@ -387,13 +399,6 @@ pub fn sell_trade(
             .ok_or(ErrorCode::LamportsAdditionOverflow)?;
 
         // msg!("PDA回收成功，租金({} lamports)已返还给用户", cooldown_lamports);
-    } else {
-        // 仍有代币余额，正常更新冷却记录
-        crate::instructions::update_cooldown_record(
-            &mut ctx.accounts.cooldown,
-            new_token_balance,
-            ctx.bumps.cooldown,
-        )?;
     }
 
     // 触发卖出交易事件

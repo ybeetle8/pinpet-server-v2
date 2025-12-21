@@ -3,6 +3,7 @@ use {
     anchor_lang::prelude::*,
     crate::instructions::contexts::{UpdateAdmin, CreateParams, UpdateParams},
     crate::error::ErrorCode,
+    crate::curve::curve_amm::MAX_FEE_RATE,
 };
 
 
@@ -32,10 +33,10 @@ pub fn update_admin(
         }
         
         // 第二重验证：确保admin账户字段不是默认值（防止意外重置）
-        if admin_account.admin == Pubkey::default() {
-            // msg!("Invalid state: Admin account admin field is default value");
-            return Err(ErrorCode::Unauthorized.into());
-        }
+        // if admin_account.admin == Pubkey::default() {
+        //     // msg!("Invalid state: Admin account admin field is default value");
+        //     return Err(ErrorCode::Unauthorized.into());
+        // }
 
         // msg!("Admin update verification passed for existing account: {}", ctx.accounts.admin.key());
     } else {
@@ -49,15 +50,23 @@ pub fn update_admin(
 
     // 设置或更新默认交易费率
     if let Some(fee) = default_swap_fee {
+        // 验证手续费不超过最大值
+        if fee > MAX_FEE_RATE {
+            return Err(ErrorCode::InvalidFeeRate.into());
+        }
         admin_account.default_swap_fee = fee;
         // msg!("{} default swap fee: {}", if is_new_account { "Set" } else { "Updated" }, fee);
     } else if is_new_account {
         // 新账户必须设置初始值
         return Err(ErrorCode::RequiredParameter.into());
     }
-    
+
     // 设置或更新默认借贷费率
     if let Some(fee) = default_borrow_fee {
+        // 验证手续费不超过最大值
+        if fee > MAX_FEE_RATE {
+            return Err(ErrorCode::InvalidFeeRate.into());
+        }
         admin_account.default_borrow_fee = fee;
         // msg!("{} default borrow fee: {}", if is_new_account { "Set" } else { "Updated" }, fee);
     } else if is_new_account {
@@ -123,7 +132,7 @@ pub fn create_params(
     // 初始化 bump 值
     params.bump = ctx.bumps.params;
     
-    // 从 Admin 账户复制默认值
+    // 从 Admin 账户复制默认值（这里不需要额外验证，因为admin账户的值在设置时已验证）
     params.base_swap_fee = admin_account.default_swap_fee;
     params.base_borrow_fee = admin_account.default_borrow_fee;
     params.base_borrow_duration = admin_account.default_borrow_duration;
@@ -145,7 +154,7 @@ pub fn create_params(
 // 更新合作伙伴参数的处理函数（只有超级管理员可以调用）
 pub fn update_params(
     ctx: Context<UpdateParams>,
-    partner_pubkey: Pubkey,
+    _partner_pubkey: Pubkey,
     base_swap_fee: Option<u16>,
     base_borrow_fee: Option<u16>,
     base_borrow_duration: Option<u32>,
@@ -175,12 +184,20 @@ pub fn update_params(
     
     // 设置或更新交易费率
     if let Some(fee) = base_swap_fee {
+        // 验证手续费不超过最大值
+        if fee > MAX_FEE_RATE {
+            return Err(ErrorCode::InvalidFeeRate.into());
+        }
         params.base_swap_fee = fee;
         // msg!("Updated base swap fee: {}", fee);
     }
 
     // 设置或更新借贷费率
     if let Some(fee) = base_borrow_fee {
+        // 验证手续费不超过最大值
+        if fee > MAX_FEE_RATE {
+            return Err(ErrorCode::InvalidFeeRate.into());
+        }
         params.base_borrow_fee = fee;
         // msg!("Updated base borrow fee: {}", fee);
     }
@@ -207,6 +224,6 @@ pub fn update_params(
     }
 
     // msg!("Parameters updated successfully for partner: {}", partner_pubkey);
-    
+
     Ok(())
 } 
