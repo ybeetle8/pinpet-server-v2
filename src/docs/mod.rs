@@ -63,7 +63,6 @@ pub struct ErrorApiResponse {
         // 路由函数列表
         crate::router::health::health,
         crate::router::db::db_get,
-        crate::router::db::db_delete,
         crate::router::db::db_stats,
         crate::router::db::db_event_stats,
         crate::router::db::query_events_by_mint,

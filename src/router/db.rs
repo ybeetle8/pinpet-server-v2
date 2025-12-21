@@ -278,38 +278,6 @@ pub async fn db_get(
     }
 }
 
-/// 从 RocksDB 删除数据
-#[utoipa::path(
-    post,
-    path = "/db/delete",
-    tag = "database",
-    summary = "删除数据",
-    description = "从 RocksDB 删除键值对",
-    request_body = DbRequest,
-    responses(
-        (status = 200, description = "删除成功",
-         body = crate::docs::ApiResponse<DbResponse>),
-        (status = 500, description = "服务器内部错误",
-         body = crate::docs::ErrorApiResponse)
-    )
-)]
-pub async fn db_delete(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
-    Json(req): Json<DbRequest>,
-) -> ApiResult {
-    let result = db.delete(&req.key);
-
-    match result {
-        Ok(_) => Ok(ok_result::<DbResponse>(Ok(DbResponse {
-            key: req.key.clone(),
-            value: None,
-        }))),
-        Err(e) => Ok(ok_result::<DbResponse>(Err(
-            crate::util::result::ApiError::InternalError(e.to_string()),
-        ))),
-    }
-}
-
 /// 获取 RocksDB 统计信息
 #[utoipa::path(
     get,
@@ -625,7 +593,6 @@ pub async fn query_events_by_slot_range(
 pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
     Router::new()
         .route("/db/get", post(db_get))
-        .route("/db/delete", post(db_delete))
         .route("/db/stats", get(db_stats))
         .route("/db/event_stats", get(db_event_stats))
         .route("/db/events/by_mint", get(query_events_by_mint))

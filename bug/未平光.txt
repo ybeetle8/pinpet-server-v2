@@ -1,0 +1,192 @@
+机器人 41: 第 8496 轮有 1/1 个订单失败
+机器人 41: 下一轮切换到100%数量
+机器人 41: 第 8498 轮平仓尝试
+机器人 41: 正在获取用户订单数据...
+机器人 41: 第 8498 轮找到 1 个订单需要处理
+机器人 41: 第 8498 轮处理第 1-1/1 个订单 (并行)
+机器人 41: [订单1] 减半后数量 3859681 低于最小交易数量 100000000，使用最小交易数量
+机器人 41: [订单1/1] 正在关闭做空订单 ID=422, Index=0，借贷数量: 100000000
+机器人 41: [订单1] 做空平仓候选索引: [ 0 ]
+
+=== Bot 41: closeShort 调试信息 ===
+closeOrderId: 422 (type: string)
+closeOrderIndices: [0] (type: object, isArray: true)
+buyTokenAmount: 100000000 (type: bigint)
+maxSolAmount: 100000000000 (type: number)
+allowInStop: true
+this.address: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1 (type: string)
+this.privateKey: ***存在*** (type: string)
+this.mint: 6Hp1wCgSgkjXeKFzf2DCCpQzkcHdqzG8bv5pYZEiwJKV (type: string)
+this.sdk: 存在
+walletKeypair.publicKey: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1
+buyTokenAmountBN: 100000000
+maxSolAmountBN: 100000000000
+
+使用 payer (walletKeypair.publicKey) 作为 userSolAccount
+  payer 地址: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1
+  payer constructor: PublicKey
+=== closeShort 调试信息结束 ===
+
+Bot 41: 平仓做空交易失败: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x17cf. 
+Logs: 
+[
+  "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+  "Program ComputeBudget111111111111111111111111111111 success",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]",
+  "Program log: Instruction: CloseShort",
+  "Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+[2025-12-20T17:32:51.118Z] -------- 失败交易日志 --------
+[2025-12-20T17:32:51.118Z] Program ComputeBudget111111111111111111111111111111 invoke [1]
+[2025-12-20T17:32:51.118Z] Program ComputeBudget111111111111111111111111111111 success
+[2025-12-20T17:32:51.118Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]
+[2025-12-20T17:32:51.118Z] Program log: Instruction: CloseShort
+[2025-12-20T17:32:51.118Z] Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.
+[2025-12-20T17:32:51.118Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units
+[2025-12-20T17:32:51.118Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf
+[2025-12-20T17:32:51.118Z] -------- 失败交易日志结束 --------
+❌ 机器人 41: [订单1] 关闭做空订单失败  ID=422: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x17cf. 
+Logs: 
+[
+  "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+  "Program ComputeBudget111111111111111111111111111111 success",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]",
+  "Program log: Instruction: CloseShort",
+  "Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+机器人 41: 第 8498 轮有 1/1 个订单失败
+机器人 41: 下一轮切换到100%数量
+机器人 41: 第 8497 轮平仓尝试
+机器人 41: 正在获取用户订单数据...
+机器人 41: 第 8497 轮找到 1 个订单需要处理
+机器人 41: 第 8497 轮处理第 1-1/1 个订单 (并行)
+机器人 41: [订单1/1] 正在关闭做空订单 ID=422, Index=0，借贷数量: 1976157183
+机器人 41: [订单1] 做空平仓候选索引: [ 0 ]
+
+=== Bot 41: closeShort 调试信息 ===
+closeOrderId: 422 (type: string)
+closeOrderIndices: [0] (type: object, isArray: true)
+buyTokenAmount: 1976157183 (type: string)
+maxSolAmount: 100000000000 (type: number)
+allowInStop: true
+this.address: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1 (type: string)
+this.privateKey: ***存在*** (type: string)
+this.mint: 6Hp1wCgSgkjXeKFzf2DCCpQzkcHdqzG8bv5pYZEiwJKV (type: string)
+this.sdk: 存在
+walletKeypair.publicKey: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1
+buyTokenAmountBN: 1976157183
+maxSolAmountBN: 100000000000
+
+使用 payer (walletKeypair.publicKey) 作为 userSolAccount
+  payer 地址: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1
+  payer constructor: PublicKey
+=== closeShort 调试信息结束 ===
+
+Bot 41: 平仓做空交易失败: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x17cf. 
+Logs: 
+[
+  "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+  "Program ComputeBudget111111111111111111111111111111 success",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]",
+  "Program log: Instruction: CloseShort",
+  "Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+[2025-12-20T17:32:51.224Z] -------- 失败交易日志 --------
+[2025-12-20T17:32:51.224Z] Program ComputeBudget111111111111111111111111111111 invoke [1]
+[2025-12-20T17:32:51.224Z] Program ComputeBudget111111111111111111111111111111 success
+[2025-12-20T17:32:51.224Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]
+[2025-12-20T17:32:51.224Z] Program log: Instruction: CloseShort
+[2025-12-20T17:32:51.224Z] Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.
+[2025-12-20T17:32:51.224Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units
+[2025-12-20T17:32:51.224Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf
+[2025-12-20T17:32:51.224Z] -------- 失败交易日志结束 --------
+❌ 机器人 41: [订单1] 关闭做空订单失败  ID=422: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x17cf. 
+Logs: 
+[
+  "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+  "Program ComputeBudget111111111111111111111111111111 success",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]",
+  "Program log: Instruction: CloseShort",
+  "Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+机器人 41: 第 8497 轮有 1/1 个订单失败
+机器人 41: 下一轮切换到减半数量
+机器人 41: 第 8499 轮平仓尝试
+机器人 41: 正在获取用户订单数据...
+机器人 41: 第 8499 轮找到 1 个订单需要处理
+机器人 41: 第 8499 轮处理第 1-1/1 个订单 (并行)
+机器人 41: [订单1/1] 正在关闭做空订单 ID=422, Index=0，借贷数量: 1976157183
+机器人 41: [订单1] 做空平仓候选索引: [ 0 ]
+
+=== Bot 41: closeShort 调试信息 ===
+closeOrderId: 422 (type: string)
+closeOrderIndices: [0] (type: object, isArray: true)
+buyTokenAmount: 1976157183 (type: string)
+maxSolAmount: 100000000000 (type: number)
+allowInStop: true
+this.address: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1 (type: string)
+this.privateKey: ***存在*** (type: string)
+this.mint: 6Hp1wCgSgkjXeKFzf2DCCpQzkcHdqzG8bv5pYZEiwJKV (type: string)
+this.sdk: 存在
+walletKeypair.publicKey: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1
+buyTokenAmountBN: 1976157183
+maxSolAmountBN: 100000000000
+
+使用 payer (walletKeypair.publicKey) 作为 userSolAccount
+  payer 地址: 34HpB2LMtPnjn9ywa42gksWf3kav25FZLP8z1KfmPEa1
+  payer constructor: PublicKey
+=== closeShort 调试信息结束 ===
+
+Bot 41: 平仓做空交易失败: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x17cf. 
+Logs: 
+[
+  "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+  "Program ComputeBudget111111111111111111111111111111 success",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]",
+  "Program log: Instruction: CloseShort",
+  "Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+[2025-12-20T17:32:54.134Z] -------- 失败交易日志 --------
+[2025-12-20T17:32:54.134Z] Program ComputeBudget111111111111111111111111111111 invoke [1]
+[2025-12-20T17:32:54.134Z] Program ComputeBudget111111111111111111111111111111 success
+[2025-12-20T17:32:54.134Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]
+[2025-12-20T17:32:54.134Z] Program log: Instruction: CloseShort
+[2025-12-20T17:32:54.134Z] Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.
+[2025-12-20T17:32:54.134Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units
+[2025-12-20T17:32:54.134Z] Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf
+[2025-12-20T17:32:54.134Z] -------- 失败交易日志结束 --------
+❌ 机器人 41: [订单1] 关闭做空订单失败  ID=422: Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x17cf. 
+Logs: 
+[
+  "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+  "Program ComputeBudget111111111111111111111111111111 success",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw invoke [1]",
+  "Program log: Instruction: CloseShort",
+  "Program log: AnchorError occurred. Error Code: CloseOrderNotFound. Error Number: 6095. Error Message: Specified close order not found.",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw consumed 18486 of 1399850 compute units",
+  "Program HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw failed: custom program error: 0x17cf"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+机器人 41: 第 8499 轮有 1/1 个订单失败
+机器人 41: 下一轮切换到减半数量
