@@ -8,8 +8,8 @@ use tracing::{debug, error, info};
 /// Solana RPC客户端 / Solana RPC client
 #[derive(Clone)]
 pub struct SolanaClient {
-    rpc_url: String,
-    client: Client,
+    pub(crate) rpc_url: String,
+    pub(crate) client: Client,
 }
 
 impl SolanaClient {

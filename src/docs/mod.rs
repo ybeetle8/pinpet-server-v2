@@ -86,6 +86,9 @@ pub struct ErrorApiResponse {
         crate::router::kline::get_kline,
         // 价格查询路由 / Price Query routes
         crate::router::price::get_sol_price,
+        // Debug 路由 / Debug routes
+        crate::router::debug::query_orderbook_from_chain,
+        crate::router::debug::compare_orderbook,
     ),
     components(
         schemas(
@@ -134,6 +137,17 @@ pub struct ErrorApiResponse {
             crate::kline::types::KlineQueryResponse,
             // 价格查询结构体 / Price Query structures
             crate::price::SolPrice,
+            // Debug 结构体 / Debug structures
+            crate::router::debug::ChainOrderBookQueryParams,
+            crate::router::debug::ChainOrderBookHeaderInfo,
+            crate::router::debug::ChainOrderBookOrderDetail,
+            crate::router::debug::ChainOrderBookQueryResponse,
+            // 对比相关结构体 / Comparison structures
+            crate::solana::orderbook_comparator::ComparisonResult,
+            crate::solana::orderbook_comparator::OrderBookComparison,
+            crate::solana::orderbook_comparator::OrderComparison,
+            crate::solana::orderbook_comparator::FieldDifference,
+            crate::solana::orderbook_comparator::OrderSummary,
             EmptyResponse,
             ErrorApiResponse,
         )
@@ -146,6 +160,7 @@ pub struct ErrorApiResponse {
         (name = "OrderBook", description = "OrderBook保证金订单查询接口 / OrderBook margin order query APIs"),
         (name = "K线查询 / K-line Query", description = "K线数据查询接口 / K-line data query APIs"),
         (name = "价格查询 / Price Query", description = "SOL价格查询接口 / SOL price query APIs"),
+        (name = "Debug", description = "调试接口，用于从链上直接查询数据 / Debug APIs for querying data directly from chain"),
     ),
     info(
         title = "Pinpet Server API",

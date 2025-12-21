@@ -1,4 +1,5 @@
 pub mod db;
+pub mod debug;
 pub mod health;
 pub mod kline;
 pub mod orderbook;
@@ -16,6 +17,8 @@ pub fn create_router(
     orderbook_storage: Arc<crate::db::OrderBookStorage>,
     kline_storage: Arc<crate::db::KlineStorage>,
     price_service: Arc<crate::price::SolPriceService>,
+    config: Arc<crate::config::Config>,
+    solana_client: crate::solana::SolanaClient,
 ) -> Router {
     // 创建 Token 状态
     let token_state = token::TokenState {
@@ -32,6 +35,13 @@ pub fn create_router(
         price_service: price_service.clone(),
     };
 
+    // 创建 Debug 状态 / Create debug state
+    let debug_state = debug::DebugState {
+        config,
+        solana_client,
+        orderbook_storage: orderbook_storage.clone(),
+    };
+
     Router::new()
         .merge(health::routes())
         .merge(db::routes().with_state(db))
@@ -40,4 +50,5 @@ pub fn create_router(
         .merge(orderbook_history::routes().with_state(orderbook_storage))
         .merge(kline::routes().with_state(kline_state))
         .merge(price::routes().with_state(price_state))
+        .merge(debug::routes().with_state(debug_state))
 }

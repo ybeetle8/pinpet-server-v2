@@ -52,7 +52,7 @@ async fn main() {
 
     // 加载配置
     let config = match config::Config::new() {
-        Ok(config) => config,
+        Ok(config) => Arc::new(config),
         Err(e) => {
             tracing::error!("❌ 配置加载失败: {}", e);
             std::process::exit(1);
@@ -82,6 +82,16 @@ async fn main() {
         }
     };
     tracing::info!("✅ OrderBook 数据库初始化成功 / OrderBook database initialized successfully");
+
+    // 创建 Solana 客户端 / Create Solana client
+    let solana_client = match solana::SolanaClient::new(config.solana.rpc_url.clone()) {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::error!("❌ Solana 客户端创建失败 / Failed to create Solana client: {}", e);
+            std::process::exit(1);
+        }
+    };
+    tracing::info!("✅ Solana 客户端创建成功 / Solana client created successfully");
 
     // 初始化 SOL 价格服务 / Initialize SOL price service
     tracing::info!("🚀 初始化 SOL 价格服务 / Initializing SOL price service");
@@ -156,14 +166,8 @@ async fn main() {
     if config.solana.enable_event_listener {
         tracing::info!("🚀 初始化 Solana 事件监听器 / Initializing Solana event listener");
 
-        // 创建 Solana 客户端 / Create Solana client
-        let solana_client = match solana::SolanaClient::new(config.solana.rpc_url.clone()) {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                tracing::error!("❌ Solana 客户端创建失败 / Failed to create Solana client: {}", e);
-                std::process::exit(1);
-            }
-        };
+        // 使用已创建的 Solana 客户端 / Use already created Solana client
+        let solana_client_arc = Arc::new(solana_client.clone());
 
         // 创建事件存储实例 / Create event storage instance
         let event_storage = match db_storage.create_event_storage() {
@@ -220,7 +224,7 @@ async fn main() {
 
         if let Err(e) = listener_manager.initialize(
             config.solana.clone(),
-            solana_client,
+            solana_client_arc,
             event_handler,
             event_queue,
         ) {
@@ -307,6 +311,8 @@ async fn main() {
         orderbook_storage.clone(),
         kline_storage_for_api,
         price_service.clone(),
+        config.clone(),
+        solana_client.clone(),
     );
 
     // 创建 Swagger UI
