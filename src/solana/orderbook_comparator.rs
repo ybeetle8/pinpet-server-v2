@@ -171,8 +171,57 @@ impl OrderBookComparator {
         let fully_matched = errors.is_empty()
             && up_comparison.total_match
             && up_comparison.order_differences.is_empty()
+            && up_comparison.chain_only_orders.is_empty()
+            && up_comparison.db_only_orders.is_empty()
             && down_comparison.total_match
-            && down_comparison.order_differences.is_empty();
+            && down_comparison.order_differences.is_empty()
+            && down_comparison.chain_only_orders.is_empty()
+            && down_comparison.db_only_orders.is_empty();
+
+        // 添加详细的调试日志 / Add detailed debug logging
+        debug!(
+            "fully_matched 判定详情 / fully_matched decision details: \
+             mint={}, errors_empty={}, \
+             up[total_match={}, diff_empty={}, chain_only_empty={} (count={}), db_only_empty={} (count={})], \
+             down[total_match={}, diff_empty={}, chain_only_empty={} (count={}), db_only_empty={} (count={})], \
+             => fully_matched={}",
+            &mint[..8.min(mint.len())],
+            errors.is_empty(),
+            up_comparison.total_match,
+            up_comparison.order_differences.is_empty(),
+            up_comparison.chain_only_orders.is_empty(),
+            up_comparison.chain_only_orders.len(),
+            up_comparison.db_only_orders.is_empty(),
+            up_comparison.db_only_orders.len(),
+            down_comparison.total_match,
+            down_comparison.order_differences.is_empty(),
+            down_comparison.chain_only_orders.is_empty(),
+            down_comparison.chain_only_orders.len(),
+            down_comparison.db_only_orders.is_empty(),
+            down_comparison.db_only_orders.len(),
+            fully_matched
+        );
+
+        // 如果 fully_matched 与实际差异不符，记录警告
+        // If fully_matched doesn't match actual differences, log warning
+        let has_actual_diff = !up_comparison.chain_only_orders.is_empty()
+            || !up_comparison.db_only_orders.is_empty()
+            || !up_comparison.order_differences.is_empty()
+            || !down_comparison.chain_only_orders.is_empty()
+            || !down_comparison.db_only_orders.is_empty()
+            || !down_comparison.order_differences.is_empty();
+
+        if fully_matched && has_actual_diff {
+            warn!(
+                "⚠️ 逻辑错误检测 / Logic error detected: fully_matched=true 但存在实际差异 / but has actual differences! \
+                 mint={}, up_chain_only={}, up_db_only={}, down_chain_only={}, down_db_only={}",
+                &mint[..8.min(mint.len())],
+                up_comparison.chain_only_orders.len(),
+                up_comparison.db_only_orders.len(),
+                down_comparison.chain_only_orders.len(),
+                down_comparison.db_only_orders.len()
+            );
+        }
 
         Ok(ComparisonResult {
             mint: mint.to_string(),

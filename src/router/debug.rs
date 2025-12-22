@@ -54,6 +54,14 @@ fn default_page_size() -> usize {
     100
 }
 
+/// 同步参数 / Sync parameters
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct SyncParams {
+    /// 是否强制同步（忽略 fully_matched 检查）/ Force sync (ignore fully_matched check)
+    #[serde(default)]
+    pub force: bool,
+}
+
 /// 链上 OrderBook Header 信息 / On-chain OrderBook Header info
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChainOrderBookHeaderInfo {
@@ -389,6 +397,7 @@ pub async fn compare_orderbook(
 ///
 /// # 参数 / Parameters
 /// - `mint`: Token mint 地址 / Token mint address
+/// - `force`: 是否强制同步（忽略 fully_matched 检查）/ Force sync (ignore fully_matched check)
 ///
 /// # 返回值 / Returns
 /// 返回同步结果，包括是否完全匹配、修复的记录数等
@@ -398,6 +407,7 @@ pub async fn compare_orderbook(
     path = "/api/debug/orderbook/{mint}/sync",
     params(
         ("mint" = String, Path, description = "Token mint 地址 / Token mint address"),
+        SyncParams
     ),
     responses(
         (status = 200, description = "同步成功 / Sync successful", body = SyncResult),
@@ -408,11 +418,13 @@ pub async fn compare_orderbook(
 )]
 pub async fn trigger_manual_sync(
     Path(mint): Path<String>,
+    Query(params): Query<SyncParams>,
     State(state): State<DebugState>,
 ) -> Result<Json<CommonResult<SyncResult>>, (StatusCode, String)> {
     info!(
-        "🔄 [DEBUG] 手动触发同步 / Manual sync triggered: mint={}",
-        &mint[..8.min(mint.len())]
+        "🔄 [DEBUG] 手动触发同步 / Manual sync triggered: mint={}, force={}",
+        &mint[..8.min(mint.len())],
+        params.force
     );
 
     // 检查同步服务是否可用 / Check if sync service is available
@@ -427,15 +439,28 @@ pub async fn trigger_manual_sync(
         }
     };
 
-    // 执行同步 / Execute sync
-    let result = match sync_service.sync_orderbook(&mint).await {
-        Ok(result) => result,
-        Err(e) => {
-            error!("❌ 同步失败 / Sync failed: {}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Sync failed: {}", e),
-            ));
+    // 执行同步 / Execute sync (根据 force 参数选择不同的同步方法)
+    let result = if params.force {
+        match sync_service.force_sync_orderbook(&mint).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("❌ 强制同步失败 / Force sync failed: {}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Force sync failed: {}", e),
+                ));
+            }
+        }
+    } else {
+        match sync_service.sync_orderbook(&mint).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("❌ 同步失败 / Sync failed: {}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Sync failed: {}", e),
+                ));
+            }
         }
     };
 

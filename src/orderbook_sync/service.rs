@@ -59,8 +59,11 @@ impl OrderBookSyncService {
         // 1. 执行对比 / Execute comparison
         let comparison = self.comparator.compare(mint).await?;
 
-        // 2. 如果完全匹配，无需同步 / If fully matched, no need to sync
-        if comparison.fully_matched {
+        // 2. 检查是否需要同步（双重检查：fully_matched 标志 + 实际差异检查）
+        // Check if sync is needed (double check: fully_matched flag + actual differences check)
+        let has_actual_diff = self.has_actual_differences(&comparison);
+
+        if comparison.fully_matched && !has_actual_diff {
             info!(
                 "✅ OrderBook 完全匹配，无需同步 / OrderBook fully matched, no sync needed: mint={}",
                 mint_short
@@ -71,6 +74,16 @@ impl OrderBookSyncService {
                 repaired_count: 0,
                 errors: vec![],
             });
+        }
+
+        // 如果 fully_matched 与实际差异不一致，记录警告并继续同步
+        // If fully_matched doesn't match actual differences, log warning and proceed with sync
+        if comparison.fully_matched && has_actual_diff {
+            warn!(
+                "⚠️ 检测到不一致 / Inconsistency detected: fully_matched=true 但存在实际差异 / but actual differences found! \
+                 mint={}, 继续执行同步 / Proceeding with sync",
+                mint_short
+            );
         }
 
         // 3. 发现差异，执行修复 / Found differences, execute repair
@@ -135,6 +148,19 @@ impl OrderBookSyncService {
         Ok(())
     }
 
+    /// 检查是否存在实际差异 / Check if actual differences exist
+    fn has_actual_differences(&self, comparison: &ComparisonResult) -> bool {
+        let up_has_diff = !comparison.up_orderbook.order_differences.is_empty()
+            || !comparison.up_orderbook.chain_only_orders.is_empty()
+            || !comparison.up_orderbook.db_only_orders.is_empty();
+
+        let down_has_diff = !comparison.down_orderbook.order_differences.is_empty()
+            || !comparison.down_orderbook.chain_only_orders.is_empty()
+            || !comparison.down_orderbook.db_only_orders.is_empty();
+
+        up_has_diff || down_has_diff
+    }
+
     /// 判断是否需要修复 / Check if repair is needed
     fn needs_repair(&self, comparison: &OrderBookComparison) -> bool {
         !comparison.order_differences.is_empty()
@@ -178,6 +204,77 @@ impl OrderBookSyncService {
             + comparison.down_orderbook.order_differences.len()
             + comparison.down_orderbook.chain_only_orders.len()
             + comparison.down_orderbook.db_only_orders.len()
+    }
+
+    /// 强制同步 OrderBook（跳过 fully_matched 检查）/ Force sync OrderBook (skip fully_matched check)
+    ///
+    /// 无论 fully_matched 标志如何，都会检查实际差异并执行修复
+    /// Check actual differences and repair regardless of fully_matched flag
+    pub async fn force_sync_orderbook(&self, mint: &str) -> Result<SyncResult> {
+        let mint_short = if mint.len() > 8 { &mint[..8] } else { mint };
+        info!("🔄 强制同步 OrderBook / Force sync OrderBook: mint={}", mint_short);
+
+        // 1. 执行对比 / Execute comparison
+        let comparison = self.comparator.compare(mint).await?;
+
+        // 2. 检查实际差异（忽略 fully_matched 标志）
+        // Check actual differences (ignore fully_matched flag)
+        let has_actual_diff = self.has_actual_differences(&comparison);
+
+        if !has_actual_diff {
+            info!(
+                "✅ OrderBook 无实际差异，无需同步 / No actual differences, no sync needed: mint={}",
+                mint_short
+            );
+            return Ok(SyncResult {
+                mint: mint.to_string(),
+                fully_matched: comparison.fully_matched,
+                repaired_count: 0,
+                errors: comparison.errors,
+            });
+        }
+
+        // 3. 发现差异，执行修复 / Found differences, execute repair
+        let repaired_count = self.count_differences(&comparison);
+        warn!(
+            "⚠️ 发现 OrderBook 差异（强制同步）/ Found OrderBook differences (force sync): mint={}, count={}",
+            mint_short, repaired_count
+        );
+
+        if self.config.auto_repair {
+            match self.repair_differences(mint, &comparison).await {
+                Ok(_) => {
+                    info!(
+                        "✅ OrderBook 差异已修复（强制同步）/ OrderBook differences repaired (force sync): mint={}, count={}",
+                        mint_short, repaired_count
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "❌ OrderBook 修复失败（强制同步）/ OrderBook repair failed (force sync): mint={}, error={}",
+                        mint_short, e
+                    );
+                    return Ok(SyncResult {
+                        mint: mint.to_string(),
+                        fully_matched: false,
+                        repaired_count: 0,
+                        errors: vec![format!("Repair failed: {}", e)],
+                    });
+                }
+            }
+        } else {
+            warn!(
+                "⚠️ 发现 OrderBook 差异但未启用自动修复（强制同步）/ Found differences but auto-repair disabled (force sync): mint={}",
+                mint_short
+            );
+        }
+
+        Ok(SyncResult {
+            mint: mint.to_string(),
+            fully_matched: comparison.fully_matched,
+            repaired_count,
+            errors: comparison.errors,
+        })
     }
 
     /// 同步所有 OrderBook（批量同步，用于初始化或定期检查）/ Sync all OrderBooks

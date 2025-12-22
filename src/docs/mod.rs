@@ -143,6 +143,7 @@ pub struct ErrorApiResponse {
             crate::router::debug::ChainOrderBookHeaderInfo,
             crate::router::debug::ChainOrderBookOrderDetail,
             crate::router::debug::ChainOrderBookQueryResponse,
+            crate::router::debug::SyncParams,
             // 对比相关结构体 / Comparison structures
             crate::solana::orderbook_comparator::ComparisonResult,
             crate::solana::orderbook_comparator::OrderBookComparison,
