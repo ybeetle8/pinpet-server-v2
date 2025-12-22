@@ -63,15 +63,25 @@ async fn main() {
     };
     tracing::info!("✅ 配置加载成功");
 
-    // 初始化 RocksDB
+    // 初始化事件数据库 / Initialize Event RocksDB
     let mut db_storage = match db::RocksDbStorage::new(&config) {
         Ok(storage) => storage,
         Err(e) => {
-            tracing::error!("❌ RocksDB 初始化失败: {}", e);
+            tracing::error!("❌ 事件数据库初始化失败 / Event DB initialization failed: {}", e);
             std::process::exit(1);
         }
     };
-    tracing::info!("✅ RocksDB 初始化成功");
+    tracing::info!("✅ 事件数据库初始化成功 / Event DB initialized successfully");
+
+    // 初始化统计数据库 / Initialize Statistics Database
+    let stats_storage = match db::StatsStorage::new(&config) {
+        Ok(storage) => Arc::new(storage),
+        Err(e) => {
+            tracing::error!("❌ 统计数据库初始化失败 / Stats DB initialization failed: {}", e);
+            std::process::exit(1);
+        }
+    };
+    tracing::info!("✅ 统计数据库初始化成功 / Stats DB initialized successfully");
 
     // 初始化 OrderBook 专用数据库 / Initialize OrderBook dedicated database
     let orderbook_storage = match db::OrderBookStorage::new(
@@ -184,8 +194,8 @@ async fn main() {
             }
         };
 
-        // 创建 Token 存储实例 / Create token storage instance
-        let token_storage = match db_storage.create_token_storage() {
+        // 创建 Token 存储实例（使用统计数据库）/ Create token storage instance (using stats DB)
+        let token_storage = match stats_storage.create_token_storage() {
             Ok(storage) => Arc::new(storage),
             Err(e) => {
                 tracing::error!("❌ Token 存储创建失败 / Failed to create Token storage: {}", e);
@@ -193,8 +203,8 @@ async fn main() {
             }
         };
 
-        // 创建交易额存储实例 / Create volume storage instance
-        let volume_storage = Arc::new(volume::VolumeStorage::new(db_storage.db.clone()));
+        // 创建交易额存储实例（使用统计数据库）/ Create volume storage instance (using stats DB)
+        let volume_storage = Arc::new(stats_storage.create_volume_storage());
         tracing::info!("✅ 交易额存储初始化成功 / Volume storage initialized successfully");
 
         // 创建存储事件处理器 / Create storage event handler
@@ -352,8 +362,8 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // 创建 Token 存储实例 (用于API查询) / Create token storage instance (for API queries)
-    let token_storage_for_api = match db_storage.create_token_storage() {
+    // 创建 Token 存储实例（用于API查询，使用统计数据库）/ Create token storage instance (for API queries, using stats DB)
+    let token_storage_for_api = match stats_storage.create_token_storage() {
         Ok(storage) => Arc::new(storage),
         Err(e) => {
             tracing::error!("❌ Token 存储创建失败(API) / Failed to create Token storage (API): {}", e);
@@ -361,17 +371,12 @@ async fn main() {
         }
     };
 
-    // 创建 K线 存储实例 (用于API查询) / Create K-line storage instance (for API queries)
-    let kline_storage_for_api = match db_storage.create_kline_storage() {
-        Ok(storage) => Arc::new(storage),
-        Err(e) => {
-            tracing::error!("❌ K线存储创建失败(API) / Failed to create K-line storage (API): {}", e);
-            std::process::exit(1);
-        }
-    };
+    // 创建 K线 存储实例（用于API查询，使用统计数据库）/ Create K-line storage instance (for API queries, using stats DB)
+    let kline_storage_for_api = Arc::new(stats_storage.create_kline_storage());
+    tracing::info!("✅ K线存储初始化成功(API) / K-line storage initialized successfully (API)");
 
-    // 创建交易额存储实例 (用于API查询) / Create volume storage instance (for API queries)
-    let volume_storage_for_api = Arc::new(volume::VolumeStorage::new(db_storage.db.clone()));
+    // 创建交易额存储实例（用于API查询，使用统计数据库）/ Create volume storage instance (for API queries, using stats DB)
+    let volume_storage_for_api = Arc::new(stats_storage.create_volume_storage());
     tracing::info!("✅ 交易额存储初始化成功(API) / Volume storage initialized successfully (API)");
 
     // 创建路由

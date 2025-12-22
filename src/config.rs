@@ -24,9 +24,16 @@ pub struct DatabaseConfig {
     pub rocksdb_path: String,
     /// OrderBook 专用数据库路径 / OrderBook dedicated database path
     pub orderbook_db_path: String,
+    /// 统计数据库路径 / Statistics database path
+    #[serde(default = "default_stats_db_path")]
+    pub stats_db_path: Option<String>,
     /// OrderBook 数据库性能配置 / OrderBook database performance config
     #[serde(default)]
     pub orderbook_db: OrderBookDbConfig,
+}
+
+fn default_stats_db_path() -> Option<String> {
+    Some("./data/stats".to_string())
 }
 
 /// OrderBook 数据库性能配置 / OrderBook database performance configuration

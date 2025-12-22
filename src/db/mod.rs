@@ -3,6 +3,7 @@ pub mod event_storage;
 pub mod token_storage;
 pub mod orderbook_storage;
 pub mod kline_storage;
+pub mod stats_storage;
 pub mod errors;
 pub mod event_queue;
 
@@ -11,4 +12,5 @@ pub use event_storage::{EventStorage, DatabaseStats};
 pub use token_storage::{TokenStorage, TokenDetail, TokenUriData, TokenStats};
 pub use orderbook_storage::OrderBookStorage;
 pub use kline_storage::KlineStorage;
+pub use stats_storage::StatsStorage;
 pub use event_queue::EventQueueStorage;

@@ -7,6 +7,8 @@ port = 3000
 rocksdb_path = "./data/event"
 # OrderBook 专用数据库路径 / OrderBook dedicated database path
 orderbook_db_path = "./data/orderbook"
+# 统计数据库路径 / Statistics database path
+stats_db_path = "./data/stats"
 # OrderBook查询最大返回数量(默认60000) / OrderBook query max limit (default 60000)
 orderbook_max_limit = 60000
 

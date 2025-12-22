@@ -127,14 +127,4 @@ impl RocksDbStorage {
             .ok_or_else(|| anyhow::anyhow!("Price service not set. Call set_price_service() first."))?;
         crate::db::EventStorage::new(Arc::clone(&self.db), price_service)
     }
-
-    /// 创建 Token 存储实例 / Create Token storage instance
-    pub fn create_token_storage(&self) -> Result<crate::db::TokenStorage> {
-        crate::db::TokenStorage::new(Arc::clone(&self.db), self.config.clone())
-    }
-
-    /// 创建 K线 存储实例 / Create K-line storage instance
-    pub fn create_kline_storage(&self) -> Result<crate::db::KlineStorage> {
-        Ok(crate::db::KlineStorage::new(Arc::clone(&self.db)))
-    }
 }
