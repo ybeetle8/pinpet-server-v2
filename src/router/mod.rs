@@ -3,6 +3,7 @@ pub mod db;
 pub mod debug;
 pub mod health;
 pub mod kline;
+pub mod markets;
 pub mod orderbook;
 pub mod orderbook_history;
 pub mod price;
@@ -20,6 +21,7 @@ pub fn create_router(
     kline_storage: Arc<crate::db::KlineStorage>,
     volume_storage: Arc<crate::volume::VolumeStorage>,
     change_storage: Arc<crate::change::ChangeStorage>,
+    markets_storage: Arc<crate::markets::MarketsStorage>,
     price_service: Arc<crate::price::SolPriceService>,
     config: Arc<crate::config::Config>,
     solana_client: crate::solana::SolanaClient,
@@ -58,5 +60,6 @@ pub fn create_router(
         .merge(price::routes().with_state(price_state))
         .merge(volume::create_volume_routes(volume_storage))
         .merge(change::create_change_routes(change_storage))
+        .merge(markets::create_markets_routes(markets_storage))
         .merge(debug::routes().with_state(debug_state))
 }

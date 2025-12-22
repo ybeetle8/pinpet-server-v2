@@ -6,6 +6,7 @@ use crate::db::{EventStorage, TokenStorage, OrderBookStorage};
 use crate::orderbook::MarginOrder;
 use crate::volume::VolumeStorage;
 use crate::change::ChangeStorage;
+use crate::markets::MarketsStorage;
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
@@ -17,6 +18,7 @@ pub struct StorageEventHandler {
     orderbook_storage: Arc<OrderBookStorage>,
     volume_storage: Arc<VolumeStorage>,
     change_storage: Arc<ChangeStorage>,
+    markets_storage: Arc<MarketsStorage>,
     sol_price_service: Arc<crate::price::SolPriceService>,
     kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
     sync_monitor: Option<Arc<crate::orderbook_sync::OrderBookSyncMonitor>>,
@@ -30,6 +32,7 @@ impl StorageEventHandler {
         orderbook_storage: Arc<OrderBookStorage>,
         volume_storage: Arc<VolumeStorage>,
         change_storage: Arc<ChangeStorage>,
+        markets_storage: Arc<MarketsStorage>,
         sol_price_service: Arc<crate::price::SolPriceService>,
     ) -> Self {
         Self {
@@ -38,6 +41,7 @@ impl StorageEventHandler {
             orderbook_storage,
             volume_storage,
             change_storage,
+            markets_storage,
             sol_price_service,
             kline_socket_service: None,
             sync_monitor: None,
@@ -159,6 +163,7 @@ impl EventHandler for StorageEventHandler {
             // Important: Must be called before price update so get_previous_price can get the previous event's price
             this.update_volume_statistics(&event_for_processing)?;
             this.update_change_statistics(&event_for_processing)?;
+            this.update_markets_statistics(&event_for_processing)?;
 
             // ====== 第三步：更新价格（在同一个任务中串行执行）/ Step 3: Update price (execute serially in same task) ======
 
@@ -944,6 +949,49 @@ impl StorageEventHandler {
         ) {
             error!("❌ 更新涨跌幅失败 / Failed to update change: mint={}, error={}",
                    &mint[..8.min(mint.len())], e);
+            // 不中断主流程 / Don't interrupt main flow
+        }
+
+        Ok(())
+    }
+
+    /// 更新钱包数统计 / Update markets statistics
+    ///
+    /// # 参数 / Parameters
+    /// * `event` - 事件 / Event
+    fn update_markets_statistics(&self, event: &PinpetEvent) -> anyhow::Result<()> {
+        // 提取事件信息 / Extract event info
+        let (mint, wallet, timestamp) = match event {
+            PinpetEvent::TokenCreated(_) => {
+                // TokenCreated 不涉及用户钱包,跳过
+                // TokenCreated doesn't involve user wallet, skip
+                return Ok(());
+            }
+            PinpetEvent::BuySell(e) => (&e.mint_account, &e.payer, e.timestamp.timestamp() as u64),
+            PinpetEvent::LongShort(e) => (&e.mint_account, &e.payer, e.timestamp.timestamp() as u64),
+            PinpetEvent::FullClose(e) => (&e.mint_account, &e.payer, e.timestamp.timestamp() as u64),
+            PinpetEvent::PartialClose(e) => (&e.mint_account, &e.payer, e.timestamp.timestamp() as u64),
+            PinpetEvent::MilestoneDiscount(_) | PinpetEvent::Liquidate(_) => {
+                // 这两个事件不统计钱包数
+                // These events don't count towards markets
+                return Ok(());
+            }
+        };
+
+        debug!(
+            "👛 Markets统计参数 / Markets calc params: mint={}, wallet={}, timestamp={}",
+            &mint[..8.min(mint.len())],
+            &wallet[..8.min(wallet.len())],
+            timestamp
+        );
+
+        // 更新钱包数 / Update markets
+        if let Err(e) = self.markets_storage.update_markets(mint, wallet, timestamp) {
+            error!(
+                "❌ 更新钱包数失败 / Failed to update markets: mint={}, error={}",
+                &mint[..8.min(mint.len())],
+                e
+            );
             // 不中断主流程 / Don't interrupt main flow
         }
 

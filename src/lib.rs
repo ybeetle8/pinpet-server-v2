@@ -7,6 +7,7 @@ pub mod curve_amm;
 pub mod db;
 pub mod docs;
 pub mod kline;
+pub mod markets;
 pub mod orderbook;
 pub mod orderbook_sync;
 pub mod price;

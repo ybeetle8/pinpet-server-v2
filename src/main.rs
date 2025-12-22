@@ -4,6 +4,7 @@ mod curve_amm;
 mod db;
 mod docs;
 mod kline;
+mod markets;
 mod orderbook;
 mod orderbook_sync;
 mod price;
@@ -212,6 +213,10 @@ async fn main() {
         let change_storage = Arc::new(stats_storage.create_change_storage());
         tracing::info!("✅ 涨跌幅存储初始化成功 / Change storage initialized successfully");
 
+        // 创建钱包数存储实例（使用统计数据库）/ Create markets storage instance (using stats DB)
+        let markets_storage = Arc::new(markets::MarketsStorage::new(stats_storage.db()));
+        tracing::info!("✅ 钱包数存储初始化成功 / Markets storage initialized successfully");
+
         // 创建存储事件处理器 / Create storage event handler
         let mut storage_handler = solana::StorageEventHandler::new(
             event_storage.clone(),  // 克隆一份供storage_handler使用 / Clone for storage_handler
@@ -219,6 +224,7 @@ async fn main() {
             orderbook_storage.clone(),
             volume_storage.clone(),
             change_storage.clone(),
+            markets_storage.clone(),
             price_service.clone(),
         );
 
@@ -389,6 +395,10 @@ async fn main() {
     let change_storage_for_api = Arc::new(stats_storage.create_change_storage());
     tracing::info!("✅ 涨跌幅存储初始化成功(API) / Change storage initialized successfully (API)");
 
+    // 创建钱包数存储实例（用于API查询，使用统计数据库）/ Create markets storage instance (for API queries, using stats DB)
+    let markets_storage_for_api = Arc::new(markets::MarketsStorage::new(stats_storage.db()));
+    tracing::info!("✅ 钱包数存储初始化成功(API) / Markets storage initialized successfully (API)");
+
     // 创建路由
     let api_router = router::create_router(
         db_storage,
@@ -397,6 +407,7 @@ async fn main() {
         kline_storage_for_api,
         volume_storage_for_api,
         change_storage_for_api,
+        markets_storage_for_api,
         price_service.clone(),
         config.clone(),
         solana_client.clone(),

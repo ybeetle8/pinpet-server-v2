@@ -446,6 +446,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bloomfilter"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f6d7f06817e48ea4e17532fa61bc4e8b9a101437f0623f69d2ea54284f3a817"
+dependencies = [
+ "getrandom 0.2.16",
+ "siphasher 1.0.1",
+]
+
+[[package]]
 name = "borsh"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2375,6 +2385,8 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "bincode",
+ "bloomfilter",
  "borsh 1.5.7",
  "chrono",
  "config",
@@ -3253,6 +3265,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
 
 [[package]]
+name = "siphasher"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
+
+[[package]]
 name = "sized-chunks"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3487,7 +3505,7 @@ dependencies = [
  "serde_with 2.3.3",
  "sha2 0.10.9",
  "sha3",
- "siphasher",
+ "siphasher 0.3.11",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-logger",
