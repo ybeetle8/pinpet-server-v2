@@ -183,6 +183,9 @@ impl OrderBookSyncMonitor {
         if let Some(info) = events.get_mut(mint) {
             // 更新已存在的记录
             info.last_event_time = Utc::now();
+            // 重要：清除上次同步时间，这样在新的空闲期会重新触发对比
+            // Important: Clear last sync time, so comparison will be triggered in new idle period
+            info.last_sync_time = None;
         } else {
             // 插入新记录
             events.insert(
