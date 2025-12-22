@@ -2,7 +2,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::config::Config;
 use crate::db::OrderBookStorage;
 use crate::orderbook::MarginOrder;
+use crate::orderbook_sync::{OrderBookSyncService, SyncResult};
 use crate::solana::{OrderBookReader, OrderBookComparator, ComparisonResult, SolanaClient};
 use crate::util::result::CommonResult;
 
@@ -22,6 +23,7 @@ pub struct DebugState {
     pub config: Arc<Config>,
     pub solana_client: SolanaClient,
     pub orderbook_storage: Arc<OrderBookStorage>,
+    pub sync_service: Option<Arc<OrderBookSyncService>>,
 }
 
 /// 创建 Debug 路由 / Create debug routes
@@ -29,6 +31,7 @@ pub fn routes() -> Router<DebugState> {
     Router::new()
         .route("/api/debug/orderbook/:mint/:direction/chain", get(query_orderbook_from_chain))
         .route("/api/debug/orderbook/:mint/compare", get(compare_orderbook))
+        .route("/api/debug/orderbook/:mint/sync", post(trigger_manual_sync))
 }
 
 /// OrderBook 查询参数 / OrderBook query parameters
@@ -377,4 +380,84 @@ pub async fn compare_orderbook(
     }
 
     Ok(Json(CommonResult::ok(comparison_result)))
+}
+
+/// 手动触发 OrderBook 同步 / Manually trigger OrderBook sync
+///
+/// 立即对指定 mint 的 OrderBook 进行同步和修复
+/// Immediately sync and repair OrderBook for the specified mint
+///
+/// # 参数 / Parameters
+/// - `mint`: Token mint 地址 / Token mint address
+///
+/// # 返回值 / Returns
+/// 返回同步结果，包括是否完全匹配、修复的记录数等
+/// Returns sync result including whether fully matched, repaired count, etc.
+#[utoipa::path(
+    post,
+    path = "/api/debug/orderbook/{mint}/sync",
+    params(
+        ("mint" = String, Path, description = "Token mint 地址 / Token mint address"),
+    ),
+    responses(
+        (status = 200, description = "同步成功 / Sync successful", body = SyncResult),
+        (status = 503, description = "同步服务未启用 / Sync service not enabled"),
+        (status = 500, description = "服务器错误 / Server error")
+    ),
+    tag = "Debug"
+)]
+pub async fn trigger_manual_sync(
+    Path(mint): Path<String>,
+    State(state): State<DebugState>,
+) -> Result<Json<CommonResult<SyncResult>>, (StatusCode, String)> {
+    info!(
+        "🔄 [DEBUG] 手动触发同步 / Manual sync triggered: mint={}",
+        &mint[..8.min(mint.len())]
+    );
+
+    // 检查同步服务是否可用 / Check if sync service is available
+    let sync_service = match state.sync_service {
+        Some(ref service) => service,
+        None => {
+            error!("❌ 同步服务未启用 / Sync service not enabled");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Sync service is not enabled. Please enable orderbook_sync in config.toml".to_string(),
+            ));
+        }
+    };
+
+    // 执行同步 / Execute sync
+    let result = match sync_service.sync_orderbook(&mint).await {
+        Ok(result) => result,
+        Err(e) => {
+            error!("❌ 同步失败 / Sync failed: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Sync failed: {}", e),
+            ));
+        }
+    };
+
+    // 输出同步结果 / Output sync result
+    if result.fully_matched {
+        info!(
+            "✅ [DEBUG] 同步完成，数据完全匹配 / Sync completed, data fully matched: mint={}",
+            &mint[..8.min(mint.len())]
+        );
+    } else {
+        warn!(
+            "⚠️ [DEBUG] 同步完成，发现并修复了 {} 处差异 / Sync completed, found and repaired {} differences: mint={}",
+            result.repaired_count, result.repaired_count, &mint[..8.min(mint.len())]
+        );
+    }
+
+    if !result.errors.is_empty() {
+        warn!(
+            "⚠️ [DEBUG] 同步过程中出现错误 / Errors during sync: {:?}",
+            result.errors
+        );
+    }
+
+    Ok(Json(CommonResult::ok(result)))
 }

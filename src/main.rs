@@ -163,6 +163,9 @@ async fn main() {
         None
     };
 
+    // 用于保存 sync_service 供 API 使用 / Save sync_service for API use
+    let sync_service_for_api: Option<Arc<orderbook_sync::OrderBookSyncService>>;
+
     // 初始化 Solana 事件监听器 / Initialize Solana event listener
     if config.solana.enable_event_listener {
         tracing::info!("🚀 初始化 Solana 事件监听器 / Initializing Solana event listener");
@@ -202,7 +205,7 @@ async fn main() {
         }
 
         // 创建并集成 OrderBook 同步监控服务 / Create and integrate OrderBook sync monitor service
-        if config.orderbook_sync.enabled {
+        sync_service_for_api = if config.orderbook_sync.enabled {
             tracing::info!("🚀 初始化 OrderBook 同步监控服务 / Initializing OrderBook sync monitor service");
 
             // 创建 OrderBook 读取器 / Create OrderBook reader
@@ -234,7 +237,7 @@ async fn main() {
             // 创建同步监控器 / Create sync monitor
             let sync_monitor = Arc::new(orderbook_sync::OrderBookSyncMonitor::new(
                 config.orderbook_sync.clone(),
-                sync_service,
+                sync_service.clone(),
             ));
 
             // 设置到 StorageEventHandler / Set to StorageEventHandler
@@ -247,9 +250,12 @@ async fn main() {
             });
 
             tracing::info!("✅ OrderBook 同步监控服务已启动 / OrderBook sync monitor service started");
+
+            Some(sync_service)
         } else {
             tracing::info!("ℹ️ OrderBook 同步监控服务已禁用 / OrderBook sync monitor service disabled");
-        }
+            None
+        };
 
         let storage_handler = Arc::new(storage_handler);
 
@@ -329,6 +335,7 @@ async fn main() {
         }
     } else {
         tracing::info!("⏭️ Solana 事件监听器已禁用 / Solana event listener disabled");
+        sync_service_for_api = None;
     }
 
     // 创建 CORS 层
@@ -364,6 +371,7 @@ async fn main() {
         price_service.clone(),
         config.clone(),
         solana_client.clone(),
+        sync_service_for_api,
     );
 
     // 创建 Swagger UI

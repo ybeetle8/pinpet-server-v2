@@ -3,15 +3,15 @@ use anyhow::Result;
 use std::sync::Arc;
 use tracing::{info, warn, error};
 use serde::{Serialize, Deserialize};
+use utoipa::ToSchema;
 
 use crate::config::OrderBookSyncConfig;
 use crate::db::OrderBookStorage;
-use crate::solana::orderbook_reader::{OrderBookReader, ChainOrderBookHeader};
+use crate::solana::orderbook_reader::OrderBookReader;
 use crate::solana::orderbook_comparator::{OrderBookComparator, ComparisonResult, OrderBookComparison};
-use crate::orderbook::MarginOrder;
 
 /// 同步结果 / Sync result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SyncResult {
     /// Token mint 地址 / Token mint address
     pub mint: String,

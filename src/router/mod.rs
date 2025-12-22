@@ -19,6 +19,7 @@ pub fn create_router(
     price_service: Arc<crate::price::SolPriceService>,
     config: Arc<crate::config::Config>,
     solana_client: crate::solana::SolanaClient,
+    sync_service: Option<Arc<crate::orderbook_sync::OrderBookSyncService>>,
 ) -> Router {
     // 创建 Token 状态
     let token_state = token::TokenState {
@@ -40,6 +41,7 @@ pub fn create_router(
         config,
         solana_client,
         orderbook_storage: orderbook_storage.clone(),
+        sync_service,
     };
 
     Router::new()

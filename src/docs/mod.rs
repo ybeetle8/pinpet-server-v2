@@ -89,6 +89,7 @@ pub struct ErrorApiResponse {
         // Debug 路由 / Debug routes
         crate::router::debug::query_orderbook_from_chain,
         crate::router::debug::compare_orderbook,
+        crate::router::debug::trigger_manual_sync,
     ),
     components(
         schemas(
@@ -148,6 +149,8 @@ pub struct ErrorApiResponse {
             crate::solana::orderbook_comparator::OrderComparison,
             crate::solana::orderbook_comparator::FieldDifference,
             crate::solana::orderbook_comparator::OrderSummary,
+            // 同步相关结构体 / Sync structures
+            crate::orderbook_sync::SyncResult,
             EmptyResponse,
             ErrorApiResponse,
         )
