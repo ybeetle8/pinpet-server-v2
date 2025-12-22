@@ -6,6 +6,7 @@ pub mod orderbook;
 pub mod orderbook_history;
 pub mod price;
 pub mod token;
+pub mod volume;
 
 use axum::Router;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ pub fn create_router(
     token_storage: Arc<crate::db::TokenStorage>,
     orderbook_storage: Arc<crate::db::OrderBookStorage>,
     kline_storage: Arc<crate::db::KlineStorage>,
+    volume_storage: Arc<crate::volume::VolumeStorage>,
     price_service: Arc<crate::price::SolPriceService>,
     config: Arc<crate::config::Config>,
     solana_client: crate::solana::SolanaClient,
@@ -52,5 +54,6 @@ pub fn create_router(
         .merge(orderbook_history::routes().with_state(orderbook_storage))
         .merge(kline::routes().with_state(kline_state))
         .merge(price::routes().with_state(price_state))
+        .merge(volume::create_volume_routes(volume_storage))
         .merge(debug::routes().with_state(debug_state))
 }

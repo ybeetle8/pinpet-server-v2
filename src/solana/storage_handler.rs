@@ -1,9 +1,10 @@
 // 存储事件处理器 - 将事件存储到RocksDB / Storage event handler - store events to RocksDB
 use async_trait::async_trait;
 use std::sync::Arc;
-use tracing::{info, error, warn};
+use tracing::{debug, error, info, warn};
 use crate::db::{EventStorage, TokenStorage, OrderBookStorage};
 use crate::orderbook::MarginOrder;
+use crate::volume::VolumeStorage;
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
@@ -13,6 +14,8 @@ pub struct StorageEventHandler {
     event_storage: Arc<EventStorage>,
     token_storage: Arc<TokenStorage>,
     orderbook_storage: Arc<OrderBookStorage>,
+    volume_storage: Arc<VolumeStorage>,
+    sol_price_service: Arc<crate::price::SolPriceService>,
     kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
     sync_monitor: Option<Arc<crate::orderbook_sync::OrderBookSyncMonitor>>,
 }
@@ -23,11 +26,15 @@ impl StorageEventHandler {
         event_storage: Arc<EventStorage>,
         token_storage: Arc<TokenStorage>,
         orderbook_storage: Arc<OrderBookStorage>,
+        volume_storage: Arc<VolumeStorage>,
+        sol_price_service: Arc<crate::price::SolPriceService>,
     ) -> Self {
         Self {
             event_storage,
             token_storage,
             orderbook_storage,
+            volume_storage,
+            sol_price_service,
             kline_socket_service: None,
             sync_monitor: None,
         }
@@ -143,7 +150,12 @@ impl EventHandler for StorageEventHandler {
                 }
             }
 
-            // ====== 第二步：更新价格（在同一个任务中串行执行）/ Step 2: Update price (execute serially in same task) ======
+            // ====== 第二步：更新交易额统计（必须在更新价格之前）/ Step 2: Update volume statistics (must be before price update) ======
+            // 重要：必须在更新价格之前调用，这样 get_previous_price 才能获取到上一个事件的价格
+            // Important: Must be called before price update so get_previous_price can get the previous event's price
+            this.update_volume_statistics(&event_for_processing)?;
+
+            // ====== 第三步：更新价格（在同一个任务中串行执行）/ Step 3: Update price (execute serially in same task) ======
 
             // 更新Token的latest_price（所有带latest_price的事件）/ Update token's latest_price (all events with latest_price)
             match &event_for_processing {
@@ -817,6 +829,63 @@ impl StorageEventHandler {
             "📝 半平仓记录已保存 / Partial close record saved: key={}",
             close_key
         );
+
+        Ok(())
+    }
+
+    /// 更新交易额统计 / Update volume statistics
+    ///
+    /// # 参数 / Parameters
+    /// * `event` - 事件 / Event
+    fn update_volume_statistics(&self, event: &PinpetEvent) -> anyhow::Result<()> {
+        use crate::curve_amm::CurveAMM;
+
+        // 提取事件信息 / Extract event info
+        let (mint, price_after, timestamp) = match event {
+            PinpetEvent::TokenCreated(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::BuySell(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::LongShort(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::FullClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::PartialClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::MilestoneDiscount(_) | PinpetEvent::Liquidate(_) => {
+                // 这两个事件不包含价格变动,不更新交易额 / These events don't contain price changes, skip volume update
+                return Ok(());
+            }
+        };
+
+        // 获取变动前的价格 / Get price before change
+        let price_before = if matches!(event, PinpetEvent::TokenCreated(_)) {
+            // TokenCreated 事件使用初始价格 / TokenCreated event uses initial price
+            CurveAMM::get_initial_price()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get initial price"))?
+        } else {
+            // 其他事件从数据库获取上一次的价格 / Other events get previous price from database
+            self.get_previous_price(mint)?
+        };
+
+        // 获取 SOL/USD 汇率 / Get SOL/USD exchange rate
+        let sol_price_usd = self.sol_price_service.get_price_sync();
+
+        debug!(
+            "💰 Volume计算参数 / Volume calc params: mint={}, price_before={}, price_after={}, sol_usd={:.2}",
+            &mint[..8.min(mint.len())],
+            price_before,
+            price_after,
+            sol_price_usd
+        );
+
+        // 更新交易额 / Update volume
+        if let Err(e) = self.volume_storage.update_volume(
+            mint,
+            price_before,
+            price_after,
+            sol_price_usd,
+            timestamp,
+        ) {
+            error!("❌ 更新交易额失败 / Failed to update volume: mint={}, error={}",
+                   &mint[..8.min(mint.len())], e);
+            // 不中断主流程 / Don't interrupt main flow
+        }
 
         Ok(())
     }

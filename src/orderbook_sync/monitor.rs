@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use tracing::{info, warn, error};
 
 use crate::config::OrderBookSyncConfig;
-use super::service::{OrderBookSyncService, SyncResult};
+use super::service::OrderBookSyncService;
 
 /// 最后事件信息 / Last event information
 #[derive(Clone, Debug)]

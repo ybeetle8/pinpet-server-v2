@@ -86,6 +86,9 @@ pub struct ErrorApiResponse {
         crate::router::kline::get_kline,
         // 价格查询路由 / Price Query routes
         crate::router::price::get_sol_price,
+        // 交易额统计路由 / Volume Statistics routes
+        crate::router::volume::get_token_volume,
+        crate::router::volume::get_top_volume,
         // Debug 路由 / Debug routes
         crate::router::debug::query_orderbook_from_chain,
         crate::router::debug::compare_orderbook,
@@ -138,6 +141,12 @@ pub struct ErrorApiResponse {
             crate::kline::types::KlineQueryResponse,
             // 价格查询结构体 / Price Query structures
             crate::price::SolPrice,
+            // 交易额统计结构体 / Volume Statistics structures
+            crate::volume::Period,
+            crate::volume::VolumeData,
+            crate::volume::TokenVolumeResponse,
+            crate::volume::TopVolumeItem,
+            crate::volume::TopVolumeResponse,
             // Debug 结构体 / Debug structures
             crate::router::debug::ChainOrderBookQueryParams,
             crate::router::debug::ChainOrderBookHeaderInfo,
@@ -152,6 +161,10 @@ pub struct ErrorApiResponse {
             crate::solana::orderbook_comparator::OrderSummary,
             // 同步相关结构体 / Sync structures
             crate::orderbook_sync::SyncResult,
+            // 通用响应结构体 / Common response structures
+            crate::util::CommonResult<crate::volume::TokenVolumeResponse>,
+            crate::util::CommonResult<crate::volume::TopVolumeResponse>,
+            crate::util::EmptyData,
             EmptyResponse,
             ErrorApiResponse,
         )
@@ -164,6 +177,7 @@ pub struct ErrorApiResponse {
         (name = "OrderBook", description = "OrderBook保证金订单查询接口 / OrderBook margin order query APIs"),
         (name = "K线查询 / K-line Query", description = "K线数据查询接口 / K-line data query APIs"),
         (name = "价格查询 / Price Query", description = "SOL价格查询接口 / SOL price query APIs"),
+        (name = "Volume Statistics / 交易额统计", description = "交易额统计查询接口 / Volume statistics query APIs"),
         (name = "Debug", description = "调试接口，用于从链上直接查询数据 / Debug APIs for querying data directly from chain"),
     ),
     info(

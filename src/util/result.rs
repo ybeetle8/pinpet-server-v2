@@ -5,13 +5,15 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use tracing::error;
+use utoipa::ToSchema;
 
 /// API 统一响应结果类型
 pub type ApiResult = Result<Response, ApiError>;
 
 /// 统一响应格式
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CommonResult<T: Serialize> {
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(bound = "T: ToSchema")]
+pub struct CommonResult<T: Serialize + ToSchema> {
     /// 响应状态码
     pub code: u32,
     /// 响应消息
@@ -20,7 +22,7 @@ pub struct CommonResult<T: Serialize> {
     pub data: Option<T>,
 }
 
-impl<T: Serialize> CommonResult<T> {
+impl<T: Serialize + ToSchema> CommonResult<T> {
     /// 自定义响应
     pub fn default(code: u32, msg: String, data: Option<T>) -> Self {
         CommonResult { code, msg, data }
@@ -43,14 +45,14 @@ impl<T: Serialize> CommonResult<T> {
     }
 }
 
-impl<T: Serialize> IntoResponse for CommonResult<T> {
+impl<T: Serialize + ToSchema> IntoResponse for CommonResult<T> {
     fn into_response(self) -> Response {
         Json(self).into_response()
     }
 }
 
 /// 处理 Result 类型，自动将 Result<T, ApiError> 转换为响应
-pub fn ok_result<T: Serialize>(result: Result<T, ApiError>) -> Response {
+pub fn ok_result<T: Serialize + ToSchema>(result: Result<T, ApiError>) -> Response {
     match result {
         Ok(data) => CommonResult::ok(data).into_response(),
         Err(err) => err.into_response(),
@@ -117,9 +119,13 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+/// 空响应数据类型（用于错误响应）
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EmptyData;
+
 /// 构建错误响应的辅助函数
 fn error(code: u32, msg: String) -> Response {
-    CommonResult::<()>::error(code, msg).into_response()
+    CommonResult::<EmptyData>::error(code, msg).into_response()
 }
 
 impl IntoResponse for ApiError {

@@ -2,6 +2,7 @@
 // Library Module Exports
 
 pub mod config;
+pub mod curve_amm;
 pub mod db;
 pub mod docs;
 pub mod kline;
@@ -11,6 +12,7 @@ pub mod price;
 pub mod router;
 pub mod solana;
 pub mod util;
+pub mod volume;
 
 // Re-export commonly used types
 // 重导出常用类型

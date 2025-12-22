@@ -1,4 +1,5 @@
 mod config;
+mod curve_amm;
 mod db;
 mod docs;
 mod kline;
@@ -8,6 +9,7 @@ mod price;
 mod router;
 mod solana;
 mod util;
+mod volume;
 
 use axum::Router;
 use std::sync::Arc;
@@ -191,11 +193,17 @@ async fn main() {
             }
         };
 
+        // 创建交易额存储实例 / Create volume storage instance
+        let volume_storage = Arc::new(volume::VolumeStorage::new(db_storage.db.clone()));
+        tracing::info!("✅ 交易额存储初始化成功 / Volume storage initialized successfully");
+
         // 创建存储事件处理器 / Create storage event handler
         let mut storage_handler = solana::StorageEventHandler::new(
             event_storage.clone(),  // 克隆一份供storage_handler使用 / Clone for storage_handler
             token_storage.clone(),
             orderbook_storage.clone(),
+            volume_storage.clone(),
+            price_service.clone(),
         );
 
         // 如果启用了K线服务,设置到 StorageEventHandler 中用于推送 LiquidateEvent
@@ -362,12 +370,17 @@ async fn main() {
         }
     };
 
+    // 创建交易额存储实例 (用于API查询) / Create volume storage instance (for API queries)
+    let volume_storage_for_api = Arc::new(volume::VolumeStorage::new(db_storage.db.clone()));
+    tracing::info!("✅ 交易额存储初始化成功(API) / Volume storage initialized successfully (API)");
+
     // 创建路由
     let api_router = router::create_router(
         db_storage,
         token_storage_for_api,
         orderbook_storage.clone(),
         kline_storage_for_api,
+        volume_storage_for_api,
         price_service.clone(),
         config.clone(),
         solana_client.clone(),

@@ -117,6 +117,18 @@ impl SolPriceService {
         price_lock.clone()
     }
 
+    /// 同步获取当前价格(仅返回价格值) / Get current price synchronously (returns price value only)
+    pub fn get_price_sync(&self) -> f64 {
+        // 使用 try_read 避免阻塞 / Use try_read to avoid blocking
+        if let Ok(price_lock) = self.price.try_read() {
+            if let Some(ref price_info) = *price_lock {
+                return price_info.price;
+            }
+        }
+        // 如果无法获取或没有缓存,返回默认值 / Return default if unable to get or no cache
+        140.0 // 默认值 / Default value
+    }
+
     /// 启动定时更新任务 / Start periodic update task
     pub fn start_periodic_update(self: Arc<Self>) {
         tokio::spawn(async move {
