@@ -5,6 +5,7 @@ use tracing::{debug, error, info, warn};
 use crate::db::{EventStorage, TokenStorage, OrderBookStorage};
 use crate::orderbook::MarginOrder;
 use crate::volume::VolumeStorage;
+use crate::change::ChangeStorage;
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
@@ -15,6 +16,7 @@ pub struct StorageEventHandler {
     token_storage: Arc<TokenStorage>,
     orderbook_storage: Arc<OrderBookStorage>,
     volume_storage: Arc<VolumeStorage>,
+    change_storage: Arc<ChangeStorage>,
     sol_price_service: Arc<crate::price::SolPriceService>,
     kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
     sync_monitor: Option<Arc<crate::orderbook_sync::OrderBookSyncMonitor>>,
@@ -27,6 +29,7 @@ impl StorageEventHandler {
         token_storage: Arc<TokenStorage>,
         orderbook_storage: Arc<OrderBookStorage>,
         volume_storage: Arc<VolumeStorage>,
+        change_storage: Arc<ChangeStorage>,
         sol_price_service: Arc<crate::price::SolPriceService>,
     ) -> Self {
         Self {
@@ -34,6 +37,7 @@ impl StorageEventHandler {
             token_storage,
             orderbook_storage,
             volume_storage,
+            change_storage,
             sol_price_service,
             kline_socket_service: None,
             sync_monitor: None,
@@ -150,10 +154,11 @@ impl EventHandler for StorageEventHandler {
                 }
             }
 
-            // ====== 第二步：更新交易额统计（必须在更新价格之前）/ Step 2: Update volume statistics (must be before price update) ======
+            // ====== 第二步：更新统计信息（必须在更新价格之前）/ Step 2: Update statistics (must be before price update) ======
             // 重要：必须在更新价格之前调用，这样 get_previous_price 才能获取到上一个事件的价格
             // Important: Must be called before price update so get_previous_price can get the previous event's price
             this.update_volume_statistics(&event_for_processing)?;
+            this.update_change_statistics(&event_for_processing)?;
 
             // ====== 第三步：更新价格（在同一个任务中串行执行）/ Step 3: Update price (execute serially in same task) ======
 
@@ -883,6 +888,61 @@ impl StorageEventHandler {
             timestamp,
         ) {
             error!("❌ 更新交易额失败 / Failed to update volume: mint={}, error={}",
+                   &mint[..8.min(mint.len())], e);
+            // 不中断主流程 / Don't interrupt main flow
+        }
+
+        Ok(())
+    }
+
+    /// 更新涨跌幅统计 / Update change statistics
+    ///
+    /// # 参数 / Parameters
+    /// * `event` - 事件 / Event
+    fn update_change_statistics(&self, event: &PinpetEvent) -> anyhow::Result<()> {
+        use crate::curve_amm::CurveAMM;
+
+        // 提取事件信息 / Extract event info
+        let (mint, price_after, timestamp) = match event {
+            PinpetEvent::TokenCreated(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::BuySell(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::LongShort(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::FullClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::PartialClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+            PinpetEvent::MilestoneDiscount(_) | PinpetEvent::Liquidate(_) => {
+                // 这两个事件不包含价格变动,不更新涨跌幅 / These events don't contain price changes, skip change update
+                return Ok(());
+            }
+        };
+
+        // 获取 SOL/USD 汇率 / Get SOL/USD exchange rate
+        let sol_price_usd = self.sol_price_service.get_price_sync();
+
+        // 将价格从 lamports 转换为 USD / Convert price from lamports to USD
+        // price 单位是 lamports, 需要转换为 SOL 再转换为 USD
+        // price is in lamports, need to convert to SOL then to USD
+        let (sol_reserve, _token_reserve) = CurveAMM::price_to_reserves(price_after)
+            .ok_or_else(|| anyhow::anyhow!("Failed to calculate reserves"))?;
+
+        // SOL 储备单位是 lamports (1 SOL = 10^9 lamports)
+        // SOL reserve is in lamports (1 SOL = 10^9 lamports)
+        let sol_amount = sol_reserve as f64 / 1_000_000_000.0;
+        let price_usd = sol_amount * sol_price_usd;
+
+        debug!(
+            "📊 Change计算参数 / Change calc params: mint={}, price_usd=${:.9}, timestamp={}",
+            &mint[..8.min(mint.len())],
+            price_usd,
+            timestamp
+        );
+
+        // 更新涨跌幅 / Update change
+        if let Err(e) = self.change_storage.update_change(
+            mint,
+            price_usd,
+            timestamp,
+        ) {
+            error!("❌ 更新涨跌幅失败 / Failed to update change: mint={}, error={}",
                    &mint[..8.min(mint.len())], e);
             // 不中断主流程 / Don't interrupt main flow
         }

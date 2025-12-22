@@ -89,6 +89,9 @@ pub struct ErrorApiResponse {
         // 交易额统计路由 / Volume Statistics routes
         crate::router::volume::get_token_volume,
         crate::router::volume::get_top_volume,
+        // 涨跌幅统计路由 / Change Statistics routes
+        crate::router::change::get_token_change,
+        crate::router::change::get_top_change,
         // Debug 路由 / Debug routes
         crate::router::debug::query_orderbook_from_chain,
         crate::router::debug::compare_orderbook,
@@ -147,6 +150,12 @@ pub struct ErrorApiResponse {
             crate::volume::TokenVolumeResponse,
             crate::volume::TopVolumeItem,
             crate::volume::TopVolumeResponse,
+            // 涨跌幅统计结构体 / Change Statistics structures
+            crate::change::ChangeData,
+            crate::change::TokenChangeResponse,
+            crate::change::TopChangeItem,
+            crate::change::TopChangeResponse,
+            crate::change::ChangeDirection,
             // Debug 结构体 / Debug structures
             crate::router::debug::ChainOrderBookQueryParams,
             crate::router::debug::ChainOrderBookHeaderInfo,
@@ -164,6 +173,8 @@ pub struct ErrorApiResponse {
             // 通用响应结构体 / Common response structures
             crate::util::CommonResult<crate::volume::TokenVolumeResponse>,
             crate::util::CommonResult<crate::volume::TopVolumeResponse>,
+            crate::util::CommonResult<crate::change::TokenChangeResponse>,
+            crate::util::CommonResult<crate::change::TopChangeResponse>,
             crate::util::EmptyData,
             EmptyResponse,
             ErrorApiResponse,
@@ -177,7 +188,7 @@ pub struct ErrorApiResponse {
         (name = "OrderBook", description = "OrderBook保证金订单查询接口 / OrderBook margin order query APIs"),
         (name = "K线查询 / K-line Query", description = "K线数据查询接口 / K-line data query APIs"),
         (name = "价格查询 / Price Query", description = "SOL价格查询接口 / SOL price query APIs"),
-        (name = "Volume Statistics / 交易额统计", description = "交易额统计查询接口 / Volume statistics query APIs"),
+        (name = "Statistics / 统计数据", description = "统计数据查询接口(交易额、涨跌幅等) / Statistics query APIs (volume, change, etc.)"),
         (name = "Debug", description = "调试接口，用于从链上直接查询数据 / Debug APIs for querying data directly from chain"),
     ),
     info(
