@@ -228,13 +228,17 @@ impl VolumeStorage {
         // 键前缀: vol_rank:{period}:{time_bucket:020}:
         let prefix = format!("vol_rank:{}:{:020}:", period.as_str(), time_bucket);
 
-        // 反向迭代，从大到小 / Reverse iteration, from large to small
-        let mut items = Vec::new();
-        let mut iter = self.db.prefix_iterator(prefix.as_bytes());
-        iter.set_mode(rocksdb::IteratorMode::End);
+        debug!(
+            "🔍 查询排序索引 / Querying ranking index: prefix={}",
+            prefix
+        );
 
-        let mut count = 0;
-        while let Some(Ok((key, _))) = iter.next() {
+        // 先收集所有匹配的项，然后按交易额排序 / First collect all matching items, then sort by volume
+        let mut items = Vec::new();
+        let iter = self.db.prefix_iterator(prefix.as_bytes());
+
+        for item in iter {
+            let (key, _) = item?;
             let key_str = String::from_utf8_lossy(&key);
 
             // 检查是否仍在前缀范围内 / Check if still in prefix range
@@ -261,14 +265,66 @@ impl VolumeStorage {
                         event_count: data.event_count,
                         last_update: data.last_update,
                     });
+                }
+            }
+        }
 
-                    count += 1;
-                    if count >= limit {
-                        break;
+        // 如果没有找到排序索引，尝试直接扫描主数据 / If no ranking index found, try scanning main data
+        if items.is_empty() {
+            debug!(
+                "⚠️  未找到排序索引，直接扫描主数据 / No ranking index found, scanning main data"
+            );
+
+            // 直接扫描 vol: 前缀的所有数据 / Scan all data with vol: prefix
+            let vol_prefix = format!("vol:{}:", period.as_str());
+            let vol_iter = self.db.prefix_iterator(vol_prefix.as_bytes());
+
+            for item in vol_iter {
+                let (key, value) = item?;
+                let key_str = String::from_utf8_lossy(&key);
+
+                // 检查前缀 / Check prefix
+                if !key_str.starts_with(&vol_prefix) {
+                    break;
+                }
+
+                // 解析键提取 mint 和 time_bucket
+                // 键格式: vol:{period}:{mint}:{time_bucket:020}
+                let parts: Vec<&str> = key_str.split(':').collect();
+                if parts.len() < 4 {
+                    continue;
+                }
+
+                // 检查 time_bucket 是否匹配
+                if let Ok(tb) = parts[parts.len() - 1].parse::<u64>() {
+                    if tb != time_bucket {
+                        continue;
+                    }
+
+                    // 提取 mint (可能包含冒号，所以需要 join)
+                    let mint = parts[2..parts.len() - 1].join(":");
+
+                    // 解析数据
+                    if let Ok(data) = serde_json::from_slice::<VolumeData>(&value) {
+                        if data.volume > 0.0 {
+                            // 只包含有交易额的 token
+                            items.push(TopVolumeItem {
+                                mint,
+                                volume: data.volume,
+                                event_count: data.event_count,
+                                last_update: data.last_update,
+                            });
+                        }
                     }
                 }
             }
         }
+
+        // 按交易额从大到小排序 / Sort by volume in descending order
+        items.sort_by(|a, b| b.volume.partial_cmp(&a.volume).unwrap_or(std::cmp::Ordering::Equal));
+
+        // 限制返回数量 / Limit results
+        items.truncate(limit);
 
         info!(
             "📈 查询 Top {} 交易额 / Queried Top {} volume: period={}, time_bucket={}, found={}",
