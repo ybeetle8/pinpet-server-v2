@@ -8,6 +8,7 @@ pub mod db;
 pub mod docs;
 pub mod kline;
 pub mod markets;
+pub mod markets_abs;
 pub mod orderbook;
 pub mod orderbook_sync;
 pub mod price;
