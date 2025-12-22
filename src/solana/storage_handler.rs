@@ -5,6 +5,7 @@ use tracing::{debug, error, info, warn};
 use crate::db::{EventStorage, TokenStorage, OrderBookStorage};
 use crate::orderbook::MarginOrder;
 use crate::volume::VolumeStorage;
+use crate::change::ChangeStorage;
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 
@@ -15,6 +16,7 @@ pub struct StorageEventHandler {
     token_storage: Arc<TokenStorage>,
     orderbook_storage: Arc<OrderBookStorage>,
     volume_storage: Arc<VolumeStorage>,
+    change_storage: Arc<ChangeStorage>,
     sol_price_service: Arc<crate::price::SolPriceService>,
     kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
     sync_monitor: Option<Arc<crate::orderbook_sync::OrderBookSyncMonitor>>,
@@ -27,6 +29,7 @@ impl StorageEventHandler {
         token_storage: Arc<TokenStorage>,
         orderbook_storage: Arc<OrderBookStorage>,
         volume_storage: Arc<VolumeStorage>,
+        change_storage: Arc<ChangeStorage>,
         sol_price_service: Arc<crate::price::SolPriceService>,
     ) -> Self {
         Self {
@@ -34,6 +37,7 @@ impl StorageEventHandler {
             token_storage,
             orderbook_storage,
             volume_storage,
+            change_storage,
             sol_price_service,
             kline_socket_service: None,
             sync_monitor: None,
@@ -883,6 +887,18 @@ impl StorageEventHandler {
             timestamp,
         ) {
             error!("❌ 更新交易额失败 / Failed to update volume: mint={}, error={}",
+                   &mint[..8.min(mint.len())], e);
+            // 不中断主流程 / Don't interrupt main flow
+        }
+
+        // 更新涨跌幅 / Update change
+        if let Err(e) = self.change_storage.update_change(
+            mint,
+            price_before,
+            price_after,
+            timestamp,
+        ) {
+            error!("❌ 更新涨跌幅失败 / Failed to update change: mint={}, error={}",
                    &mint[..8.min(mint.len())], e);
             // 不中断主流程 / Don't interrupt main flow
         }

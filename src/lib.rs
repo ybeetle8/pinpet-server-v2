@@ -1,6 +1,7 @@
 // Library 模块导出
 // Library Module Exports
 
+pub mod change;
 pub mod config;
 pub mod curve_amm;
 pub mod db;

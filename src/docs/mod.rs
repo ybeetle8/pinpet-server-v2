@@ -89,6 +89,9 @@ pub struct ErrorApiResponse {
         // 交易额统计路由 / Volume Statistics routes
         crate::router::volume::get_token_volume,
         crate::router::volume::get_top_volume,
+        // 涨跌幅统计路由 / Change Statistics routes
+        crate::router::change::get_token_change,
+        crate::router::change::get_top_change,
         // Debug 路由 / Debug routes
         crate::router::debug::query_orderbook_from_chain,
         crate::router::debug::compare_orderbook,
@@ -147,6 +150,12 @@ pub struct ErrorApiResponse {
             crate::volume::TokenVolumeResponse,
             crate::volume::TopVolumeItem,
             crate::volume::TopVolumeResponse,
+            // 涨跌幅统计结构体 / Change Statistics structures
+            crate::change::ChangeData,
+            crate::change::TokenChangeResponse,
+            crate::change::TopChangeItem,
+            crate::change::TopChangeResponse,
+            crate::change::Direction,
             // Debug 结构体 / Debug structures
             crate::router::debug::ChainOrderBookQueryParams,
             crate::router::debug::ChainOrderBookHeaderInfo,
@@ -164,6 +173,8 @@ pub struct ErrorApiResponse {
             // 通用响应结构体 / Common response structures
             crate::util::CommonResult<crate::volume::TokenVolumeResponse>,
             crate::util::CommonResult<crate::volume::TopVolumeResponse>,
+            crate::util::CommonResult<crate::change::TokenChangeResponse>,
+            crate::util::CommonResult<crate::change::TopChangeResponse>,
             crate::util::EmptyData,
             EmptyResponse,
             ErrorApiResponse,
