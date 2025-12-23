@@ -197,8 +197,8 @@ async fn main() {
             }
         };
 
-        // 创建 Token 存储实例（使用统计数据库）/ Create token storage instance (using stats DB)
-        let token_storage = match stats_storage.create_token_storage() {
+        // 创建 Token 存储实例（使用事件数据库）/ Create token storage instance (using event DB)
+        let token_storage = match db_storage.create_token_storage((*config).clone()) {
             Ok(storage) => Arc::new(storage),
             Err(e) => {
                 tracing::error!("❌ Token 存储创建失败 / Failed to create Token storage: {}", e);
@@ -380,8 +380,8 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // 创建 Token 存储实例（用于API查询，使用统计数据库）/ Create token storage instance (for API queries, using stats DB)
-    let token_storage_for_api = match stats_storage.create_token_storage() {
+    // 创建 Token 存储实例（用于API查询，使用事件数据库）/ Create token storage instance (for API queries, using event DB)
+    let token_storage_for_api = match db_storage.create_token_storage((*config).clone()) {
         Ok(storage) => Arc::new(storage),
         Err(e) => {
             tracing::error!("❌ Token 存储创建失败(API) / Failed to create Token storage (API): {}", e);

@@ -12,6 +12,7 @@ use crate::config::Config;
 /// Dedicated storage for token statistics (Volume, Markets, Change, etc.)
 pub struct StatsStorage {
     pub(crate) db: Arc<DB>,
+    #[allow(dead_code)]
     config: Config,
 }
 
@@ -109,11 +110,6 @@ impl StatsStorage {
     /// 创建 Change 存储实例 / Create Change storage instance
     pub fn create_change_storage(&self) -> crate::change::ChangeStorage {
         crate::change::ChangeStorage::new(Arc::clone(&self.db))
-    }
-
-    /// 创建 Token 存储实例 / Create Token storage instance
-    pub fn create_token_storage(&self) -> Result<crate::db::TokenStorage> {
-        crate::db::TokenStorage::new(Arc::clone(&self.db), self.config.clone())
     }
 
     /// 创建 K线 存储实例 / Create K-line storage instance
