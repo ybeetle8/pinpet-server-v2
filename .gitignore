@@ -7,7 +7,6 @@ node_modules
 test-ledger
 .yarn
 /data
-/docs
 /.claude
 /CLAUDE.md
 
