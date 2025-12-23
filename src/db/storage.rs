@@ -9,6 +9,7 @@ use crate::price::SolPriceService;
 /// RocksDB 存储服务
 pub struct RocksDbStorage {
     pub(crate) db: Arc<DB>,
+    #[allow(dead_code)]
     config: Config,
     price_service: Option<Arc<SolPriceService>>,  // SOL价格服务(可选,用于EventStorage) / SOL price service (optional, for EventStorage)
 }
@@ -110,6 +111,7 @@ impl RocksDbStorage {
     }
 
     /// 删除键
+    #[allow(dead_code)]
     pub fn delete(&self, key: &str) -> Result<()> {
         self.db.delete(key.as_bytes())?;
         Ok(())

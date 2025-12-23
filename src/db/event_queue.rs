@@ -100,6 +100,7 @@ impl EventQueueStorage {
     }
 
     /// 批量入队 / Batch enqueue
+    #[allow(dead_code)]
     pub async fn enqueue_batch(&self, events: Vec<PinpetEvent>) -> Result<Vec<String>> {
         let mut batch = WriteBatch::default();
         let mut ids = Vec::new();

@@ -166,6 +166,7 @@ fn default_ping_timeout() -> u64 {
 
 /// OrderBook 同步配置 / OrderBook sync configuration
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct OrderBookSyncConfig {
     /// 是否启用延迟对比同步 / Enable delayed comparison sync
     #[serde(default = "default_orderbook_sync_enabled")]

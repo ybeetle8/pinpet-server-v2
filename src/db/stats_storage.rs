@@ -122,6 +122,7 @@ impl StatsStorage {
     }
 
     /// 获取数据库统计信息 / Get database statistics
+    #[allow(dead_code)]
     pub fn get_stats(&self) -> Result<String> {
         let stats = self.db.property_value("rocksdb.stats")?;
         Ok(stats.unwrap_or_else(|| "No stats available".to_string()))

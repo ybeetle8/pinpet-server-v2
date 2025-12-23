@@ -3,15 +3,18 @@ use rust_decimal::prelude::*;
 
 
 /// 手续费计算使用的分母 (10^5)
+#[allow(dead_code)]
 pub const FEE_DENOMINATOR: u64 = 100_000;
 
 /// 最大手续费率（10%）
+#[allow(dead_code)]
 pub const MAX_FEE_RATE: u16 = 10_000;
 
 
 /// 传统AMM交易模型结构体
 pub struct CurveAMM;
 
+#[allow(dead_code)]
 impl CurveAMM {
 
     pub const INITIAL_SOL_RESERVE_DECIMAL: Decimal = Decimal::from_parts(30, 0, 0, false, 0);

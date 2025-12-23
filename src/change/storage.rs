@@ -166,6 +166,7 @@ impl ChangeStorage {
     }
 
     /// 解码涨跌幅字符串为百分比 / Decode change string to percentage
+    #[allow(dead_code)]
     fn decode_change_percent(encoded: &str) -> Result<f64> {
         if encoded.len() != 12 {
             anyhow::bail!("Invalid encoded change percent length");

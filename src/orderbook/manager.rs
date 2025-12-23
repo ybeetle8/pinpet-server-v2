@@ -638,6 +638,7 @@ impl OrderBookDBManager {
     /// # 返回值 / Returns
     /// 成功返回 Ok(())
     /// Returns Ok(()) on success
+    #[allow(dead_code)]
     pub fn batch_remove_by_indices_unsafe(
         &self,
         indices: &[u16],
