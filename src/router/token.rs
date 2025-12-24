@@ -133,13 +133,24 @@ fn default_limit() -> usize {
     20
 }
 
+/// 根据mint查询Token详情参数 / Get token by mint parameters
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct GetTokenByMintParams {
+    /// 是否包含24小时统计数据 / Include 24h statistics data
+    /// 包含: volume, change, markets_abs
+    /// Includes: volume, change, markets_abs
+    #[serde(default)]
+    pub include_stats: bool,
+}
+
 /// 根据mint查询Token详情
 /// Get token detail by mint address
 #[utoipa::path(
     get,
     path = "/api/tokens/mint/{mint}",
     params(
-        ("mint" = String, Path, description = "Token mint地址 / Token mint address")
+        ("mint" = String, Path, description = "Token mint地址 / Token mint address"),
+        ("include_stats" = Option<bool>, Query, description = "是否包含24小时统计数据(volume/change/markets_abs) / Include 24h statistics (volume/change/markets_abs). 默认: false / Default: false")
     ),
     responses(
         (status = 200, description = "成功返回Token详情 / Successfully returned token detail"),
@@ -151,18 +162,31 @@ fn default_limit() -> usize {
 pub async fn get_token_by_mint(
     State(state): State<TokenState>,
     Path(mint): Path<String>,
+    Query(params): Query<GetTokenByMintParams>,
 ) -> impl IntoResponse {
-    match state.token_storage.get_token_by_mint(&mint) {
-        Ok(Some(token)) => Ok(Json(CommonResult::ok(token))),
-        Ok(None) => Err((
-            StatusCode::NOT_FOUND,
-            format!("Token not found: {}", mint),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to query token: {}", e),
-        )),
+    // 1. 查询 token 基础数据 / Query token base data
+    let mut token = match state.token_storage.get_token_by_mint(&mint) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Token not found: {}", mint),
+            ))
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to query token: {}", e),
+            ))
+        }
+    };
+
+    // 2. 如果需要统计数据,附加到 extras / If stats needed, enrich to extras
+    if params.include_stats {
+        enrich_token_with_stats(&state, &mut token).await;
     }
+
+    Ok(Json(CommonResult::ok(token)))
 }
 
 /// 根据symbol查询Token列表
@@ -873,6 +897,127 @@ async fn handle_hottest_tokens(
         tokens,
         next_cursor: None,
     })
+}
+
+// ============================================================================
+// Token详情统计数据附加 / Token Detail Statistics Enrichment
+// ============================================================================
+
+/// 附加24小时统计数据到 token.extras / Enrich token with 24h statistics
+async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::TokenDetail) {
+    let mint = &token.mint_account;
+    let period = Period::TwentyFourHours;
+
+    // 并发查询所有统计数据 / Query all stats concurrently
+    let (volume_result, change_result, markets_abs_result) = tokio::join!(
+        query_volume_stats(state, mint, period),
+        query_change_stats(state, mint, period),
+        query_markets_abs_stats(state, mint, period)
+    );
+
+    // 附加 Volume 数据 / Attach volume data
+    if let Some(volume_data) = volume_result {
+        token.extras.insert(
+            "volume_24h".to_string(),
+            serde_json::json!(volume_data.volume.to_string()),
+        );
+        token.extras.insert(
+            "volume_event_count".to_string(),
+            serde_json::json!(volume_data.event_count),
+        );
+        token.extras.insert(
+            "volume_last_update".to_string(),
+            serde_json::json!(volume_data.last_update),
+        );
+    }
+
+    // 附加 Change 数据 / Attach change data
+    if let Some(change_data) = change_result {
+        token.extras.insert(
+            "change_percent_24h".to_string(),
+            serde_json::json!(change_data.change_percent.to_string()),
+        );
+        token.extras.insert(
+            "change_open_price".to_string(),
+            serde_json::json!(change_data.open_price.to_string()),
+        );
+        token.extras.insert(
+            "change_close_price".to_string(),
+            serde_json::json!(change_data.close_price.to_string()),
+        );
+    }
+
+    // 附加 MarketsAbs 数据 / Attach markets abs data
+    if let Some(markets_abs_data) = markets_abs_result {
+        token.extras.insert(
+            "markets_abs_cumulative".to_string(),
+            serde_json::json!(markets_abs_data.cumulative_count),
+        );
+        token.extras.insert(
+            "markets_abs_first_seen".to_string(),
+            serde_json::json!(markets_abs_data.first_seen),
+        );
+    }
+}
+
+/// 查询 Volume 统计 / Query volume statistics
+async fn query_volume_stats(
+    state: &TokenState,
+    mint: &str,
+    period: Period,
+) -> Option<crate::volume::VolumeData> {
+    use tracing::warn;
+
+    match state.volume_storage.get_token_volume(mint, period, None) {
+        Ok(resp) => Some(resp.data),
+        Err(e) => {
+            warn!("Failed to get volume stats for {}: {}", mint, e);
+            None
+        }
+    }
+}
+
+/// 查询 Change 统计 / Query change statistics
+async fn query_change_stats(
+    state: &TokenState,
+    mint: &str,
+    period: Period,
+) -> Option<crate::change::ChangeData> {
+    use tracing::warn;
+
+    match state.change_storage.get_token_change(mint, period, None) {
+        Ok(resp) => Some(resp.data),
+        Err(e) => {
+            warn!("Failed to get change stats for {}: {}", mint, e);
+            None
+        }
+    }
+}
+
+/// 查询 MarketsAbs 统计 / Query markets abs statistics
+async fn query_markets_abs_stats(
+    state: &TokenState,
+    mint: &str,
+    period: Period,
+) -> Option<MarketsAbsStatsData> {
+    use tracing::warn;
+
+    match state.markets_abs_storage.get_token_markets_abs(mint, period, None) {
+        Ok(resp) => Some(MarketsAbsStatsData {
+            cumulative_count: resp.cumulative_count,
+            first_seen: resp.first_seen,
+        }),
+        Err(e) => {
+            warn!("Failed to get markets abs stats for {}: {}", mint, e);
+            None
+        }
+    }
+}
+
+/// MarketsAbs 统计数据辅助结构 / MarketsAbs statistics helper struct
+struct MarketsAbsStatsData {
+    cumulative_count: u64,
+    first_seen: u64,
 }
 
 // ============================================================================
