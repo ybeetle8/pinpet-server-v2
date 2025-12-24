@@ -14,10 +14,11 @@ use utoipa::{IntoParams, ToSchema};
 use crate::db::TokenStorage;
 use crate::util::CommonResult;
 
-/// Token查询的共享状态 / Shared state for token queries 
+/// Token查询的共享状态 / Shared state for token queries
 #[derive(Clone)]
 pub struct TokenState {
     pub token_storage: Arc<TokenStorage>,
+    pub price_service: Arc<crate::price::SolPriceService>,
 }
 
 /// 根据symbol查询Token列表参数 / Get tokens by symbol parameters
@@ -393,6 +394,184 @@ pub struct TokenStatsResponse {
     pub total_tokens: u64,
 }
 
+/// 将TokenDetail转换为TokenSearchResult / Convert TokenDetail to TokenSearchResult
+fn to_search_result(detail: &crate::db::TokenDetail, sol_price: f64) -> TokenSearchResult {
+    use rust_decimal::Decimal;
+    use rust_decimal::prelude::FromPrimitive;
+    use std::str::FromStr;
+
+    // 计算市值 mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
+    // Calculate market cap: mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
+    let mc = if let Ok(price_u128) = detail.latest_price.parse::<u128>() {
+        // 将 u128 转为 Decimal
+        if let Ok(price_decimal) = Decimal::from_str(&price_u128.to_string()) {
+            // latest_price / PRICE_PRECISION_FACTOR
+            let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
+
+            // * INITIAL_TOKEN_RESERVE
+            let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
+
+            // * sol_price (转为 Decimal)
+            if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
+                let mc_decimal = token_value * sol_price_decimal;
+                // 保留2位小数 / Round to 2 decimal places
+                format!("{:.2}", mc_decimal)
+            } else {
+                "0.00".to_string()
+            }
+        } else {
+            "0.00".to_string()
+        }
+    } else {
+        "0.00".to_string()
+    };
+
+    TokenSearchResult {
+        mint_account: detail.mint_account.clone(),
+        symbol: detail.symbol.clone(),
+        name: detail.name.clone(),
+        image: detail.uri_data.as_ref().and_then(|d| d.image.clone()),
+        created_at: detail.created_at,
+        latest_price: detail.latest_price.clone(),
+        mc,
+    }
+}
+
+/// Token搜索参数 / Token search parameters
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct SearchTokensParams {
+    /// 搜索关键词(Symbol或Mint地址) / Search keyword (symbol or mint address)
+    /// - 长度 < 10: 按Symbol搜索 / Length < 10: search by symbol
+    /// - 长度 >= 10: 按Mint搜索 / Length >= 10: search by mint
+    pub q: String,
+    /// 返回数量(仅Symbol搜索,默认20,最大100) / Return count (symbol search only, default 20, max 100)
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+/// Token搜索结果(简化版) / Token search result (simplified)
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TokenSearchResult {
+    /// Token mint地址 / Token mint address
+    pub mint_account: String,
+    /// Token符号 / Token symbol
+    pub symbol: String,
+    /// Token名称 / Token name
+    pub name: String,
+    /// Token图片URI / Token image URI
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// 创建时间Unix时间戳 / Creation Unix timestamp
+    pub created_at: i64,
+    /// 最新价格 / Latest price
+    pub latest_price: String,
+    /// 市值(美元) / Market cap (USD)
+    pub mc: String,
+}
+
+/// Token搜索响应 / Token search response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SearchResponse {
+    /// 搜索类型 / Search type: "symbol" or "mint"
+    pub search_type: String,
+    /// 搜索关键词 / Search query
+    pub query: String,
+    /// Mint搜索结果(单个) / Mint search result (single)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<TokenSearchResult>,
+    /// Symbol搜索结果(列表) / Symbol search results (list)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<Vec<TokenSearchResult>>,
+    /// 结果总数 / Total count
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<usize>,
+}
+
+/// 搜索Token(统一接口,自动识别Symbol/Mint)
+/// Search tokens (unified interface, auto-detect symbol/mint)
+#[utoipa::path(
+    get,
+    path = "/api/tokens/search",
+    params(
+        ("q" = String, Query, description = "搜索关键词(Symbol或Mint地址) / Search keyword (symbol or mint address). 长度<10按Symbol搜索,>=10按Mint搜索 / Length<10 search by symbol, >=10 search by mint"),
+        ("limit" = Option<usize>, Query, description = "返回数量(仅Symbol搜索,默认20,最大100) / Return count (symbol search only, default 20, max 100)")
+    ),
+    responses(
+        (status = 200, description = "成功返回搜索结果 / Successfully returned search results"),
+        (status = 404, description = "Token未找到 / Token not found"),
+        (status = 400, description = "无效的参数 / Invalid parameters"),
+        (status = 500, description = "服务器内部错误 / Internal server error")
+    ),
+    tag = "tokens"
+)]
+pub async fn search_tokens(
+    State(state): State<TokenState>,
+    Query(params): Query<SearchTokensParams>,
+) -> impl IntoResponse {
+    // 验证参数 / Validate parameters
+    if params.q.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Search query cannot be empty".to_string(),
+        ));
+    }
+
+    // 获取当前 SOL 价格 / Get current SOL price
+    let sol_price = state.price_service.get_price_sync();
+
+    // 根据输入长度判断搜索类型 / Determine search type by input length
+    if params.q.len() < 10 {
+        // Symbol搜索 / Symbol search
+        let limit = params.limit.min(100);
+
+        match state
+            .token_storage
+            .search_tokens_by_symbol(&params.q, limit)
+        {
+            Ok(tokens) => {
+                let total = tokens.len();
+                let search_results: Vec<TokenSearchResult> =
+                    tokens.iter().map(|t| to_search_result(t, sol_price)).collect();
+
+                Ok(Json(CommonResult::ok(SearchResponse {
+                    search_type: "symbol".to_string(),
+                    query: params.q,
+                    token: None,
+                    tokens: Some(search_results),
+                    total: Some(total),
+                })))
+            }
+            Err(e) => Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to search tokens by symbol: {}", e),
+            )),
+        }
+    } else {
+        // Mint搜索 / Mint search
+        match state.token_storage.get_token_by_mint(&params.q) {
+            Ok(Some(token)) => {
+                let search_result = to_search_result(&token, sol_price);
+
+                Ok(Json(CommonResult::ok(SearchResponse {
+                    search_type: "mint".to_string(),
+                    query: params.q,
+                    token: Some(search_result),
+                    tokens: None,
+                    total: None,
+                })))
+            }
+            Ok(None) => Err((
+                StatusCode::NOT_FOUND,
+                format!("Token not found: {}", params.q),
+            )),
+            Err(e) => Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to query token by mint: {}", e),
+            )),
+        }
+    }
+}
+
 /// 创建Token相关路由 / Create token related routes
 pub fn routes() -> Router<TokenState> {
     Router::new()
@@ -402,4 +581,5 @@ pub fn routes() -> Router<TokenState> {
         .route("/api/tokens/list", get(get_token_list))
         .route("/api/tokens/slot-range", get(get_tokens_by_slot_range))
         .route("/api/tokens/stats", get(get_token_stats))
+        .route("/api/tokens/search", get(search_tokens))
 }

@@ -77,6 +77,7 @@ pub struct ErrorApiResponse {
         crate::router::token::get_token_list,
         crate::router::token::get_tokens_by_slot_range,
         crate::router::token::get_token_stats,
+        crate::router::token::search_tokens,
         // OrderBook 路由 / OrderBook routes
         crate::router::orderbook::query_orderbook,
         crate::router::orderbook::get_user_active_orders,
@@ -131,6 +132,9 @@ pub struct ErrorApiResponse {
             crate::router::token::SortBy,
             crate::router::token::TokenListResponse,
             crate::router::token::TokenStatsResponse,
+            crate::router::token::SearchTokensParams,
+            crate::router::token::TokenSearchResult,
+            crate::router::token::SearchResponse,
             // OrderBook 结构体 / OrderBook structures
             crate::router::orderbook::OrderBookQueryParams,
             crate::router::orderbook::OrderBookHeaderInfo,

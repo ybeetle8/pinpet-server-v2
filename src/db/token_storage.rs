@@ -16,6 +16,22 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 use utoipa::ToSchema;
 
+/// 最大时间戳常量(2286-11-20 17:46:39 UTC) / Maximum timestamp constant
+/// 用于反转时间戳实现降序排序 / Used for inverted timestamp to achieve descending order
+const MAX_TIMESTAMP: i64 = 9999999999;
+
+/// 反转时间戳,实现时间降序排序 / Invert timestamp for descending time order
+///
+/// # 参数 / Arguments
+/// * `ts` - 原始Unix时间戳 / Original Unix timestamp
+///
+/// # 返回 / Returns
+/// 反转后的时间戳,值越小表示时间越新 / Inverted timestamp, smaller value means newer time
+#[inline]
+fn invert_timestamp(ts: i64) -> i64 {
+    MAX_TIMESTAMP - ts
+}
+
 /// Token详情数据结构 / Token detail data structure
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TokenDetail {
@@ -212,6 +228,16 @@ impl TokenStorage {
                 detail_clone.payer, detail_clone.created_at, detail_clone.mint_account
             );
             batch.put(payer_key.as_bytes(), b"");
+
+            // 6. Symbol时间戳索引 / Symbol timestamp index: token_symbol_ts:{SYMBOL_UPPER}:{inverted_timestamp:010}:{mint}
+            let inverted_ts = invert_timestamp(detail_clone.created_at);
+            let symbol_ts_key = format!(
+                "token_symbol_ts:{}:{:010}:{}",
+                detail_clone.symbol.to_uppercase(),
+                inverted_ts,
+                detail_clone.mint_account
+            );
+            batch.put(symbol_ts_key.as_bytes(), b"");
 
             // 原子提交 / Atomic commit
             db.write(batch)?;
@@ -612,5 +638,66 @@ impl TokenStorage {
                 Ok(())
             }
         }
+    }
+
+    /// 按Symbol搜索Token(按创建时间降序,使用反转时间戳索引)
+    /// Search tokens by symbol (sorted by creation time DESC, using inverted timestamp index)
+    ///
+    /// # 参数 / Arguments
+    /// * `symbol` - Token符号(不区分大小写) / Token symbol (case-insensitive)
+    /// * `limit` - 返回数量限制 / Return count limit
+    ///
+    /// # 返回 / Returns
+    /// Token详情列表,按创建时间降序排列 / Token detail list, sorted by creation time DESC
+    pub fn search_tokens_by_symbol(&self, symbol: &str, limit: usize) -> Result<Vec<TokenDetail>> {
+        let symbol_upper = symbol.to_uppercase();
+        let prefix = format!("token_symbol_ts:{}:", symbol_upper);
+
+        debug!(
+            "按Symbol搜索Token / Searching tokens by symbol: symbol={}, limit={}",
+            symbol, limit
+        );
+
+        let iter = self.db.iterator(rocksdb::IteratorMode::From(
+            prefix.as_bytes(),
+            rocksdb::Direction::Forward,
+        ));
+
+        let mut tokens = Vec::new();
+        let mut count = 0;
+
+        for item in iter {
+            if count >= limit {
+                break;
+            }
+
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+
+            // 检查是否仍在同一个symbol前缀下 / Check if still under the same symbol prefix
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            // 从键中提取mint地址 / Extract mint from key
+            // 键格式: token_symbol_ts:{SYMBOL}:{inverted_ts:010}:{mint}
+            // Key format: token_symbol_ts:{SYMBOL}:{inverted_ts:010}:{mint}
+            let parts: Vec<&str> = key_str.split(':').collect();
+            if parts.len() >= 4 {
+                let mint = parts[3];
+                if let Ok(Some(detail)) = self.get_token_by_mint(mint) {
+                    tokens.push(detail);
+                    count += 1;
+                }
+            }
+        }
+
+        debug!(
+            "Symbol搜索完成 / Symbol search completed: symbol={}, found={}",
+            symbol,
+            tokens.len()
+        );
+
+        Ok(tokens)
     }
 }

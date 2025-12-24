@@ -32,6 +32,7 @@ pub fn create_router(
     // 创建 Token 状态
     let token_state = token::TokenState {
         token_storage: token_storage.clone(),
+        price_service: price_service.clone(),
     };
 
     // 创建 K线 状态
