@@ -314,6 +314,58 @@ impl TokenStorage {
         }
     }
 
+    /// 批量查询Token详情 / Batch get tokens by mints
+    ///
+    /// 使用 RocksDB 的 multi_get 批量查询,性能优于循环调用 get_token_by_mint
+    /// Uses RocksDB's multi_get for better performance than looping get_token_by_mint
+    ///
+    /// # 参数 / Arguments
+    /// * `mints` - mint地址列表 / List of mint addresses
+    ///
+    /// # 返回 / Returns
+    /// 返回成功查询的Token详情列表,跳过不存在的mint
+    /// Returns list of successfully queried TokenDetails, skips non-existent mints
+    pub fn get_tokens_by_mints(&self, mints: &[String]) -> Result<Vec<TokenDetail>> {
+        if mints.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 构建查询键列表 / Build query key list
+        let keys: Vec<Vec<u8>> = mints
+            .iter()
+            .map(|mint| format!("token:{}", mint).into_bytes())
+            .collect();
+
+        // 批量查询 / Batch query
+        let results = self.db.multi_get(keys);
+
+        // 解析结果 / Parse results
+        let mut tokens = Vec::new();
+        for (idx, result) in results.into_iter().enumerate() {
+            match result? {
+                Some(data) => {
+                    match serde_json::from_slice::<TokenDetail>(&data) {
+                        Ok(detail) => tokens.push(detail),
+                        Err(e) => {
+                            warn!(
+                                "批量查询Token时反序列化失败 / Failed to deserialize token in batch query: mint={}, error={}",
+                                mints[idx], e
+                            );
+                        }
+                    }
+                }
+                None => {
+                    debug!(
+                        "批量查询Token时未找到 / Token not found in batch query: mint={}",
+                        mints[idx]
+                    );
+                }
+            }
+        }
+
+        Ok(tokens)
+    }
+
     /// 根据symbol查询Token列表 / Get tokens by symbol
     pub fn get_tokens_by_symbol(
         &self,

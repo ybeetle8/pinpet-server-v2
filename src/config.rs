@@ -13,10 +13,18 @@ pub struct Config {
     pub orderbook_sync: OrderBookSyncConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)] 
+#[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    /// Token列表缓存TTL(秒) / Token list cache TTL (seconds)
+    /// 默认30秒,可避免频繁查询 / Default 30 seconds to avoid frequent queries
+    #[serde(default = "default_token_list_cache_ttl")]
+    pub token_list_cache_ttl_secs: u64,
+}
+
+fn default_token_list_cache_ttl() -> u64 {
+    30
 }
 
 #[derive(Debug, Deserialize, Clone)]

@@ -9,16 +9,44 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+use tokio::sync::RwLock;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::db::TokenStorage;
 use crate::util::CommonResult;
+use crate::volume::{Period, VolumeStorage};
+use crate::change::{ChangeDirection, ChangeStorage};
+use crate::markets_abs::MarketsAbsStorage;
+
+/// Token列表缓存项 / Token list cache item
+#[derive(Debug, Clone)]
+pub struct TokenListCacheItem {
+    /// 缓存的响应数据 / Cached response data
+    pub data: TokenListResponse,
+    /// 缓存时间 / Cache timestamp
+    pub cached_at: SystemTime,
+}
+
+/// Token列表缓存 / Token list cache
+/// 为每个 sort_by + limit 组合缓存结果
+/// Cache results for each sort_by + limit combination
+type TokenListCache = Arc<RwLock<std::collections::HashMap<String, TokenListCacheItem>>>;
 
 /// Token查询的共享状态 / Shared state for token queries
 #[derive(Clone)]
 pub struct TokenState {
     pub token_storage: Arc<TokenStorage>,
     pub price_service: Arc<crate::price::SolPriceService>,
+
+    // 新增统计存储依赖 / Added statistics storage dependencies
+    pub volume_storage: Arc<VolumeStorage>,
+    pub change_storage: Arc<ChangeStorage>,
+    pub markets_abs_storage: Arc<MarketsAbsStorage>,
+
+    // 缓存配置和存储 / Cache configuration and storage
+    pub cache_ttl_secs: u64,
+    pub list_cache: TokenListCache,
 }
 
 /// 根据symbol查询Token列表参数 / Get tokens by symbol parameters
@@ -47,17 +75,21 @@ pub struct GetLatestTokensParams {
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SortBy {
-    /// 按热度排序 / Sort by hottest (based on activity and recency)
-    Hot,
-    /// 按创建时间降序排序(最新优先) / Sort by creation time descending (newest first)
-    Created,
-    /// 按创建时间升序排序(最早优先) / Sort by creation time ascending (oldest first)
-    Ascending,
+    /// 全部(按创建时间降序) / All (by creation time desc)
+    All,
+    /// 最新(按创建时间降序) / Latest (by creation time desc)
+    Latest,
+    /// 24小时交易量排序 / Sort by 24h volume
+    Liquid,
+    /// 24小时涨幅排序 / Sort by 24h gain
+    Rising,
+    /// 24小时绝对钱包数排序 / Sort by 24h absolute markets
+    Hottest,
 }
 
 impl Default for SortBy {
     fn default() -> Self {
-        SortBy::Created
+        SortBy::Latest
     }
 }
 
@@ -65,16 +97,16 @@ impl Default for SortBy {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct GetTokenListParams {
     /// 排序方式 / Sort order
-    /// - hot: 按热度排序 / Sort by hottest
-    /// - created: 按创建时间降序(最新优先) / Sort by creation time descending (newest first)
-    /// - ascending: 按创建时间升序(最早优先) / Sort by creation time ascending (oldest first)
+    /// - all: 全部(按创建时间降序) / All (by creation time desc)
+    /// - latest: 最新(按创建时间降序,默认) / Latest (by creation time desc, default)
+    /// - liquid: 24小时交易量排序 / 24h volume (desc)
+    /// - rising: 24小时涨幅排序 / 24h gain (desc)
+    /// - hottest: 24小时绝对钱包数排序 / 24h absolute markets (desc)
     #[serde(default)]
     pub sort_by: SortBy,
-    /// 每页数量(默认20,最大100) / Items per page (default 20, max 100)
+    /// 每页数量(默认20,最大1000) / Items per page (default 20, max 1000)
     #[serde(default = "default_limit")]
     pub limit: usize,
-    /// 查询此时间戳之前的tokens / Get tokens before this timestamp
-    pub before_timestamp: Option<i64>,
 }
 
 /// 按slot范围查询Token参数 / Get tokens by slot range parameters
@@ -87,7 +119,7 @@ pub struct GetTokensBySlotRangeParams {
 }
 
 /// Token列表响应 / Token list response
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TokenListResponse {
     /// Token列表 / Token list
     pub tokens: Vec<crate::db::TokenDetail>,
@@ -244,15 +276,14 @@ pub async fn get_latest_tokens(
 /// 获取Token列表(支持多种排序方式)
 /// Get token list with multiple sort options
 ///
-/// **注意 / Note:** 当前所有排序方式暂时返回相同结果(按创建时间降序)，未来会实现不同的排序逻辑
-/// Currently all sort options return the same result (sorted by creation time descending), different sorting logic will be implemented in the future
+/// **缓存策略 / Cache Strategy:** 所有请求都会被缓存(可配置TTL),避免频繁查询
+/// All requests are cached (configurable TTL) to avoid frequent queries
 #[utoipa::path(
     get,
     path = "/api/tokens/list",
     params(
-        ("sort_by" = Option<SortBy>, Query, description = "排序方式 / Sort order: hot(按热度), created(按创建时间降序,默认), ascending(按创建时间升序) | Sort options: hot(by hottest), created(by creation time desc, default), ascending(by creation time asc). **未来会实现不同排序逻辑 / Different sorting logic will be implemented in future**"),
-        ("limit" = Option<usize>, Query, description = "每页数量(默认20,最大100) / Items per page (default 20, max 100)"),
-        ("before_timestamp" = Option<i64>, Query, description = "查询此时间戳之前的tokens / Get tokens before this timestamp")
+        ("sort_by" = Option<SortBy>, Query, description = "排序方式 / Sort order:\n- all: 全部(按创建时间降序) / All (by creation time desc)\n- latest: 最新(按创建时间降序,默认) / Latest (by creation time desc, default)\n- liquid: 24小时交易量排序 / 24h volume (desc)\n- rising: 24小时涨幅排序 / 24h gain (desc)\n- hottest: 24小时绝对钱包数排序 / 24h absolute markets (desc)"),
+        ("limit" = Option<usize>, Query, description = "每页数量(默认20,最大1000) / Items per page (default 20, max 1000)")
     ),
     responses(
         (status = 200, description = "成功返回Token列表 / Successfully returned token list"),
@@ -266,53 +297,41 @@ pub async fn get_token_list(
     Query(params): Query<GetTokenListParams>,
 ) -> impl IntoResponse {
     // 限制最大每页数量 / Limit max items per page
-    let limit = params.limit.min(100);
+    let limit = params.limit.min(1000);
 
-    // TODO: 未来根据不同的 sort_by 实现不同的排序逻辑
-    // TODO: Implement different sorting logic based on sort_by in the future
-    // 当前暂时统一使用按创建时间降序
-    // Currently using creation time descending for all options
-    match params.sort_by {
-        SortBy::Hot => {
-            // TODO: 实现热度排序逻辑 / Implement hotness sorting logic
-            // 暂时使用创建时间降序 / Temporarily use creation time descending
-        }
-        SortBy::Created => {
-            // 按创建时间降序(最新优先) / Sort by creation time descending (newest first)
-        }
-        SortBy::Ascending => {
-            // TODO: 实现创建时间升序排序 / Implement creation time ascending sorting
-            // 暂时使用创建时间降序 / Temporarily use creation time descending
-        }
+    // 1. 检查缓存 / Check cache
+    if let Some(cached) = get_cached_response(&state, &params.sort_by, limit).await {
+        return Ok(Json(CommonResult::ok(cached)));
     }
 
-    match state
-        .token_storage
-        .get_latest_tokens(limit, params.before_timestamp)
-    {
-        Ok(tokens) => {
-            let total = tokens.len();
-
-            // 计算下一页游标 / Calculate next cursor
-            // 如果返回了完整的一页，使用最后一个token的created_at作为游标
-            // If a full page is returned, use the last token's created_at as cursor
-            let next_cursor = if total >= limit {
-                tokens.last().map(|t| t.created_at.to_string())
-            } else {
-                // 如果少于limit，说明已经是最后一页 / Less than limit means last page
-                None
-            };
-
-            Ok(Json(CommonResult::ok(TokenListResponse {
-                tokens,
-                total,
-                next_cursor,
-            })))
+    // 2. 根据 sort_by 调用不同的处理函数 / Call different handler based on sort_by
+    let result = match params.sort_by {
+        SortBy::All | SortBy::Latest => {
+            // 按创建时间降序(最新优先) / Sort by creation time descending (newest first)
+            handle_local_tokens(&state, limit).await
         }
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to query token list: {}", e),
-        )),
+        SortBy::Liquid => {
+            // 24小时交易量排序 / Sort by 24h volume
+            handle_liquid_tokens(&state, limit).await
+        }
+        SortBy::Rising => {
+            // 24小时涨幅排序 / Sort by 24h gain
+            handle_rising_tokens(&state, limit).await
+        }
+        SortBy::Hottest => {
+            // 24小时绝对钱包数排序 / Sort by 24h absolute markets
+            handle_hottest_tokens(&state, limit).await
+        }
+    };
+
+    match result {
+        Ok(response) => {
+            // 3. 更新缓存 / Update cache
+            set_cache(&state, &params.sort_by, limit, response.clone()).await;
+
+            Ok(Json(CommonResult::ok(response)))
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -571,6 +590,294 @@ pub async fn search_tokens(
         }
     }
 }
+
+// ============================================================================
+// 辅助函数 / Helper Functions
+// ============================================================================
+
+/// 生成缓存键 / Generate cache key
+fn make_cache_key(sort_by: &SortBy, limit: usize) -> String {
+    format!("{}:{}", serde_json::to_string(sort_by).unwrap_or_default(), limit)
+}
+
+/// 检查缓存是否有效 / Check if cache is valid
+async fn get_cached_response(
+    state: &TokenState,
+    sort_by: &SortBy,
+    limit: usize,
+) -> Option<TokenListResponse> {
+    let cache_key = make_cache_key(sort_by, limit);
+    let cache = state.list_cache.read().await;
+
+    if let Some(item) = cache.get(&cache_key) {
+        let elapsed = SystemTime::now()
+            .duration_since(item.cached_at)
+            .unwrap_or(Duration::from_secs(u64::MAX));
+
+        if elapsed.as_secs() < state.cache_ttl_secs {
+            return Some(item.data.clone());
+        }
+    }
+
+    None
+}
+
+/// 更新缓存 / Update cache
+async fn set_cache(
+    state: &TokenState,
+    sort_by: &SortBy,
+    limit: usize,
+    data: TokenListResponse,
+) {
+    let cache_key = make_cache_key(sort_by, limit);
+    let mut cache = state.list_cache.write().await;
+
+    cache.insert(
+        cache_key,
+        TokenListCacheItem {
+            data,
+            cached_at: SystemTime::now(),
+        },
+    );
+}
+
+/// 处理本地tokens (all/latest 模式) / Handle local tokens (all/latest mode)
+async fn handle_local_tokens(
+    state: &TokenState,
+    limit: usize,
+) -> Result<TokenListResponse, (StatusCode, String)> {
+    match state.token_storage.get_latest_tokens(limit, None) {
+        Ok(tokens) => {
+            let total = tokens.len();
+            Ok(TokenListResponse {
+                tokens,
+                total,
+                next_cursor: None,
+            })
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to query token list: {}", e),
+        )),
+    }
+}
+
+/// 处理liquid tokens (24h交易量排序) / Handle liquid tokens (24h volume sort)
+async fn handle_liquid_tokens(
+    state: &TokenState,
+    limit: usize,
+) -> Result<TokenListResponse, (StatusCode, String)> {
+    // 1. 获取 Top Volume 列表 / Get top volume list
+    let volume_result = state
+        .volume_storage
+        .get_top_volume(Period::TwentyFourHours, None, limit)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get volume data: {}", e),
+            )
+        })?;
+
+    // 2. 提取 mint 列表 / Extract mint list
+    let mints: Vec<String> = volume_result.items.iter().map(|item| item.mint.clone()).collect();
+
+    if mints.is_empty() {
+        return Ok(TokenListResponse {
+            tokens: Vec::new(),
+            total: 0,
+            next_cursor: None,
+        });
+    }
+
+    // 3. 批量查询 token 详情 / Batch query token details
+    let mut tokens = state
+        .token_storage
+        .get_tokens_by_mints(&mints)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to batch query tokens: {}", e),
+            )
+        })?;
+
+    // 4. 附加 volume 数据到 extras / Attach volume data to extras
+    // 创建 mint -> volume 的映射 / Create mint -> volume mapping
+    let volume_map: std::collections::HashMap<String, f64> = volume_result
+        .items
+        .iter()
+        .map(|item| (item.mint.clone(), item.volume))
+        .collect();
+
+    for token in &mut tokens {
+        if let Some(&volume) = volume_map.get(&token.mint_account) {
+            token.extras.insert(
+                "volume_24h".to_string(),
+                serde_json::json!(volume.to_string()),
+            );
+        }
+    }
+
+    // 5. 按原始顺序排序 (volume 从高到低) / Sort by original order (volume desc)
+    // RocksDB 返回的可能是无序的,需要根据 mints 顺序重新排列
+    // RocksDB might return unordered, need to reorder by mints
+    let mint_index: std::collections::HashMap<String, usize> = mints
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.clone(), i))
+        .collect();
+
+    tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
+
+    Ok(TokenListResponse {
+        total: tokens.len(),
+        tokens,
+        next_cursor: None,
+    })
+}
+
+/// 处理rising tokens (24h涨幅排序) / Handle rising tokens (24h gain sort)
+async fn handle_rising_tokens(
+    state: &TokenState,
+    limit: usize,
+) -> Result<TokenListResponse, (StatusCode, String)> {
+    // 1. 获取 Top Change 列表 / Get top change list
+    let change_result = state
+        .change_storage
+        .get_top_change(Period::TwentyFourHours, None, ChangeDirection::Gain, limit)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get change data: {}", e),
+            )
+        })?;
+
+    // 2. 提取 mint 列表 / Extract mint list
+    let mints: Vec<String> = change_result.items.iter().map(|item| item.mint.clone()).collect();
+
+    if mints.is_empty() {
+        return Ok(TokenListResponse {
+            tokens: Vec::new(),
+            total: 0,
+            next_cursor: None,
+        });
+    }
+
+    // 3. 批量查询 token 详情 / Batch query token details
+    let mut tokens = state
+        .token_storage
+        .get_tokens_by_mints(&mints)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to batch query tokens: {}", e),
+            )
+        })?;
+
+    // 4. 附加 change_percent 数据到 extras / Attach change_percent data to extras
+    let change_map: std::collections::HashMap<String, f64> = change_result
+        .items
+        .iter()
+        .map(|item| (item.mint.clone(), item.change_percent))
+        .collect();
+
+    for token in &mut tokens {
+        if let Some(&change_percent) = change_map.get(&token.mint_account) {
+            token.extras.insert(
+                "change_percent_24h".to_string(),
+                serde_json::json!(change_percent.to_string()),
+            );
+        }
+    }
+
+    // 5. 按原始顺序排序 / Sort by original order
+    let mint_index: std::collections::HashMap<String, usize> = mints
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.clone(), i))
+        .collect();
+
+    tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
+
+    Ok(TokenListResponse {
+        total: tokens.len(),
+        tokens,
+        next_cursor: None,
+    })
+}
+
+/// 处理hottest tokens (24h绝对钱包数排序) / Handle hottest tokens (24h absolute markets sort)
+async fn handle_hottest_tokens(
+    state: &TokenState,
+    limit: usize,
+) -> Result<TokenListResponse, (StatusCode, String)> {
+    // 1. 获取 Top MarketsAbs 列表 / Get top markets abs list
+    let markets_result = state
+        .markets_abs_storage
+        .get_top_markets_abs(Period::TwentyFourHours, None, limit)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get markets abs data: {}", e),
+            )
+        })?;
+
+    // 2. 提取 mint 列表 / Extract mint list
+    let mints: Vec<String> = markets_result.items.iter().map(|item| item.mint.clone()).collect();
+
+    if mints.is_empty() {
+        return Ok(TokenListResponse {
+            tokens: Vec::new(),
+            total: 0,
+            next_cursor: None,
+        });
+    }
+
+    // 3. 批量查询 token 详情 / Batch query token details
+    let mut tokens = state
+        .token_storage
+        .get_tokens_by_mints(&mints)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to batch query tokens: {}", e),
+            )
+        })?;
+
+    // 4. 附加 markets_abs 数据到 extras / Attach markets_abs data to extras
+    let markets_map: std::collections::HashMap<String, u64> = markets_result
+        .items
+        .iter()
+        .map(|item| (item.mint.clone(), item.cumulative_count))
+        .collect();
+
+    for token in &mut tokens {
+        if let Some(&count) = markets_map.get(&token.mint_account) {
+            token.extras.insert(
+                "markets_abs_24h".to_string(),
+                serde_json::json!(count),
+            );
+        }
+    }
+
+    // 5. 按原始顺序排序 / Sort by original order
+    let mint_index: std::collections::HashMap<String, usize> = mints
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.clone(), i))
+        .collect();
+
+    tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
+
+    Ok(TokenListResponse {
+        total: tokens.len(),
+        tokens,
+        next_cursor: None,
+    })
+}
+
+// ============================================================================
+// 路由定义 / Route Definitions
+// ============================================================================
 
 /// 创建Token相关路由 / Create token related routes
 pub fn routes() -> Router<TokenState> {

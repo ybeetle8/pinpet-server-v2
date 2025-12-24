@@ -33,6 +33,11 @@ pub fn create_router(
     let token_state = token::TokenState {
         token_storage: token_storage.clone(),
         price_service: price_service.clone(),
+        volume_storage: volume_storage.clone(),
+        change_storage: change_storage.clone(),
+        markets_abs_storage: markets_abs_storage.clone(),
+        cache_ttl_secs: config.server.token_list_cache_ttl_secs,
+        list_cache: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
     };
 
     // 创建 K线 状态
