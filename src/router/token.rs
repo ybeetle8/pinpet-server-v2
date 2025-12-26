@@ -733,6 +733,11 @@ async fn handle_local_tokens(
             let sol_price = state.price_service.get_price_sync();
             enrich_tokens_with_prices(&mut tokens, sol_price);
 
+            // 附加完整的统计数据到 extras / Enrich all tokens with complete stats
+            for token in &mut tokens {
+                enrich_token_with_stats(state, token).await;
+            }
+
             let total = tokens.len();
             Ok(TokenListResponse {
                 tokens,
@@ -789,24 +794,7 @@ async fn handle_liquid_tokens(
     let sol_price = state.price_service.get_price_sync();
     enrich_tokens_with_prices(&mut tokens, sol_price);
 
-    // 5. 附加 volume 数据到 extras / Attach volume data to extras
-    // 创建 mint -> volume 的映射 / Create mint -> volume mapping
-    let volume_map: std::collections::HashMap<String, f64> = volume_result
-        .items
-        .iter()
-        .map(|item| (item.mint.clone(), item.volume))
-        .collect();
-
-    for token in &mut tokens {
-        if let Some(&volume) = volume_map.get(&token.mint_account) {
-            token.extras.insert(
-                "volume_24h".to_string(),
-                serde_json::json!(volume.to_string()),
-            );
-        }
-    }
-
-    // 6. 按原始顺序排序 (volume 从高到低) / Sort by original order (volume desc)
+    // 5. 按原始顺序排序 (volume 从高到低) / Sort by original order (volume desc)
     // RocksDB 返回的可能是无序的,需要根据 mints 顺序重新排列
     // RocksDB might return unordered, need to reorder by mints
     let mint_index: std::collections::HashMap<String, usize> = mints
@@ -816,6 +804,11 @@ async fn handle_liquid_tokens(
         .collect();
 
     tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
+
+    // 6. 附加完整的统计数据到 extras / Enrich all tokens with complete stats
+    for token in &mut tokens {
+        enrich_token_with_stats(state, token).await;
+    }
 
     Ok(TokenListResponse {
         total: tokens.len(),
@@ -866,23 +859,7 @@ async fn handle_rising_tokens(
     let sol_price = state.price_service.get_price_sync();
     enrich_tokens_with_prices(&mut tokens, sol_price);
 
-    // 5. 附加 change_percent 数据到 extras / Attach change_percent data to extras
-    let change_map: std::collections::HashMap<String, f64> = change_result
-        .items
-        .iter()
-        .map(|item| (item.mint.clone(), item.change_percent))
-        .collect();
-
-    for token in &mut tokens {
-        if let Some(&change_percent) = change_map.get(&token.mint_account) {
-            token.extras.insert(
-                "change_percent_24h".to_string(),
-                serde_json::json!(change_percent.to_string()),
-            );
-        }
-    }
-
-    // 6. 按原始顺序排序 / Sort by original order
+    // 5. 按原始顺序排序 / Sort by original order
     let mint_index: std::collections::HashMap<String, usize> = mints
         .iter()
         .enumerate()
@@ -890,6 +867,11 @@ async fn handle_rising_tokens(
         .collect();
 
     tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
+
+    // 6. 附加完整的统计数据到 extras / Enrich all tokens with complete stats
+    for token in &mut tokens {
+        enrich_token_with_stats(state, token).await;
+    }
 
     Ok(TokenListResponse {
         total: tokens.len(),
@@ -940,23 +922,7 @@ async fn handle_hottest_tokens(
     let sol_price = state.price_service.get_price_sync();
     enrich_tokens_with_prices(&mut tokens, sol_price);
 
-    // 5. 附加 markets_abs 数据到 extras / Attach markets_abs data to extras
-    let markets_map: std::collections::HashMap<String, u64> = markets_result
-        .items
-        .iter()
-        .map(|item| (item.mint.clone(), item.cumulative_count))
-        .collect();
-
-    for token in &mut tokens {
-        if let Some(&count) = markets_map.get(&token.mint_account) {
-            token.extras.insert(
-                "markets_abs_24h".to_string(),
-                serde_json::json!(count),
-            );
-        }
-    }
-
-    // 6. 按原始顺序排序 / Sort by original order
+    // 5. 按原始顺序排序 / Sort by original order
     let mint_index: std::collections::HashMap<String, usize> = mints
         .iter()
         .enumerate()
@@ -964,6 +930,11 @@ async fn handle_hottest_tokens(
         .collect();
 
     tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
+
+    // 6. 附加完整的统计数据到 extras / Enrich all tokens with complete stats
+    for token in &mut tokens {
+        enrich_token_with_stats(state, token).await;
+    }
 
     Ok(TokenListResponse {
         total: tokens.len(),
