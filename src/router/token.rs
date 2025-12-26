@@ -181,7 +181,11 @@ pub async fn get_token_by_mint(
         }
     };
 
-    // 2. 如果需要统计数据,附加到 extras / If stats needed, enrich to extras
+    // 2. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+    let sol_price = state.price_service.get_price_sync();
+    enrich_token_with_prices(&mut token, sol_price);
+
+    // 3. 如果需要统计数据,附加到 extras / If stats needed, enrich to extras
     if params.include_stats {
         enrich_token_with_stats(&state, &mut token).await;
     }
@@ -217,7 +221,11 @@ pub async fn get_tokens_by_symbol(
         .token_storage
         .get_tokens_by_symbol(&params.symbol, limit, params.cursor)
     {
-        Ok(tokens) => {
+        Ok(mut tokens) => {
+            // 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+            let sol_price = state.price_service.get_price_sync();
+            enrich_tokens_with_prices(&mut tokens, sol_price);
+
             let total = tokens.len();
             let next_cursor = if total >= limit {
                 tokens.last().map(|t| {
@@ -271,7 +279,11 @@ pub async fn get_latest_tokens(
         .token_storage
         .get_latest_tokens(limit, params.before_timestamp)
     {
-        Ok(tokens) => {
+        Ok(mut tokens) => {
+            // 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+            let sol_price = state.price_service.get_price_sync();
+            enrich_tokens_with_prices(&mut tokens, sol_price);
+
             let total = tokens.len();
 
             // 计算下一页游标 / Calculate next cursor
@@ -390,7 +402,11 @@ pub async fn get_tokens_by_slot_range(
         .token_storage
         .get_tokens_by_slot_range(params.start_slot, params.end_slot)
     {
-        Ok(tokens) => {
+        Ok(mut tokens) => {
+            // 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+            let sol_price = state.price_service.get_price_sync();
+            enrich_tokens_with_prices(&mut tokens, sol_price);
+
             let total = tokens.len();
             Ok(Json(CommonResult::ok(TokenListResponse {
                 tokens,
@@ -443,31 +459,26 @@ fn to_search_result(detail: &crate::db::TokenDetail, sol_price: f64) -> TokenSea
     use rust_decimal::prelude::FromPrimitive;
     use std::str::FromStr;
 
-    // 计算市值 mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
-    // Calculate market cap: mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
-    let mc = if let Ok(price_u128) = detail.latest_price.parse::<u128>() {
-        // 将 u128 转为 Decimal
+    let mut mc = "0.00".to_string();
+    let mut usd_price = "0".to_string();
+
+    // 计算 mc 和 usd_price / Calculate mc and usd_price
+    if let Ok(price_u128) = detail.latest_price.parse::<u128>() {
         if let Ok(price_decimal) = Decimal::from_str(&price_u128.to_string()) {
-            // latest_price / PRICE_PRECISION_FACTOR
-            let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
-
-            // * INITIAL_TOKEN_RESERVE
-            let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
-
-            // * sol_price (转为 Decimal)
             if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
+                // 1. 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
+                let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
+                let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
                 let mc_decimal = token_value * sol_price_decimal;
-                // 保留2位小数 / Round to 2 decimal places
-                format!("{:.2}", mc_decimal)
-            } else {
-                "0.00".to_string()
+                mc = format!("{:.2}", mc_decimal);
+
+                // 2. 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
+                let usd_price_decimal = price_decimal * sol_price_decimal;
+                // 转换为字符串(整数形式,去掉小数部分) / Convert to string (integer form, remove decimal part)
+                usd_price = usd_price_decimal.trunc().to_string();
             }
-        } else {
-            "0.00".to_string()
         }
-    } else {
-        "0.00".to_string()
-    };
+    }
 
     TokenSearchResult {
         mint_account: detail.mint_account.clone(),
@@ -475,8 +486,9 @@ fn to_search_result(detail: &crate::db::TokenDetail, sol_price: f64) -> TokenSea
         name: detail.name.clone(),
         image: detail.uri_data.as_ref().and_then(|d| d.image.clone()),
         created_at: detail.created_at,
-        latest_price: detail.latest_price.clone(),
         mc,
+        latest_price: detail.latest_price.clone(),
+        usd_price,
     }
 }
 
@@ -506,10 +518,12 @@ pub struct TokenSearchResult {
     pub image: Option<String>,
     /// 创建时间Unix时间戳 / Creation Unix timestamp
     pub created_at: i64,
-    /// 最新价格 / Latest price
-    pub latest_price: String,
-    /// 市值(美元) / Market cap (USD)
+    /// 市值(美元,格式化,2位小数) / Market cap (USD, formatted, 2 decimals)
     pub mc: String,
+    /// 最新价格(SOL计,大整数,10^23精度) / Latest price (SOL, big integer, 10^23 precision)
+    pub latest_price: String,
+    /// Token美元价格(大整数,10^23精度) / Token USD price (big integer, 10^23 precision)
+    pub usd_price: String,
 }
 
 /// Token搜索响应 / Token search response
@@ -619,6 +633,49 @@ pub async fn search_tokens(
 // 辅助函数 / Helper Functions
 // ============================================================================
 
+/// 为单个Token计算价格信息(mc和usd_price) / Calculate price info for a single token
+///
+/// # 参数 / Parameters
+/// * `token` - 要计算的Token / Token to calculate for
+/// * `sol_price` - 当前SOL的美元价格 / Current SOL price in USD
+fn enrich_token_with_prices(token: &mut crate::db::TokenDetail, sol_price: f64) {
+    use rust_decimal::Decimal;
+    use rust_decimal::prelude::FromPrimitive;
+
+    // 解析 latest_price / Parse latest_price
+    if let Ok(price_u128) = token.latest_price.parse::<u128>() {
+        // 直接从 u128 创建 Decimal,而不是先转为字符串
+        let price_decimal = Decimal::from(price_u128);
+
+        // 1. 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
+        // mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
+        let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
+        let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
+
+        if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
+            let mc_decimal = token_value * sol_price_decimal;
+            token.mc = Some(format!("{:.2}", mc_decimal));
+
+            // 2. 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
+            // usd_price = latest_price * sol_price
+            let usd_price_decimal = price_decimal * sol_price_decimal;
+            // 转换为字符串(整数形式,去掉小数部分) / Convert to string (integer form, remove decimal part)
+            token.usd_price = Some(usd_price_decimal.trunc().to_string());
+        }
+    }
+}
+
+/// 为Token列表批量计算价格信息 / Calculate price info for token list in batch
+///
+/// # 参数 / Parameters
+/// * `tokens` - Token列表 / Token list
+/// * `sol_price` - 当前SOL的美元价格 / Current SOL price in USD
+fn enrich_tokens_with_prices(tokens: &mut [crate::db::TokenDetail], sol_price: f64) {
+    for token in tokens.iter_mut() {
+        enrich_token_with_prices(token, sol_price);
+    }
+}
+
 /// 生成缓存键 / Generate cache key
 fn make_cache_key(sort_by: &SortBy, limit: usize) -> String {
     format!("{}:{}", serde_json::to_string(sort_by).unwrap_or_default(), limit)
@@ -671,7 +728,11 @@ async fn handle_local_tokens(
     limit: usize,
 ) -> Result<TokenListResponse, (StatusCode, String)> {
     match state.token_storage.get_latest_tokens(limit, None) {
-        Ok(tokens) => {
+        Ok(mut tokens) => {
+            // 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+            let sol_price = state.price_service.get_price_sync();
+            enrich_tokens_with_prices(&mut tokens, sol_price);
+
             let total = tokens.len();
             Ok(TokenListResponse {
                 tokens,
@@ -724,7 +785,11 @@ async fn handle_liquid_tokens(
             )
         })?;
 
-    // 4. 附加 volume 数据到 extras / Attach volume data to extras
+    // 4. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+    let sol_price = state.price_service.get_price_sync();
+    enrich_tokens_with_prices(&mut tokens, sol_price);
+
+    // 5. 附加 volume 数据到 extras / Attach volume data to extras
     // 创建 mint -> volume 的映射 / Create mint -> volume mapping
     let volume_map: std::collections::HashMap<String, f64> = volume_result
         .items
@@ -741,7 +806,7 @@ async fn handle_liquid_tokens(
         }
     }
 
-    // 5. 按原始顺序排序 (volume 从高到低) / Sort by original order (volume desc)
+    // 6. 按原始顺序排序 (volume 从高到低) / Sort by original order (volume desc)
     // RocksDB 返回的可能是无序的,需要根据 mints 顺序重新排列
     // RocksDB might return unordered, need to reorder by mints
     let mint_index: std::collections::HashMap<String, usize> = mints
@@ -797,7 +862,11 @@ async fn handle_rising_tokens(
             )
         })?;
 
-    // 4. 附加 change_percent 数据到 extras / Attach change_percent data to extras
+    // 4. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+    let sol_price = state.price_service.get_price_sync();
+    enrich_tokens_with_prices(&mut tokens, sol_price);
+
+    // 5. 附加 change_percent 数据到 extras / Attach change_percent data to extras
     let change_map: std::collections::HashMap<String, f64> = change_result
         .items
         .iter()
@@ -813,7 +882,7 @@ async fn handle_rising_tokens(
         }
     }
 
-    // 5. 按原始顺序排序 / Sort by original order
+    // 6. 按原始顺序排序 / Sort by original order
     let mint_index: std::collections::HashMap<String, usize> = mints
         .iter()
         .enumerate()
@@ -867,7 +936,11 @@ async fn handle_hottest_tokens(
             )
         })?;
 
-    // 4. 附加 markets_abs 数据到 extras / Attach markets_abs data to extras
+    // 4. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+    let sol_price = state.price_service.get_price_sync();
+    enrich_tokens_with_prices(&mut tokens, sol_price);
+
+    // 5. 附加 markets_abs 数据到 extras / Attach markets_abs data to extras
     let markets_map: std::collections::HashMap<String, u64> = markets_result
         .items
         .iter()
@@ -883,7 +956,7 @@ async fn handle_hottest_tokens(
         }
     }
 
-    // 5. 按原始顺序排序 / Sort by original order
+    // 6. 按原始顺序排序 / Sort by original order
     let mint_index: std::collections::HashMap<String, usize> = mints
         .iter()
         .enumerate()

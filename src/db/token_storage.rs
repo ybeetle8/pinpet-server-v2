@@ -52,7 +52,13 @@ pub struct TokenDetail {
     pub uri: String,                        // 元数据URI / Metadata URI
     pub up_orderbook: String,               // 做空订单簿地址 / Short orderbook address
     pub down_orderbook: String,             // 做多订单簿地址 / Long orderbook address
-    pub latest_price: String,               // 最新价格 / Latest price (u128 as string)
+
+    // ===== 价格信息 / Price Info =====
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mc: Option<String>,                 // 市值(美元,格式化,2位小数) / Market cap (USD, formatted, 2 decimals)
+    pub latest_price: String,               // 最新价格(SOL计,大整数,10^23精度) / Latest price (SOL, big integer, 10^23 precision)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usd_price: Option<String>,          // Token美元价格(大整数,10^23精度) / Token USD price (big integer, 10^23 precision)
 
     // ===== 时间戳信息 / Timestamp Info =====
     pub created_at: i64,                    // 创建时间Unix时间戳 / Creation Unix timestamp
@@ -163,7 +169,9 @@ impl TokenStorage {
             uri: event.uri.clone(),
             up_orderbook: event.up_orderbook.clone(),
             down_orderbook: event.down_orderbook.clone(),
+            mc: None,  // 将在查询时计算 / Will be calculated on query
             latest_price: event.latest_price.to_string(),
+            usd_price: None,  // 将在查询时计算 / Will be calculated on query
             created_at: event.timestamp.timestamp(),
             created_slot: event.slot,
             updated_at: now,
