@@ -50,13 +50,13 @@ pub struct HistoryQueryParams {
     /// Optional: filter by direction ("up" or "dn")
     pub direction: Option<String>,
 
-    /// 可选: 开始时间戳
-    /// Optional: start timestamp
-    pub start_time: Option<u32>,
+    /// 可选: 开始时间戳(秒,Unix timestamp)
+    /// Optional: start timestamp (seconds, Unix timestamp)
+    pub start_time: Option<i64>,
 
-    /// 可选: 结束时间戳
-    /// Optional: end timestamp
-    pub end_time: Option<u32>,
+    /// 可选: 结束时间戳(秒,Unix timestamp)
+    /// Optional: end timestamp (seconds, Unix timestamp)
+    pub end_time: Option<i64>,
 }
 
 fn default_page() -> usize {
@@ -185,7 +185,7 @@ pub async fn get_user_history(
         filtered = filtered
             .into_iter()
             .filter(|r| {
-                let ts = r.close_info.close_timestamp;
+                let ts = r.close_info.close_timestamp as i64;
                 ts >= start && ts <= end
             })
             .collect();

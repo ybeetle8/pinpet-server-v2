@@ -127,7 +127,7 @@ impl OrderBookDBManager {
     ///
     /// 格式: orderbook_user:{user}:{mint}:{direction}:{start_time:010}:{order_id:020}
     /// Format: orderbook_user:{user}:{mint}:{direction}:{start_time:010}:{order_id:020}
-    fn user_active_key(&self, user: &str, start_time: u32, order_id: u64) -> String {
+    fn user_active_key(&self, user: &str, start_time: i64, order_id: u64) -> String {
         format!(
             "orderbook_user:{}:{}:{}:{:010}:{:020}",
             user, self.mint, self.direction, start_time, order_id
@@ -142,7 +142,7 @@ impl OrderBookDBManager {
         &self,
         batch: &mut WriteBatch,
         user: &str,
-        start_time: u32,
+        start_time: i64,
         order_id: u64,
     ) {
         let key = self.user_active_key(user, start_time, order_id);
@@ -155,7 +155,7 @@ impl OrderBookDBManager {
         &self,
         batch: &mut WriteBatch,
         user: &str,
-        start_time: u32,
+        start_time: i64,
         order_id: u64,
     ) {
         let key = self.user_active_key(user, start_time, order_id);
@@ -385,7 +385,7 @@ impl OrderBookDBManager {
             header.total = 1;
             header.total_capacity = 1;
             header.order_id_counter = current_order_id + 1;
-            header.last_modified = chrono::Utc::now().timestamp() as u32;
+            header.last_modified = chrono::Utc::now().timestamp();
             self.save_header_batch(&mut batch, &header)?;
 
             // 原子提交
@@ -474,7 +474,7 @@ impl OrderBookDBManager {
         header.total = new_total;
         header.total_capacity = new_total as u32;
         header.order_id_counter = current_order_id + 1;
-        header.last_modified = chrono::Utc::now().timestamp() as u32;
+        header.last_modified = chrono::Utc::now().timestamp();
         self.save_header_batch(&mut batch, &header)?;
 
         // 原子提交
@@ -607,7 +607,7 @@ impl OrderBookDBManager {
         header.total = new_total;
         header.total_capacity = new_total as u32;
         header.order_id_counter = current_order_id + 1;
-        header.last_modified = chrono::Utc::now().timestamp() as u32;
+        header.last_modified = chrono::Utc::now().timestamp();
         self.save_header_batch(&mut batch, &header)?;
 
         // 原子提交
@@ -980,7 +980,7 @@ impl OrderBookDBManager {
             }
         }
 
-        header.last_modified = chrono::Utc::now().timestamp() as u32;
+        header.last_modified = chrono::Utc::now().timestamp();
         self.save_header_batch(&mut batch, &header)?;
 
         // 3.8 更新活跃索引列表
@@ -1234,7 +1234,7 @@ impl OrderBookDBManager {
         header.tail = u16::MAX;
         header.total = 0;
         header.total_capacity = 0;
-        header.last_modified = chrono::Utc::now().timestamp() as u32;
+        header.last_modified = chrono::Utc::now().timestamp();
         self.save_header_batch(&mut batch, &header)?;
 
         // 清空活跃索引列表
@@ -1261,7 +1261,8 @@ impl OrderBookDBManager {
         previous_price: u128,
     ) -> Result<()> {
         let mut batch = WriteBatch::default();
-        let now = chrono::Utc::now().timestamp() as u32;
+        let now_i64 = chrono::Utc::now().timestamp();
+        let now = now_i64 as u32;
 
         // 删除所有订单槽位和 ID 映射,并保存关闭记录
         // Delete all order slots and ID mappings, and save close records
@@ -1304,7 +1305,7 @@ impl OrderBookDBManager {
         header.tail = u16::MAX;
         header.total = 0;
         header.total_capacity = 0;
-        header.last_modified = now;
+        header.last_modified = now_i64;
         self.save_header_batch(&mut batch, &header)?;
 
         // 清空活跃索引列表 / Clear active indices list

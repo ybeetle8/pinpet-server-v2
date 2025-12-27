@@ -19,8 +19,8 @@ pub struct ChainOrderBookHeader {
     pub _padding1: [u8; 5],
     pub authority: Pubkey,
     pub order_id_counter: u64,
-    pub created_at: u32,
-    pub last_modified: u32,
+    pub created_at: i64,
+    pub last_modified: i64,
     pub total_capacity: u32,
     pub head: u16,
     pub tail: u16,
@@ -30,7 +30,7 @@ pub struct ChainOrderBookHeader {
 }
 
 impl ChainOrderBookHeader {
-    pub const SIZE: usize = 104;
+    pub const SIZE: usize = 112; // 原104 + 8 (created_at和last_modified各增加4 bytes)
 }
 
 /// 链上 OrderBook 读取器 / On-chain OrderBook reader
@@ -237,17 +237,17 @@ impl OrderBookReader {
         );
         cursor += 8;
 
-        let created_at = u32::from_le_bytes(
-            data[cursor..cursor + 4].try_into()
+        let created_at = i64::from_le_bytes(
+            data[cursor..cursor + 8].try_into()
                 .context("解析 created_at 失败 / Failed to parse created_at")?
         );
-        cursor += 4;
+        cursor += 8;
 
-        let last_modified = u32::from_le_bytes(
-            data[cursor..cursor + 4].try_into()
+        let last_modified = i64::from_le_bytes(
+            data[cursor..cursor + 8].try_into()
                 .context("解析 last_modified 失败 / Failed to parse last_modified")?
         );
-        cursor += 4;
+        cursor += 8;
 
         let total_capacity = u32::from_le_bytes(
             data[cursor..cursor + 4].try_into()
@@ -479,24 +479,24 @@ impl OrderBookReader {
         );
         cursor += 8;
 
+        // start_time: i64 (8 bytes)
+        let start_time = i64::from_le_bytes(
+            data[cursor..cursor + 8].try_into()
+                .context("解析 start_time 失败 / Failed to parse start_time")?
+        );
+        cursor += 8;
+
+        // end_time: i64 (8 bytes)
+        let end_time = i64::from_le_bytes(
+            data[cursor..cursor + 8].try_into()
+                .context("解析 end_time 失败 / Failed to parse end_time")?
+        );
+        cursor += 8;
+
         // version: u32 (4 bytes)
         let version = u32::from_le_bytes(
             data[cursor..cursor + 4].try_into()
                 .context("解析 version 失败 / Failed to parse version")?
-        );
-        cursor += 4;
-
-        // start_time: u32 (4 bytes)
-        let start_time = u32::from_le_bytes(
-            data[cursor..cursor + 4].try_into()
-                .context("解析 start_time 失败 / Failed to parse start_time")?
-        );
-        cursor += 4;
-
-        // end_time: u32 (4 bytes)
-        let end_time = u32::from_le_bytes(
-            data[cursor..cursor + 4].try_into()
-                .context("解析 end_time 失败 / Failed to parse end_time")?
         );
         cursor += 4;
 

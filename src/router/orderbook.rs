@@ -57,10 +57,10 @@ pub struct OrderBookHeaderInfo {
     pub order_id_counter: u64,
 
     /// 账本创建时间戳(Unix timestamp,秒) / Created timestamp (Unix timestamp, seconds)
-    pub created_at: u32,
+    pub created_at: i64,
 
     /// 最后修改时间戳(Unix timestamp,秒) / Last modified timestamp (Unix timestamp, seconds)
-    pub last_modified: u32,
+    pub last_modified: i64,
 
     /// 总容量(最大槽位数限制) / Total capacity (maximum slot count limit)
     pub total_capacity: u32,

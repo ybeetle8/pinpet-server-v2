@@ -27,11 +27,11 @@ pub struct OrderBookHeader {
 
     /// 账本创建时间戳(Unix timestamp,秒)
     /// Created timestamp (Unix timestamp, seconds)
-    pub created_at: u32,
+    pub created_at: i64,
 
     /// 最后修改时间戳(Unix timestamp,秒)
     /// Last modified timestamp (Unix timestamp, seconds)
-    pub last_modified: u32,
+    pub last_modified: i64,
 
     /// 总容量(最大槽位数限制)
     /// Total capacity (maximum slot count limit)
@@ -62,7 +62,7 @@ impl OrderBookHeader {
     /// 创建新的 OrderBook header
     /// Create new OrderBook header
     pub fn new(order_type: u8, authority: String) -> Self {
-        let now = chrono::Utc::now().timestamp() as u32;
+        let now = chrono::Utc::now().timestamp();
         Self {
             version: Self::CURRENT_VERSION,
             order_type,
@@ -180,18 +180,18 @@ pub struct MarginOrder {
     #[schema(value_type = String)]
     pub realized_sol_amount: u64,
 
+    /// 订单开始时间戳 (Unix timestamp, 秒)
+    /// Order start timestamp (Unix timestamp, seconds)
+    pub start_time: i64,
+
+    /// 贷款到期时间戳 (Unix timestamp, 秒),到期后可被任何用户平仓
+    /// Loan expiry timestamp (Unix timestamp, seconds), can be closed by anyone after expiry
+    pub end_time: i64,
+
     // ========== 4-byte 对齐字段 (u32) ==========
     /// 订单版本号(每次更新时递增)
     /// Order version number (incremented on each update)
     pub version: u32,
-
-    /// 订单开始时间戳 (Unix timestamp, 秒)
-    /// Order start timestamp (Unix timestamp, seconds)
-    pub start_time: u32,
-
-    /// 贷款到期时间戳 (Unix timestamp, 秒),到期后可被任何用户平仓
-    /// Loan expiry timestamp (Unix timestamp, seconds), can be closed by anyone after expiry
-    pub end_time: u32,
 
     // ========== 2-byte 对齐字段 (u16) ==========
     /// 指向下一个订单的槽位索引
@@ -242,7 +242,7 @@ pub struct MarginOrderUpdateData {
     pub lock_lp_token_amount: Option<u64>,
     pub next_lp_sol_amount: Option<u64>,
     pub next_lp_token_amount: Option<u64>,
-    pub end_time: Option<u32>,
+    pub end_time: Option<i64>,
     pub margin_init_sol_amount: Option<u64>,
     pub margin_sol_amount: Option<u64>,
     pub borrow_amount: Option<u64>,

@@ -108,8 +108,8 @@ pub struct LongShortEvent {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub lock_lp_token_amount: u64,       // 锁定流动池区间token数量 / Locked LP token amount
-    pub start_time: u32,                 // 订单开始时间戳(秒) / Order start timestamp (seconds)
-    pub end_time: u32,                   // 贷款到期时间戳(秒) / Loan expiry timestamp (seconds)
+    pub start_time: i64,                 // 订单开始时间戳(秒) / Order start timestamp (seconds)
+    pub end_time: i64,                   // 贷款到期时间戳(秒) / Loan expiry timestamp (seconds)
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub margin_sol_amount: u64,          // 保证金SOL数量 / Margin SOL amount
@@ -193,8 +193,8 @@ pub struct PartialCloseEvent {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub lock_lp_token_amount: u64,       // 锁定流动池区间token数量 / Locked LP token amount
-    pub start_time: u32,                 // 订单开始时间戳(秒) / Order start timestamp
-    pub end_time: u32,                   // 贷款到期时间戳(秒) / Loan expiry timestamp
+    pub start_time: i64,                 // 订单开始时间戳(秒) / Order start timestamp
+    pub end_time: i64,                   // 贷款到期时间戳(秒) / Loan expiry timestamp
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub margin_sol_amount: u64,          // 保证金SOL数量 / Margin SOL amount
@@ -569,8 +569,8 @@ struct LongShortRaw {
     lock_lp_end_price: u128,
     lock_lp_sol_amount: u64,
     lock_lp_token_amount: u64,
-    start_time: u32,
-    end_time: u32,
+    start_time: i64,
+    end_time: i64,
     margin_sol_amount: u64,
     borrow_amount: u64,
     position_asset_amount: u64,
@@ -611,8 +611,8 @@ struct PartialCloseRaw {
     lock_lp_end_price: u128,
     lock_lp_sol_amount: u64,
     lock_lp_token_amount: u64,
-    start_time: u32,
-    end_time: u32,
+    start_time: i64,
+    end_time: i64,
     margin_sol_amount: u64,
     borrow_amount: u64,
     position_asset_amount: u64,
