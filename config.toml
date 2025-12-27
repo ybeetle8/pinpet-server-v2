@@ -22,7 +22,7 @@ max_write_buffer_number = 4
 use_fsync = false
 # 是否启用偏执检查 / Enable paranoid checks
 paranoid_checks = false
-# 最大后台任务数 / Max background jobs
+# 最大后台任务数 / Max background jobs 
 max_background_jobs = 32
 
 [solana]
