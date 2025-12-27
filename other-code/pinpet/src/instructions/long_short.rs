@@ -99,9 +99,10 @@ pub fn long_trade(
 
     // 检查 borrow_sol 是否大于 BorrowingBondingCurve的 borrow_sol_reserve
     if required_borrow_sol > ctx.accounts.curve_account.borrow_sol_reserve {
-        let _diff = required_borrow_sol
-            .checked_sub(ctx.accounts.curve_account.borrow_sol_reserve)
-            .unwrap_or(0);
+        // 无用代码，已注释掉
+        // let _diff = required_borrow_sol
+        //     .checked_sub(ctx.accounts.curve_account.borrow_sol_reserve)
+        //     .unwrap_or(0);
         // msg!(
         //     "错误: 借款请求超过可用储备! 请求金额={}, 可用储备={}, 差额={}",
         //     required_borrow_sol,
@@ -178,9 +179,9 @@ pub fn long_trade(
     // 生成新的 MarginOrder 定单, 并插入到  down_orderbook 中去
 
     // 获取当前时间戳和计算到期时间
-    let now = Clock::get()?.unix_timestamp as u32;
+    let now = Clock::get()?.unix_timestamp;
     let deadline = now
-        .checked_add(ctx.accounts.curve_account.borrow_duration as u32)
+        .checked_add(ctx.accounts.curve_account.borrow_duration as i64)
         .ok_or(ErrorCode::DeadlineCalculationOverflow)?;
 
     // 创建新的 MarginOrder 实例
@@ -239,7 +240,7 @@ pub fn long_trade(
         // 订单类型: 1=做多(Down方向)
         order_type: 1,
         // 保留字段（对齐到结构体 32-byte 边界）
-        _padding: [0; 13],
+        _padding: [0; 5],
     };
     // msg!(
     //     "生成新的做多订单: 用户={}, 保证金={}, 借款={}, 持仓Token={}, 开仓价={}, 止损价={}",
@@ -806,9 +807,10 @@ pub fn short_trade(
     let fee = ctx.accounts.curve_account.borrow_fee;
     // 检查 borrow_sell_token_amount 是否大于 BorrowingBondingCurve的 borrow_token_reserve
     if borrow_sell_token_amount > ctx.accounts.curve_account.borrow_token_reserve {
-        let _diff = borrow_sell_token_amount
-            .checked_sub(ctx.accounts.curve_account.borrow_token_reserve)
-            .unwrap_or(0);
+        // 无用代码，已注释掉
+        // let _diff = borrow_sell_token_amount
+        //     .checked_sub(ctx.accounts.curve_account.borrow_token_reserve)
+        //     .unwrap_or(0);
         return Err(ErrorCode::InsufficientBorrowingReserve.into());
     }
 
@@ -824,16 +826,18 @@ pub fn short_trade(
 
     // 1. 确保得到的 token 等于 borrow_sell_token_amount
     if calc_sell_result.sell_token != borrow_sell_token_amount {
-        let _diff = borrow_sell_token_amount
-            .checked_sub(calc_sell_result.sell_token)
-            .unwrap_or(0);
+        // 无用代码，已注释掉
+        // let _diff = borrow_sell_token_amount
+        //     .checked_sub(calc_sell_result.sell_token)
+        //     .unwrap_or(0);
         return Err(ErrorCode::InsufficientTokenSale.into());
     }
     // 2. 确保得到的 sol 大于或等于 min_sol_output
     if calc_sell_result.output_sol < min_sol_output {
-        let _diff = min_sol_output
-            .checked_sub(calc_sell_result.output_sol)
-            .unwrap_or(0);
+        // 无用代码，已注释掉
+        // let _diff = min_sol_output
+        //     .checked_sub(calc_sell_result.output_sol)
+        //     .unwrap_or(0);
         return Err(ErrorCode::InsufficientSolOutput.into());
     }
 
@@ -892,9 +896,9 @@ pub fn short_trade(
     // 生成新的 MarginOrder 定单, 并插入到 up_orderbook 中去
 
     // 获取当前时间戳和计算到期时间
-    let now = Clock::get()?.unix_timestamp as u32;
+    let now = Clock::get()?.unix_timestamp;
     let deadline = now
-        .checked_add(ctx.accounts.curve_account.borrow_duration as u32)
+        .checked_add(ctx.accounts.curve_account.borrow_duration as i64)
         .ok_or(ErrorCode::DeadlineCalculationOverflow)?;
 
     // msg!("borrow_sell_token_amount = {}", borrow_sell_token_amount);
@@ -956,7 +960,7 @@ pub fn short_trade(
         // 订单类型: 2=做空(Up方向)
         order_type: 2,
         // 保留字段（对齐到结构体 32-byte 边界）
-        _padding: [0; 13],
+        _padding: [0; 5],
     };
     // msg!(
     //     "生成新的做空订单: 用户={}, 保证金={}, 借款Token={}, 持仓SOL={}, 开仓价={}, 止损价={}",

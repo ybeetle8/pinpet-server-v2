@@ -138,12 +138,12 @@ pub fn close_long_trade(
     // );
 
     // 1. 首先检查冷却时间
-    let current_timestamp = Clock::get()?.unix_timestamp as u32;
+    let current_timestamp = Clock::get()?.unix_timestamp;
     let time_elapsed = current_timestamp
         .checked_sub(close_margin_order.start_time)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
 
-    if time_elapsed < TRADE_COOLDOWN_SECONDS {
+    if time_elapsed < TRADE_COOLDOWN_SECONDS as i64 {
         return Err(ErrorCode::TradeCooldownNotExpired.into());
     }
 
@@ -165,7 +165,7 @@ pub fn close_long_trade(
 
     // 验证卖出数量不能超过订单持有的代币数量
     if sell_token_amount > close_margin_order.lock_lp_token_amount {
-        msg!("卖出数量({}) 大于 订单持有的代币数量({})", sell_token_amount, close_margin_order.lock_lp_token_amount);
+        //msg!("卖出数量({}) 大于 订单持有的代币数量({})", sell_token_amount, close_margin_order.lock_lp_token_amount);
         return Err(ErrorCode::SellAmountExceedsOrderAmount.into());
     }
 
@@ -721,12 +721,12 @@ pub fn close_short_trade(
     // );
 
     // 1. 首先检查冷却时间
-    let current_timestamp = Clock::get()?.unix_timestamp as u32;
+    let current_timestamp = Clock::get()?.unix_timestamp;
     let time_elapsed = current_timestamp
         .checked_sub(close_margin_order.start_time)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
 
-    if time_elapsed < TRADE_COOLDOWN_SECONDS {
+    if time_elapsed < TRADE_COOLDOWN_SECONDS as i64 {
         return Err(ErrorCode::TradeCooldownNotExpired.into());
     }
 
@@ -999,7 +999,10 @@ pub fn close_short_trade(
             .ok_or(ErrorCode::CloseShortFeeOverflow)?;
 
 
-        let profit_portion =  close_reduced_sol_with_fee  - calc_result.required_sol - calc_result.fee_sol ;
+        let profit_portion = close_reduced_sol_with_fee
+            .checked_sub(calc_result.required_sol)
+            .and_then(|v| v.checked_sub(calc_result.fee_sol))
+            .ok_or(ErrorCode::CloseShortProfitOverflow)?;
         //msg!("@@ 部份盈利资金 profit_portion :{}, ",profit_portion);
 
         //归还借币池

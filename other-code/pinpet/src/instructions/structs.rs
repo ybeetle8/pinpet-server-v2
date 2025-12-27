@@ -28,11 +28,11 @@ pub struct OrderBook {
     // 订单 ID 计数器（用于分配唯一订单 ID，单调递增） - 8 bytes
     pub order_id_counter: u64,
 
-    // 账本创建时间戳（Unix timestamp，秒） - 4 bytes
-    pub created_at: u32,
+    // 账本创建时间戳（Unix timestamp，秒） - 8 bytes
+    pub created_at: i64,
 
-    // 最后修改时间戳（Unix timestamp，秒） - 4 bytes
-    pub last_modified: u32,
+    // 最后修改时间戳（Unix timestamp，秒） - 8 bytes
+    pub last_modified: i64,
 
     // 总容量（最大槽位数限制） - 4 bytes
     pub total_capacity: u32,
@@ -61,7 +61,7 @@ impl OrderBook {
     // 当前版本号
     pub const CURRENT_VERSION: u8 = 1;
 
-    // Header 大小: (1+1+1+5) + 32 + 8 + (4+4) + (4+4+4+4) + 32 = 104 bytes
+    // Header 大小: (1+1+1+5) + 32 + 8 + (8+8) + (4+4+4+4) + 32 = 112 bytes
     pub const HEADER_SIZE: usize = std::mem::size_of::<OrderBook>();
 
     // 最大容量 (10MB / 192 bytes ≈ 54,612, 保守取 54,000)
@@ -124,15 +124,16 @@ pub struct MarginOrder {
     // 已实现的 SOL 利润 - 8 bytes
     pub realized_sol_amount: u64,
 
+    // ========== 8-byte 对齐字段 (i64 时间戳) ==========
+    // 订单开始时间戳 (Unix timestamp, 秒) - 8 bytes
+    pub start_time: i64,
+
+    // 贷款到期时间戳 (Unix timestamp, 秒)，到期后可被任何用户平仓 - 8 bytes
+    pub end_time: i64,
+
     // ========== 4-byte 对齐字段 (u32) ==========
     // 订单版本号（每次更新时递增） - 4 bytes
     pub version: u32,
-
-    // 订单开始时间戳 (Unix timestamp, 秒) - 4 bytes
-    pub start_time: u32,
-
-    // 贷款到期时间戳 (Unix timestamp, 秒)，到期后可被任何用户平仓 - 4 bytes
-    pub end_time: u32,
 
     // ========== 2-byte 对齐字段 (u16) ==========
     // 指向下一个订单的槽位索引 - 2 bytes
@@ -150,8 +151,8 @@ pub struct MarginOrder {
     // 订单类型: 1=做多(Down方向) 2=做空(Up方向) - 1 byte
     pub order_type: u8,
 
-    // 保留字段（对齐到结构体 32-byte 边界，bytemuck::Pod 要求无 padding） - 13 bytes
-    pub _padding: [u8; 13],
+    // 保留字段（对齐到结构体 32-byte 边界，bytemuck::Pod 要求无 padding） - 5 bytes
+    pub _padding: [u8; 5],
 }
 
 
@@ -160,7 +161,7 @@ impl MarginOrder {
     pub const SIZE: usize = std::mem::size_of::<MarginOrder>();
 
     // // 检查订单是否过期（可被任何用户平仓）
-    // pub fn is_expired(&self, current_timestamp: u32) -> bool {
+    // pub fn is_expired(&self, current_timestamp: i64) -> bool {
     //     self.end_time > 0 && current_timestamp >= self.end_time
     // }
 

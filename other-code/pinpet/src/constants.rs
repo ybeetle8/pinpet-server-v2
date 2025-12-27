@@ -2,7 +2,7 @@
 
 
 // 交易冷却时间 秒, 为防止夹子机器人, 或是恶意攻击清算交易 而设置
-pub const TRADE_COOLDOWN_SECONDS : u32 = 3; // 秒
+pub const TRADE_COOLDOWN_SECONDS : i64 = 3; // 秒
 
 // 最小交易token数量 防止交易量过小
 pub const MIN_TRADE_TOKEN_AMOUNT: u64 = 100_000_000;  // 0.1 token (9位精度)
@@ -11,8 +11,8 @@ pub const MIN_TRADE_TOKEN_AMOUNT: u64 = 100_000_000;  // 0.1 token (9位精度)
 pub const MIN_MARGIN_SOL_AMOUNT: u64 = 2_000_000; // 0.002 sol
 
 // Token数量差值检查相关常量
-// 允许的最大token数量差值
-pub const MAX_TOKEN_DIFFERENCE: u64 = 20;
+// 允许的最大token数量差值  6位时是20, 9位时是10000
+pub const MAX_TOKEN_DIFFERENCE: u64 = 10000;
 
 // 最小止损百分比，避免过小止损引发计算问题
 pub const MIN_STOP_LOSS_PERCENT: u16 = 3; // 3%
@@ -21,18 +21,13 @@ pub const MIN_STOP_LOSS_PERCENT: u16 = 3; // 3%
 pub const FEE_RETENTION_PROBABILITY_DENOMINATOR: u64 = 20;
 
 // 平仓/开仓时插入索引的最大数量
-pub const MAX_CLOSE_INSERT_INDICES: usize = 21;
+pub const MAX_CLOSE_INSERT_INDICES: usize = 51;
 
 
 // Token Metadata 字段长度限制（字节）
 pub const MAX_NAME_LENGTH: usize = 32;
 pub const MAX_SYMBOL_LENGTH: usize = 10;
 pub const MAX_URI_LENGTH: usize = 200;
-
-// 最小长度限制
-pub const MIN_NAME_LENGTH: usize = 1;
-pub const MIN_SYMBOL_LENGTH: usize = 1;
-pub const MIN_URI_LENGTH: usize = 1;
 
 // 报废代码: 
 

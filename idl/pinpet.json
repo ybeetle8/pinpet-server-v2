@@ -3411,11 +3411,11 @@
           },
           {
             "name": "start_time",
-            "type": "u32"
+            "type": "i64"
           },
           {
             "name": "end_time",
-            "type": "u32"
+            "type": "i64"
           },
           {
             "name": "margin_sol_amount",
@@ -3514,11 +3514,11 @@
           },
           {
             "name": "created_at",
-            "type": "u32"
+            "type": "i64"
           },
           {
             "name": "last_modified",
-            "type": "u32"
+            "type": "i64"
           },
           {
             "name": "total_capacity",
@@ -3659,11 +3659,11 @@
           },
           {
             "name": "start_time",
-            "type": "u32"
+            "type": "i64"
           },
           {
             "name": "end_time",
-            "type": "u32"
+            "type": "i64"
           },
           {
             "name": "margin_sol_amount",
@@ -3777,7 +3777,7 @@
         "fields": [
           {
             "name": "last_trade_time",
-            "type": "u32"
+            "type": "i64"
           },
           {
             "name": "approval_token_amount",

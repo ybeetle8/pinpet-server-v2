@@ -11,7 +11,7 @@ pub mod constants;
 pub mod error;
 pub mod types;
 
-declare_id!("HNaandW3U5sVTsoJaGx61UmX9Siupa6difFY9qRAPXyw");
+declare_id!("ApKJdjeboGy3kXoLAhtjnoQ15EgmDFaqqAajSZwEBoQq");
 
 #[program]
 pub mod pinpet {

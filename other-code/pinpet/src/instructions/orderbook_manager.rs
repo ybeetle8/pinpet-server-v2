@@ -14,6 +14,7 @@ impl OrderBookManager {
     ///
     /// # 返回值
     /// 成功返回 Ok(())，失败返回相应错误
+    #[allow(deprecated)]  // TODO: 等待 Anchor 提供 resize 方法的正确签名
     fn resize_account<'a>(
         account: &AccountInfo<'a>,
         new_size: usize,
@@ -1239,7 +1240,7 @@ pub struct MarginOrderUpdateData {
     pub lock_lp_token_amount: Option<u64>,
     pub next_lp_sol_amount: Option<u64>,
     pub next_lp_token_amount: Option<u64>,
-    pub end_time: Option<u32>,
+    pub end_time: Option<i64>,
     pub margin_init_sol_amount: Option<u64>,
     pub margin_sol_amount: Option<u64>,
     pub borrow_amount: Option<u64>,

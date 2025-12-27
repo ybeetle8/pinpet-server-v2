@@ -88,9 +88,9 @@ pub struct BorrowingBondingCurve {
 #[account]
 #[derive(InitSpace)]
 pub struct TradeCooldown {
-    // 最近一次交易的时间戳 (Unix timestamp, 秒) - 4 bytes
-    #[max_len(4)]
-    pub last_trade_time: u32,
+    // 最近一次交易的时间戳 (Unix timestamp, 秒) - 8 bytes
+    #[max_len(8)]
+    pub last_trade_time: i64,
 
     // 允许交易的token数量 (上次交易后的余额快照) - 8 bytes
     // 用于防止用户通过转账绕过冷却时间

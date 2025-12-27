@@ -12,7 +12,7 @@ use {
     // 导入 Anchor 框架的基础组件
     anchor_lang::prelude::*,
     // 导入系统程序相关功能
-    anchor_lang::solana_program::{program::invoke, system_instruction},
+    anchor_lang::solana_program::program::invoke,
     // 导入 Anchor 对 SPL 代币标准的支持
     anchor_spl::token::{
         mint_to, set_authority, spl_token::instruction::AuthorityType, MintTo, SetAuthority,
@@ -129,8 +129,8 @@ pub fn create_token(
         up_orderbook_data.bump = ctx.bumps.up_orderbook;
         up_orderbook_data.authority = ctx.accounts.payer.key();
         up_orderbook_data.order_id_counter = 0;
-        up_orderbook_data.created_at = Clock::get()?.unix_timestamp as u32;
-        up_orderbook_data.last_modified = Clock::get()?.unix_timestamp as u32;
+        up_orderbook_data.created_at = Clock::get()?.unix_timestamp;
+        up_orderbook_data.last_modified = Clock::get()?.unix_timestamp;
         up_orderbook_data.total_capacity = 0;
         up_orderbook_data.head = u16::MAX; // 空链表
         up_orderbook_data.tail = u16::MAX; // 空链表
@@ -145,8 +145,8 @@ pub fn create_token(
         down_orderbook_data.bump = ctx.bumps.down_orderbook;
         down_orderbook_data.authority = ctx.accounts.payer.key();
         down_orderbook_data.order_id_counter = 0;
-        down_orderbook_data.created_at = Clock::get()?.unix_timestamp as u32;
-        down_orderbook_data.last_modified = Clock::get()?.unix_timestamp as u32;
+        down_orderbook_data.created_at = Clock::get()?.unix_timestamp;
+        down_orderbook_data.last_modified = Clock::get()?.unix_timestamp;
         down_orderbook_data.total_capacity = 0;
         down_orderbook_data.head = u16::MAX; // 空链表
         down_orderbook_data.tail = u16::MAX; // 空链表
@@ -181,7 +181,7 @@ pub fn create_token(
 
     // // 给流动池sol账户转入 0.03 SOL
     // invoke(
-    //     &system_instruction::transfer(
+    //     &anchor_lang::solana_program::system_instruction::transfer(
     //         ctx.accounts.payer.key,
     //         ctx.accounts.pool_sol_account.key,
     //         10000000000, // 0.03 SOL
@@ -232,11 +232,11 @@ pub fn create_token(
     // 从 payer 转账 10000 lamports 到 pool_sol_account
     // msg!("正在从 payer 转账 10000 lamports 到 pool_sol_account 目的是为了防止亿分之几的可能性sol不足");
     invoke(
-        &system_instruction::transfer(
+        &anchor_lang::solana_program::system_instruction::transfer(
             ctx.accounts.payer.key,
             ctx.accounts.pool_sol_account.key,
             10000, // 10000 lamports  //  目的是为了防止 亿分之几的可能性sol不足
-            //109120  // 方便调试用 109120 上线前改回10000  
+            //109120  // 方便调试用 109120 上线前改回10000
         ),
         &[
             ctx.accounts.payer.to_account_info().clone(),
