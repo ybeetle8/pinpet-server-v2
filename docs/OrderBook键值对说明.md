@@ -90,14 +90,15 @@ OrderBook 使用 RocksDB 存储，采用多种键值对类型来管理保证金�
 ---
 
 ### 6. User Closed Order（用户已关闭订单）
-**键格式：** `orderbook_user_closed:{user}:{close_timestamp:010}:{mint}:{direction}:{order_id:020}`
+**键格式：** `orderbook_user_closed:{user}:{inverted_timestamp:010}:{mint}:{direction}:{order_id:020}`
 
 **值类型：** `ClosedOrderRecord` 结构体（JSON 序列化）
 
 **功能：** 存储用户的历史已关闭订单，包括订单完整快照和关闭信息（关闭时间、价格、原因）。
 
 **特点：**
-- 按关闭时间倒序排列（通过 `close_timestamp` 实现）
+- 按关闭时间倒序排列（通过反转时间戳 `u32::MAX - close_timestamp` 实现）
+- 反转后的时间戳确保 RocksDB 前缀扫描自然按时间倒序返回（最新→最旧）
 - 支持前缀扫描查询用户所有历史订单
 - 可按 mint、direction、时间范围过滤
 
@@ -107,8 +108,13 @@ OrderBook 使用 RocksDB 存储，采用多种键值对类型来管理保证金�
 - `3`: 到期自动平仓
 - `4`: 爆仓清算
 
+**时间戳说明：**
+- 键中存储的是反转后的时间戳: `inverted_ts = u32::MAX - close_timestamp`
+- 例如: `close_timestamp = 1733232000` → `inverted_ts = 2561735295`
+- 这样确保扫描时最新的记录排在前面
+
 **示例：**
-- `orderbook_user_closed:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU:0001733232000:So11111111111111111111111111111111111111112:up:00000000000000000001`
+- `orderbook_user_closed:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU:2561735295:So11111111111111111111111111111111111111112:up:00000000000000000001`
 
 ---
 

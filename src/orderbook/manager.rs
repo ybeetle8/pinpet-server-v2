@@ -94,6 +94,10 @@ impl OrderBookDBManager {
     /// * `mint` - Token mint 地址
     /// * `direction` - 订单方向
     /// * `order_id` - 订单ID
+    ///
+    /// # 注意 / Note
+    /// 使用 u32::MAX - timestamp 反转时间戳，使得 RocksDB 扫描时按时间倒序(最新→最旧)
+    /// Uses u32::MAX - timestamp to invert, so RocksDB scan returns in reverse chronological order (newest→oldest)
     fn closed_order_key(
         user_address: &str,
         close_timestamp: u32,
@@ -101,9 +105,12 @@ impl OrderBookDBManager {
         direction: &str,
         order_id: u64,
     ) -> String {
+        // 反转时间戳: 使扫描结果按时间倒序排列
+        // Invert timestamp: makes scan results in reverse chronological order
+        let inverted_ts = u32::MAX - close_timestamp;
         format!(
             "orderbook_user_closed:{}:{:010}:{}:{}:{:020}",
-            user_address, close_timestamp, mint, direction, order_id
+            user_address, inverted_ts, mint, direction, order_id
         )
     }
 
