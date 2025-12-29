@@ -108,7 +108,7 @@ impl OrderBookStorage {
         // 创建新的 manager / Create new manager
         info!(
             "📝 Creating new OrderBook manager / 创建新的 OrderBook 管理器: mint={}, direction={}",
-            &mint[..8], direction
+            &mint[..8.min(mint.len())], direction
         );
 
         let manager = Arc::new(OrderBookDBManager::new(
@@ -123,7 +123,7 @@ impl OrderBookStorage {
             Ok(_) => {
                 info!(
                     "✅ OrderBook initialized / OrderBook 已初始化: {}:{}",
-                    &mint[..8], direction
+                    &mint[..8.min(mint.len())], direction
                 );
             }
             Err(e) => {
@@ -131,12 +131,12 @@ impl OrderBookStorage {
                 if e.to_string().contains("already exists") {
                     info!(
                         "ℹ️ OrderBook already exists / OrderBook 已存在: {}:{}",
-                        &mint[..8], direction
+                        &mint[..8.min(mint.len())], direction
                     );
                 } else {
                     warn!(
                         "⚠️ OrderBook initialization warning / OrderBook 初始化警告: {}:{} - {}",
-                        &mint[..8], direction, e
+                        &mint[..8.min(mint.len())], direction, e
                     );
                 }
             }

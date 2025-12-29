@@ -612,15 +612,21 @@ pub async fn search_tokens(
                 Ok(Json(CommonResult::ok(SearchResponse {
                     search_type: "mint".to_string(),
                     query: params.q,
-                    token: Some(search_result),
-                    tokens: None,
-                    total: None,
+                    token: None,
+                    tokens: Some(vec![search_result]),
+                    total: Some(1),
                 })))
             }
-            Ok(None) => Err((
-                StatusCode::NOT_FOUND,
-                format!("Token not found: {}", params.q),
-            )),
+            Ok(None) => {
+                // 未找到也返回空数组，而不是404错误 / Return empty array instead of 404
+                Ok(Json(CommonResult::ok(SearchResponse {
+                    search_type: "mint".to_string(),
+                    query: params.q,
+                    token: None,
+                    tokens: Some(Vec::new()),
+                    total: Some(0),
+                })))
+            }
             Err(e) => Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to query token by mint: {}", e),
