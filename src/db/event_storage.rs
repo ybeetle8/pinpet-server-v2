@@ -639,6 +639,10 @@ impl EventStorage {
         page: u32,
         page_size: u32,
         ascending: bool,
+        include_stats: bool,
+        volume_storage: &crate::volume::VolumeStorage,
+        change_storage: &crate::change::ChangeStorage,
+        markets_abs_storage: &crate::markets_abs::MarketsAbsStorage,
     ) -> Result<PaginatedEvents> {
         let prefix = format!("idx_user_tc:{}:", user);
         let mut all_keys: Vec<String> = Vec::new();
@@ -696,7 +700,18 @@ impl EventStorage {
                                        slot, mint, sig8, idx);
 
                 if let Ok(Some(data)) = self.db.get(event_key.as_bytes()) {
-                    if let Ok(event) = serde_json::from_slice::<PinpetEvent>(&data) {
+                    if let Ok(mut event) = serde_json::from_slice::<PinpetEvent>(&data) {
+                        // 如果需要统计数据,附加到事件的extras字段 / If stats needed, enrich event extras
+                        if include_stats {
+                            if let PinpetEvent::TokenCreated(ref mut tc_event) = event {
+                                enrich_token_created_event_with_stats(
+                                    tc_event,
+                                    volume_storage,
+                                    change_storage,
+                                    markets_abs_storage
+                                ).await;
+                            }
+                        }
                         events.push(event);
                     }
                 }
@@ -954,4 +969,102 @@ pub struct IndexCounts {
     pub signature_mappings: u64,
     #[schema(example = 30)]
     pub slot_batches: u64,
+}
+
+// ============================================================================
+// TokenCreatedEvent 统计数据附加 / TokenCreatedEvent Statistics Enrichment
+// ============================================================================
+
+/// 附加24小时统计数据到 TokenCreatedEvent.extras / Enrich TokenCreatedEvent with 24h statistics
+async fn enrich_token_created_event_with_stats(
+    event: &mut crate::solana::events::TokenCreatedEvent,
+    volume_storage: &crate::volume::VolumeStorage,
+    change_storage: &crate::change::ChangeStorage,
+    markets_abs_storage: &crate::markets_abs::MarketsAbsStorage,
+) {
+    use crate::volume::Period;
+    use tracing::{warn, info};
+
+    let mint = &event.mint_account;
+    let period = Period::TwentyFourHours;
+
+    info!("开始为 TokenCreatedEvent 附加统计数据 / Start enriching stats for TokenCreatedEvent: {}", mint);
+
+    // 并发查询所有统计数据 / Query all stats concurrently
+    let (volume_result, change_result, markets_abs_result) = tokio::join!(
+        async {
+            match volume_storage.get_token_volume(mint, period, None) {
+                Ok(resp) => Some(resp.data),
+                Err(e) => {
+                    warn!("Failed to get volume stats for {}: {}", mint, e);
+                    None
+                }
+            }
+        },
+        async {
+            match change_storage.get_token_change(mint, period, None) {
+                Ok(resp) => Some(resp.data),
+                Err(e) => {
+                    warn!("Failed to get change stats for {}: {}", mint, e);
+                    None
+                }
+            }
+        },
+        async {
+            match markets_abs_storage.get_token_markets_abs(mint, period, None) {
+                Ok(resp) => Some((resp.cumulative_count, resp.first_seen)),
+                Err(e) => {
+                    warn!("Failed to get markets abs stats for {}: {}", mint, e);
+                    None
+                }
+            }
+        }
+    );
+
+    // 附加 Volume 数据 / Attach volume data
+    if let Some(volume_data) = volume_result {
+        info!("附加 Volume 数据 / Attaching volume data for {}: volume={}", mint, volume_data.volume);
+        event.extras.insert(
+            "volume_24h".to_string(),
+            serde_json::json!(volume_data.volume.to_string()),
+        );
+        event.extras.insert(
+            "volume_event_count".to_string(),
+            serde_json::json!(volume_data.event_count),
+        );
+        event.extras.insert(
+            "volume_last_update".to_string(),
+            serde_json::json!(volume_data.last_update),
+        );
+    } else {
+        info!("没有 Volume 数据 / No volume data for {}", mint);
+    }
+
+    // 附加 Change 数据 / Attach change data
+    if let Some(change_data) = change_result {
+        event.extras.insert(
+            "change_percent_24h".to_string(),
+            serde_json::json!(change_data.change_percent.to_string()),
+        );
+        event.extras.insert(
+            "change_open_price".to_string(),
+            serde_json::json!(change_data.open_price.to_string()),
+        );
+        event.extras.insert(
+            "change_close_price".to_string(),
+            serde_json::json!(change_data.close_price.to_string()),
+        );
+    }
+
+    // 附加 MarketsAbs 数据 / Attach markets abs data
+    if let Some((cumulative_count, first_seen)) = markets_abs_result {
+        event.extras.insert(
+            "markets_abs_cumulative".to_string(),
+            serde_json::json!(cumulative_count),
+        );
+        event.extras.insert(
+            "markets_abs_first_seen".to_string(),
+            serde_json::json!(first_seen),
+        );
+    }
 }

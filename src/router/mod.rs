@@ -58,9 +58,17 @@ pub fn create_router(
         sync_service,
     };
 
+    // 创建 DB 状态 / Create DB state
+    let db_state = db::DbState {
+        db,
+        volume_storage: volume_storage.clone(),
+        change_storage: change_storage.clone(),
+        markets_abs_storage: markets_abs_storage.clone(),
+    };
+
     Router::new()
         .merge(health::routes())
-        .merge(db::routes().with_state(db))
+        .merge(db::routes().with_state(db_state))
         .merge(token::routes().with_state(token_state))
         .merge(orderbook::routes().with_state(orderbook_storage.clone()))
         .merge(orderbook_history::routes().with_state(orderbook_storage))

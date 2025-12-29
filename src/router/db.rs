@@ -4,11 +4,21 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::util::{ok_result, ApiResult};
 use crate::db::DatabaseStats;
 use crate::solana::events::PinpetEvent;
+
+/// DB路由的共享状态 / Shared state for DB routes
+#[derive(Clone)]
+pub struct DbState {
+    pub db: Arc<crate::db::RocksDbStorage>,
+    pub volume_storage: Arc<crate::volume::VolumeStorage>,
+    pub change_storage: Arc<crate::change::ChangeStorage>,
+    pub markets_abs_storage: Arc<crate::markets_abs::MarketsAbsStorage>,
+}
 
 /// 数据库操作请求
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -126,6 +136,12 @@ pub struct QueryUserTokenCreatedParams {
     #[param(example = "desc")]
     #[serde(default)]
     pub sort: SortOrder,
+    /// 是否包含24小时统计数据 / Include 24h statistics data
+    /// 包含: volume, change, markets_abs
+    /// Includes: volume, change, markets_abs
+    #[param(example = false)]
+    #[serde(default)]
+    pub include_stats: bool,
 }
 
 /// 按 Slot 范围查询请求参数 / Query by slot range request parameters
@@ -262,10 +278,10 @@ fn default_slot_range_page_size() -> u32 { 50 }
     )
 )]
 pub async fn db_get(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    State(state): State<DbState>,
     Json(req): Json<DbRequest>,
 ) -> ApiResult {
-    let result = db.get(&req.key);
+    let result = state.db.get(&req.key);
 
     match result {
         Ok(value) => Ok(ok_result::<DbResponse>(Ok(DbResponse {
@@ -292,8 +308,8 @@ pub async fn db_get(
          body = crate::docs::ErrorApiResponse)
     )
 )]
-pub async fn db_stats(State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>) -> ApiResult {
-    let result = db.get_stats();
+pub async fn db_stats(State(state): State<DbState>) -> ApiResult {
+    let result = state.db.get_stats();
 
     match result {
         Ok(stats) => Ok(ok_result::<String>(Ok(stats))),
@@ -317,9 +333,9 @@ pub async fn db_stats(State(db): State<std::sync::Arc<crate::db::RocksDbStorage>
          body = crate::docs::ErrorApiResponse)
     )
 )]
-pub async fn db_event_stats(State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>) -> ApiResult {
+pub async fn db_event_stats(State(state): State<DbState>) -> ApiResult {
     // 创建事件存储实例 / Create event storage instance
-    let event_storage = match db.create_event_storage() {
+    let event_storage = match state.db.create_event_storage() {
         Ok(storage) => storage,
         Err(e) => {
             return Ok(ok_result::<DatabaseStats>(Err(
@@ -357,11 +373,11 @@ pub async fn db_event_stats(State(db): State<std::sync::Arc<crate::db::RocksDbSt
     )
 )]
 pub async fn query_events_by_mint(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    State(state): State<DbState>,
     Query(params): Query<QueryByMintParams>,
 ) -> ApiResult {
     // 创建事件存储实例 / Create event storage instance
-    let event_storage = match db.create_event_storage() {
+    let event_storage = match state.db.create_event_storage() {
         Ok(storage) => storage,
         Err(e) => {
             return Ok(ok_result::<PaginatedEvents>(Err(
@@ -404,11 +420,11 @@ pub async fn query_events_by_mint(
     )
 )]
 pub async fn query_events_by_user(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    State(state): State<DbState>,
     Query(params): Query<QueryByUserParams>,
 ) -> ApiResult {
     // 创建事件存储实例 / Create event storage instance
-    let event_storage = match db.create_event_storage() {
+    let event_storage = match state.db.create_event_storage() {
         Ok(storage) => storage,
         Err(e) => {
             return Ok(ok_result::<PaginatedEvents>(Err(
@@ -452,11 +468,11 @@ pub async fn query_events_by_user(
     )
 )]
 pub async fn query_events_by_signature(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    State(state): State<DbState>,
     Query(params): Query<QueryBySignatureParams>,
 ) -> ApiResult {
     // 创建事件存储实例 / Create event storage instance
-    let event_storage = match db.create_event_storage() {
+    let event_storage = match state.db.create_event_storage() {
         Ok(storage) => storage,
         Err(e) => {
             return Ok(ok_result::<EventList>(Err(
@@ -494,11 +510,11 @@ pub async fn query_events_by_signature(
     )
 )]
 pub async fn query_user_token_created(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    State(state): State<DbState>,
     Query(params): Query<QueryUserTokenCreatedParams>,
 ) -> ApiResult {
     // 创建事件存储实例 / Create event storage instance
-    let event_storage = match db.create_event_storage() {
+    let event_storage = match state.db.create_event_storage() {
         Ok(storage) => storage,
         Err(e) => {
             return Ok(ok_result::<PaginatedEvents>(Err(
@@ -515,6 +531,10 @@ pub async fn query_user_token_created(
         params.page,
         params.page_size,
         params.sort == SortOrder::Asc,
+        params.include_stats,
+        &state.volume_storage,
+        &state.change_storage,
+        &state.markets_abs_storage,
     ).await;
 
     match result {
@@ -549,11 +569,11 @@ pub async fn query_user_token_created(
     )
 )]
 pub async fn query_events_by_slot_range(
-    State(db): State<std::sync::Arc<crate::db::RocksDbStorage>>,
+    State(state): State<DbState>,
     Query(params): Query<QueryBySlotRangeParams>,
 ) -> ApiResult {
     // 创建事件存储实例 / Create event storage instance
-    let event_storage = match db.create_event_storage() {
+    let event_storage = match state.db.create_event_storage() {
         Ok(storage) => storage,
         Err(e) => {
             return Ok(ok_result::<SlotRangeQueryResponse>(Err(
@@ -590,7 +610,7 @@ pub async fn query_events_by_slot_range(
 }
 
 /// 创建数据库路由
-pub fn routes() -> Router<std::sync::Arc<crate::db::RocksDbStorage>> {
+pub fn routes() -> Router<DbState> {
     Router::new()
         .route("/db/get", post(db_get))
         .route("/db/stats", get(db_stats))

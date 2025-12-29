@@ -57,6 +57,11 @@ pub struct TokenCreatedEvent {
     pub timestamp: DateTime<Utc>,
     pub signature: String,
     pub slot: u64,
+
+    // ===== 扩展字段 / Extension Fields =====
+    #[serde(default)]
+    #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub extras: std::collections::HashMap<String, serde_json::Value>, // 预留扩展字段(包含24h统计数据) / Reserved extension fields (includes 24h statistics)
 }
 
 /// 买卖交易事件 / Buy/Sell event
@@ -394,6 +399,7 @@ impl EventParser {
                     timestamp,
                     signature: signature.to_string(),
                     slot,
+                    extras: std::collections::HashMap::new(),  // 初始化为空 / Initialize as empty
                 })))
             }
             BUY_SELL_EVENT_DISCRIMINATOR => {
