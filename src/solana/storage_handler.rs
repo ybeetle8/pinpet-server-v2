@@ -673,7 +673,7 @@ impl StorageEventHandler {
         };
 
         // 保存半平仓历史记录 / Save partial close history record
-        // 使用 close_reason = 5 (用户主动半平仓 / User initiated partial close)
+        // 使用 close_reason = 4 (用户主动半平仓 / User initiated partial close)
         // 使用最新价格 (即当前事件的价格) / Use latest price (current event's price)
         self.save_partial_close_record(
             &event.mint_account,
@@ -813,7 +813,7 @@ impl StorageEventHandler {
         let close_info = CloseInfo {
             close_timestamp,
             close_price,
-            close_reason: 5, // 用户主动半平仓 / User initiated partial close
+            close_reason: 4, // 用户主动半平仓 / User initiated partial close
         };
 
         // 构建已关闭订单记录 / Build closed order record

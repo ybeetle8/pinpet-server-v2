@@ -309,12 +309,11 @@ pub struct CloseInfo {
     pub close_price: u128,
 
     /// 关闭原因 / Close reason:
-    /// - 1: 用户主动平仓 / User initiated close
+    /// - 1: 用户主动平仓 / User close
     /// - 2: 强制清算 / Forced liquidation
-    /// - 3: 到期自动平仓 / Expired auto-close
-    /// - 4: 爆仓清算 / Margin call liquidation
-    /// - 5: 用户主动平半仓 
-    /// - 6: 到期平半仓 
+    /// - 3: 到期自动平仓 / Expired close
+    /// - 4: 用户主动平半仓 / User half-close
+    /// - 5: 到期平半仓 / Expired half-close
     pub close_reason: u8,
 }
 

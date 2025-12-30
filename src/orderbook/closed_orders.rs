@@ -132,9 +132,22 @@ impl ClosedOrdersQuery {
             // 键格式: orderbook_user_closed:{user}:{timestamp}:{mint}:{direction}:{order_id}
             // Key format: orderbook_user_closed:{user}:{timestamp}:{mint}:{direction}:{order_id}
             let key_str = String::from_utf8_lossy(&key);
+
+            // DEBUG: 打印键和时间戳信息 / Print key and timestamp info
+            tracing::debug!("🔍 扫描键 / Scanning key: {}", key_str);
+
             let parts: Vec<&str> = key_str.split(':').collect();
 
             let (mint, direction) = if parts.len() >= 5 {
+                // DEBUG: 解析并打印时间戳信息 / Parse and print timestamp info
+                if let Ok(inverted_ts) = parts[2].parse::<u32>() {
+                    let original_ts = u32::MAX - inverted_ts;
+                    tracing::debug!(
+                        "   inverted_ts={}, original_ts={}, mint={}, dir={}",
+                        inverted_ts, original_ts, &parts[3][..8.min(parts[3].len())], parts[4]
+                    );
+                }
+
                 (parts[3].to_string(), parts[4].to_string())
             } else {
                 // 如果键格式不正确,使用默认值
@@ -161,6 +174,18 @@ impl ClosedOrdersQuery {
                 }
             }
         }
+
+        // ✅ 修复排序: 反转结果以确保按 close_timestamp 降序
+        // ✅ Fix sorting: Reverse results to ensure descending order by close_timestamp
+        //
+        // 虽然键设计上使用了反转时间戳 (u32::MAX - timestamp) 来实现倒序,
+        // 但实际测试发现 prefix_iterator 返回的顺序与预期相反。
+        // 在找到根本原因之前,先通过 reverse() 确保正确的排序。
+        //
+        // Although the key design uses inverted timestamps (u32::MAX - timestamp) for reverse order,
+        // actual testing shows prefix_iterator returns the opposite order.
+        // Until root cause is found, use reverse() to ensure correct sorting.
+        records.reverse();
 
         Ok(records)
     }
