@@ -49,14 +49,25 @@ pub struct TokenCreatedEvent {
     pub uri: String,
     pub up_orderbook: String,           // 做空订单账本 (Up方向) PDA地址 / Short orderbook (Up direction) PDA
     pub down_orderbook: String,         // 做多订单账本 (Down方向) PDA地址 / Long orderbook (Down direction) PDA
+
+    // ===== 价格和市值信息 / Price and Market Cap Info =====
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mc: Option<String>,              // 市值(美元,格式化) / Market cap (USD, formatted)
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub usd_price: Option<String>,       // Token美元价格(大整数) / Token USD price (big integer)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
+
     #[schema(value_type = String)]
     pub timestamp: DateTime<Utc>,
     pub signature: String,
     pub slot: u64,
+
+    // ===== URI元数据 / URI Metadata =====
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uri_data: Option<crate::db::TokenUriData>, // URI解析后的元数据 / Parsed URI metadata
 
     // ===== 扩展字段 / Extension Fields =====
     #[serde(default)]
@@ -394,11 +405,14 @@ impl EventParser {
                     uri: event.uri,
                     up_orderbook: event.up_orderbook.to_string(),
                     down_orderbook: event.down_orderbook.to_string(),
+                    mc: None,  // 市值稍后计算 / Market cap will be calculated later
                     latest_price: event.latest_price,
+                    usd_price: None,  // USD价格稍后计算 / USD price will be calculated later
                     latest_price_usd: None,  // USD价格稍后在 KlineEventHandler 中填充 / USD price will be filled later in KlineEventHandler
                     timestamp,
                     signature: signature.to_string(),
                     slot,
+                    uri_data: None,  // URI数据稍后填充 / URI data will be filled later
                     extras: std::collections::HashMap::new(),  // 初始化为空 / Initialize as empty
                 })))
             }

@@ -643,6 +643,7 @@ impl EventStorage {
         volume_storage: &crate::volume::VolumeStorage,
         change_storage: &crate::change::ChangeStorage,
         markets_abs_storage: &crate::markets_abs::MarketsAbsStorage,
+        token_storage: &crate::db::TokenStorage,
     ) -> Result<PaginatedEvents> {
         let prefix = format!("idx_user_tc:{}:", user);
         let mut all_keys: Vec<String> = Vec::new();
@@ -708,7 +709,9 @@ impl EventStorage {
                                     tc_event,
                                     volume_storage,
                                     change_storage,
-                                    markets_abs_storage
+                                    markets_abs_storage,
+                                    &self.price_service,
+                                    token_storage,
                                 ).await;
                             }
                         }
@@ -981,9 +984,13 @@ async fn enrich_token_created_event_with_stats(
     volume_storage: &crate::volume::VolumeStorage,
     change_storage: &crate::change::ChangeStorage,
     markets_abs_storage: &crate::markets_abs::MarketsAbsStorage,
+    price_service: &crate::price::SolPriceService,
+    token_storage: &crate::db::TokenStorage,
 ) {
     use crate::volume::Period;
     use tracing::{warn, info};
+    use rust_decimal::Decimal;
+    use rust_decimal::prelude::FromPrimitive;
 
     let mint = &event.mint_account;
     let period = Period::TwentyFourHours;
@@ -991,7 +998,7 @@ async fn enrich_token_created_event_with_stats(
     info!("开始为 TokenCreatedEvent 附加统计数据 / Start enriching stats for TokenCreatedEvent: {}", mint);
 
     // 并发查询所有统计数据 / Query all stats concurrently
-    let (volume_result, change_result, markets_abs_result) = tokio::join!(
+    let (volume_result, change_result, markets_abs_result, uri_data_result) = tokio::join!(
         async {
             match volume_storage.get_token_volume(mint, period, None) {
                 Ok(resp) => Some(resp.data),
@@ -1015,6 +1022,20 @@ async fn enrich_token_created_event_with_stats(
                 Ok(resp) => Some((resp.cumulative_count, resp.first_seen)),
                 Err(e) => {
                     warn!("Failed to get markets abs stats for {}: {}", mint, e);
+                    None
+                }
+            }
+        },
+        async {
+            // 查询 uri_data (从 TokenStorage 中获取已缓存的数据) / Query uri_data (from cached data in TokenStorage)
+            match token_storage.get_token_by_mint(mint) {
+                Ok(Some(token)) => token.uri_data,
+                Ok(None) => {
+                    warn!("Token not found in storage for {}", mint);
+                    None
+                }
+                Err(e) => {
+                    warn!("Failed to get token from storage for {}: {}", mint, e);
                     None
                 }
             }
@@ -1066,5 +1087,35 @@ async fn enrich_token_created_event_with_stats(
             "markets_abs_first_seen".to_string(),
             serde_json::json!(first_seen),
         );
+    }
+
+    // 附加 mc 和 usd_price (设置到顶层字段) / Attach mc and usd_price (set to top-level fields)
+    if let Ok(price_u128) = event.latest_price.to_string().parse::<u128>() {
+        let price_decimal = Decimal::from(price_u128);
+        let sol_price = price_service.get_price_sync();
+
+        // 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
+        // mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
+        let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
+        let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
+
+        if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
+            let mc_decimal = token_value * sol_price_decimal;
+            event.mc = Some(format!("{:.2}", mc_decimal));
+
+            // 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
+            // usd_price = latest_price * sol_price
+            let usd_price_decimal = price_decimal * sol_price_decimal;
+            event.usd_price = Some(usd_price_decimal.trunc().to_string());
+
+            info!("附加 mc 和 usd_price / Attached mc and usd_price for {}: mc={:.2}, usd_price={}",
+                  mint, mc_decimal, usd_price_decimal.trunc());
+        }
+    }
+
+    // 附加 uri_data (设置到顶层字段) / Attach uri_data (set to top-level field)
+    event.uri_data = uri_data_result;
+    if event.uri_data.is_some() {
+        info!("附加 uri_data / Attached uri_data for {}", mint);
     }
 }

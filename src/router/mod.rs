@@ -64,6 +64,7 @@ pub fn create_router(
         volume_storage: volume_storage.clone(),
         change_storage: change_storage.clone(),
         markets_abs_storage: markets_abs_storage.clone(),
+        token_storage: token_storage.clone(),
     };
 
     Router::new()

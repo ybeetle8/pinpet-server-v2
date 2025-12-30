@@ -18,6 +18,7 @@ pub struct DbState {
     pub volume_storage: Arc<crate::volume::VolumeStorage>,
     pub change_storage: Arc<crate::change::ChangeStorage>,
     pub markets_abs_storage: Arc<crate::markets_abs::MarketsAbsStorage>,
+    pub token_storage: Arc<crate::db::TokenStorage>,
 }
 
 /// 数据库操作请求
@@ -535,6 +536,7 @@ pub async fn query_user_token_created(
         &state.volume_storage,
         &state.change_storage,
         &state.markets_abs_storage,
+        &state.token_storage,
     ).await;
 
     match result {
