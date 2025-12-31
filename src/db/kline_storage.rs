@@ -131,12 +131,22 @@ impl KlineStorage {
                 Some(data) => {
                     match serde_json::from_slice::<KlineData>(&data) {
                         Ok(mut existing_kline) => {
+                            // 🔐 时间戳保护: 拒绝旧事件覆盖 / Timestamp protection: reject old events
+                            if unix_timestamp < existing_kline.last_event_timestamp {
+                                debug!(
+                                    "⚠️ 拒绝乱序事件DB覆盖 / Rejecting out-of-order DB write: mint={}, interval={}, time={}, event_ts={}, existing_ts={}",
+                                    mint_account, interval, time_bucket, unix_timestamp, existing_kline.last_event_timestamp
+                                );
+                                continue; // 跳过此间隔的更新 / Skip update for this interval
+                            }
+
                             // 更新现有K线数据(同一时间桶) / Update existing kline data (same time bucket)
                             existing_kline.high = existing_kline.high.max(price);
                             existing_kline.low = existing_kline.low.min(price);
                             existing_kline.close = price;
                             existing_kline.update_count += 1;
                             existing_kline.is_final = false; // 标记为非最终状态,因为正在更新 / Mark as not final since it's being updated
+                            existing_kline.last_event_timestamp = unix_timestamp; // 更新事件时间戳 / Update event timestamp
                             existing_kline
                         }
                         Err(e) => {
@@ -159,6 +169,7 @@ impl KlineStorage {
                                 volume: 0.0, // Volume按要求为0 / Volume is 0 as requested
                                 is_final: false,
                                 update_count: 1,
+                                last_event_timestamp: unix_timestamp,
                             }
                         }
                     }
@@ -179,6 +190,7 @@ impl KlineStorage {
                         volume: 0.0, // Volume按要求为0 / Volume is 0 as requested
                         is_final: false,
                         update_count: 1,
+                        last_event_timestamp: unix_timestamp,
                     }
                 }
             };

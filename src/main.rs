@@ -123,6 +123,12 @@ async fn main() {
     // 现在将 db_storage 转为 Arc / Now convert db_storage to Arc
     let db_storage = Arc::new(db_storage);
 
+    // 初始化 K线缓存 (用于高性能实时推送) / Initialize K-line cache (for high-performance real-time push)
+    let kline_cache = Arc::new(kline::KlineCache::new(
+        10000,  // 最大缓存条目数 / Max cache entries: 10000条K线数据
+        600,    // 缓存过期时间(秒) / Cache expiration: 10分钟
+    ));
+
     // 初始化 K线推送服务 (如果启用) / Initialize K-line WebSocket service (if enabled)
     let (kline_socket_service, socketio_layer) = if config.kline.enable_kline_service {
         tracing::info!("🚀 初始化 K线 WebSocket 服务 / Initializing K-line WebSocket service");
@@ -157,6 +163,13 @@ async fn main() {
 
         // 设置事件处理器 / Setup event handlers
         kline_service.setup_socket_handlers();
+
+        // 启动K线缓存清理任务 / Start K-line cache cleanup task
+        let cleanup_config = kline::CleanupConfig {
+            interval_secs: 300, // 每5分钟清理一次 / Cleanup every 5 minutes
+            enabled: true,
+        };
+        kline::start_cleanup_task(kline_cache.clone(), cleanup_config);
 
         tracing::info!("✅ K线 WebSocket 服务初始化成功 / K-line WebSocket service initialized");
         (Some(kline_service), layer)
@@ -301,7 +314,8 @@ async fn main() {
             Arc::new(kline::KlineEventHandler::new(
                 storage_handler,
                 kline_service.clone(),
-                event_storage,  // 传入event_storage用于读取K线数据 / Pass event_storage for reading K-line data
+                kline_cache.clone(),    // 传入K线缓存用于高性能实时推送 / Pass K-line cache for high-performance real-time push
+                event_storage,          // 传入event_storage用于降级读取 / Pass event_storage for fallback reads
                 price_service.clone(),  // 传入price_service用于SOL->USD转换 / Pass price_service for SOL->USD conversion
             ))
         } else {

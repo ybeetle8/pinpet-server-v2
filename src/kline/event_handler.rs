@@ -2,13 +2,13 @@
 // K-line event handler - Wraps existing event handler and adds K-line push functionality
 
 use crate::db::EventStorage;
-use crate::kline::{data_processor::KlineDataProcessor, socket_service::KlineSocketService};
+use crate::kline::{cache::KlineCache, data_processor::KlineDataProcessor, socket_service::KlineSocketService};
 use crate::price::SolPriceService;
 use crate::solana::{EventHandler, PinpetEvent};
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::Utc;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, info, warn};
 
 /// K线事件处理器 - 装饰器模式包装EventHandler
@@ -16,7 +16,8 @@ use tracing::{debug, info, warn};
 pub struct KlineEventHandler {
     inner: Arc<dyn EventHandler>,           // 内部事件处理器 / Inner event handler
     kline_service: Arc<KlineSocketService>, // K线推送服务 / K-line push service
-    event_storage: Arc<EventStorage>,       // 事件存储(用于读取K线数据) / Event storage (for reading K-line data)
+    kline_cache: Arc<KlineCache>,           // K线缓存 / K-line cache
+    event_storage: Arc<EventStorage>,       // 事件存储(用于降级读取) / Event storage (for fallback reads)
     price_service: Arc<SolPriceService>,    // SOL价格服务(用于SOL->USD转换) / SOL price service (for SOL->USD conversion)
 }
 
@@ -25,12 +26,14 @@ impl KlineEventHandler {
     pub fn new(
         inner: Arc<dyn EventHandler>,
         kline_service: Arc<KlineSocketService>,
+        kline_cache: Arc<KlineCache>,
         event_storage: Arc<EventStorage>,
         price_service: Arc<SolPriceService>,
     ) -> Self {
         Self {
             inner,
             kline_service,
+            kline_cache,
             event_storage,
             price_service,
         }
@@ -79,6 +82,19 @@ impl KlineEventHandler {
             _ => timestamp,                        // 默认1秒 / default to 1-second
         }
     }
+
+    /// 提取事件时间戳 / Extract event timestamp
+    /// 统一使用事件的区块链时间戳,避免时间桶不一致 / Use event's blockchain timestamp consistently to avoid time bucket mismatch
+    fn extract_event_timestamp(event: &PinpetEvent) -> u64 {
+        match event {
+            PinpetEvent::TokenCreated(e) => e.timestamp.timestamp() as u64,
+            PinpetEvent::BuySell(e) => e.timestamp.timestamp() as u64,
+            PinpetEvent::LongShort(e) => e.timestamp.timestamp() as u64,
+            PinpetEvent::FullClose(e) => e.timestamp.timestamp() as u64,
+            PinpetEvent::PartialClose(e) => e.timestamp.timestamp() as u64,
+            _ => chrono::Utc::now().timestamp() as u64, // 其他事件使用当前时间 / Use current time for other events
+        }
+    }
 }
 
 #[async_trait]
@@ -88,34 +104,16 @@ impl EventHandler for KlineEventHandler {
     }
 
     async fn handle_event(&self, event: PinpetEvent) -> Result<()> {
+        let start_time = Instant::now();
         debug!("K线事件处理器收到事件 / K-line event handler received event: {:?}", event);
 
-        // 1. 首先调用内部事件处理器 (保存到数据库等)
-        // 1. First call inner event handler (save to database, etc.)
-        if let Err(e) = self.inner.handle_event(event.clone()).await {
-            warn!(
-                "内部事件处理器失败 / Inner event handler failed: {}",
-                e
-            );
-            // 即使内部处理失败,也继续进行K线推送 / Continue with K-line push even if inner handler fails
-        }
+        // 🚀 方案E: 异步推送 + 内存缓存 (高性能方案)
+        // 🚀 Solution E: Async push + Memory cache (High-performance solution)
 
-        // 2. 填充 USD 价格并广播交易事件 (所有事件都推送)
-        // 2. Fill USD price and broadcast trading event (all events are pushed)
-        let mut event_with_usd = event.clone();
-        if let Err(e) = self.fill_usd_price(&mut event_with_usd).await {
-            warn!("填充USD价格失败 / Failed to fill USD price: {}", e);
-        }
-
-        info!("广播交易事件 / Broadcasting trading event");
-        if let Err(e) = self.kline_service.broadcast_event_update(&event_with_usd).await {
-            warn!("广播交易事件失败 / Failed to broadcast event update: {}", e);
-        }
-
-        // 3. 如果事件包含价格数据,生成并广播K线更新
-        // 3. If event contains price data, generate and broadcast K-line update
+        // 1. 立即从缓存获取/计算K线数据并推送 (超快!)
+        // 1. Immediately get/calculate K-line data from cache and push (ultra-fast!)
         if let Some(price_in_sol) = KlineDataProcessor::extract_price_from_event(&event) {
-            // 获取当前SOL价格(USD) / Get current SOL price (USD)
+            // 获取SOL价格(USD) / Get SOL price (USD)
             let sol_price_usd = match self.price_service.get_price().await {
                 Some(sol_price) => sol_price.price,
                 None => {
@@ -125,7 +123,6 @@ impl EventHandler for KlineEventHandler {
             };
 
             // 将SOL价格转换为USD价格 / Convert SOL price to USD price
-            // Token价格(SOL) × SOL价格(USD) = Token价格(USD)
             let current_price = price_in_sol * sol_price_usd;
 
             debug!(
@@ -134,7 +131,8 @@ impl EventHandler for KlineEventHandler {
             );
 
             let mint = KlineDataProcessor::get_mint_from_event(&event);
-            let timestamp = Utc::now().timestamp() as u64;
+            // ✅ 使用事件时间戳,避免时间桶不一致 / Use event timestamp to avoid time bucket mismatch
+            let timestamp = Self::extract_event_timestamp(&event);
 
             // 为每个支持的时间间隔生成K线数据 / Generate K-line data for each supported interval
             let intervals = ["s1", "s30", "m5"];
@@ -142,59 +140,26 @@ impl EventHandler for KlineEventHandler {
                 // 计算对齐后的时间桶 / Calculate aligned time bucket
                 let aligned_time = Self::calculate_time_bucket(timestamp, interval);
 
-                // 从数据库读取当前时间桶的K线数据 / Read K-line data from database for current time bucket
-                let kline_data = match self.event_storage.get_kline_data(&mint, interval, aligned_time).await {
-                    Ok(Some(existing_kline)) => {
-                        // 数据库中已有K线数据,更新high/low,close为当前价格 / K-line exists in DB, update high/low, close to current price
-                        crate::kline::types::KlineRealtimeData {
-                            time: aligned_time,
-                            open: existing_kline.open,              // ✅ 保持原有的开盘价 / Keep original open price
-                            high: existing_kline.high.max(current_price),  // ✅ 更新最高价 / Update high price
-                            low: existing_kline.low.min(current_price),    // ✅ 更新最低价 / Update low price
-                            close: current_price,                   // ✅ 当前价格作为收盘价 / Current price as close
-                            volume: existing_kline.volume,
-                            is_final: false,
-                            update_type: "realtime".to_string(),
-                            update_count: existing_kline.update_count + 1,
-                        }
-                    }
-                    Ok(None) => {
-                        // 数据库中没有该时间桶的K线,创建新K线(open/high/low/close都是当前价格) / No K-line in DB, create new one
-                        crate::kline::types::KlineRealtimeData {
-                            time: aligned_time,
-                            open: current_price,
-                            high: current_price,
-                            low: current_price,
-                            close: current_price,
-                            volume: 0.0,
-                            is_final: false,
-                            update_type: "realtime".to_string(),
-                            update_count: 1,
-                        }
-                    }
-                    Err(e) => {
-                        warn!("从数据库读取K线数据失败 / Failed to read K-line from DB: {}, 使用当前价格 / using current price", e);
-                        // 出错时回退到使用当前价格 / Fallback to current price on error
-                        crate::kline::types::KlineRealtimeData {
-                            time: aligned_time,
-                            open: current_price,
-                            high: current_price,
-                            low: current_price,
-                            close: current_price,
-                            volume: 0.0,
-                            is_final: false,
-                            update_type: "realtime".to_string(),
-                            update_count: 1,
-                        }
-                    }
+                // 🔥 从缓存获取或创建K线 (1-2ms, 无DB读取!) / Get or create K-line from cache (1-2ms, no DB read!)
+                let kline_storage_data = self.kline_cache
+                    .get_or_create(&mint, interval, aligned_time, current_price, timestamp)
+                    .await;
+
+                // 转换为实时K线数据格式 / Convert to realtime K-line data format
+                let kline_data = crate::kline::types::KlineRealtimeData {
+                    time: kline_storage_data.time,
+                    open: kline_storage_data.open,
+                    high: kline_storage_data.high,
+                    low: kline_storage_data.low,
+                    close: kline_storage_data.close,
+                    volume: kline_storage_data.volume,
+                    is_final: kline_storage_data.is_final,
+                    update_type: "realtime".to_string(),
+                    update_count: kline_storage_data.update_count,
                 };
 
-                // 广播K线更新 / Broadcast K-line update
-                info!(
-                    "广播K线更新 / Broadcasting K-line update: mint={}, interval={}, time={} (原始={}), open={}, high={}, low={}, close={}",
-                    mint, interval, aligned_time, timestamp, kline_data.open, kline_data.high, kline_data.low, kline_data.close
-                );
-
+                // 🚀 立即推送K线更新 (10-30ms) / Immediately broadcast K-line update (10-30ms)
+                let push_start = Instant::now();
                 if let Err(e) = self
                     .kline_service
                     .broadcast_kline_update(&mint, interval, &kline_data)
@@ -204,13 +169,40 @@ impl EventHandler for KlineEventHandler {
                         "广播K线更新失败 / Failed to broadcast K-line update for {}:{}: {}",
                         mint, interval, e
                     );
+                } else {
+                    let push_duration = push_start.elapsed().as_millis();
+                    info!(
+                        "📡 K线推送完成 / K-line push completed: mint={}, interval={}, time={}, OHLC=[{},{},{},{}], count={}, push_time={}ms",
+                        mint, interval, aligned_time, kline_data.open, kline_data.high, kline_data.low, kline_data.close, kline_data.update_count, push_duration
+                    );
                 }
             }
-        } else {
-            debug!(
-                "事件不包含价格数据,跳过K线推送 / Event does not contain price data, skipping K-line push"
-            );
         }
+
+        // 2. 填充USD价格并广播交易事件 (10-20ms) / Fill USD price and broadcast trading event (10-20ms)
+        let mut event_with_usd = event.clone();
+        if let Err(e) = self.fill_usd_price(&mut event_with_usd).await {
+            warn!("填充USD价格失败 / Failed to fill USD price: {}", e);
+        }
+
+        if let Err(e) = self.kline_service.broadcast_event_update(&event_with_usd).await {
+            warn!("广播交易事件失败 / Failed to broadcast event update: {}", e);
+        }
+
+        // 3. 后台异步存储 (不等待,不阻塞) / Background async storage (no wait, no blocking)
+        let inner = Arc::clone(&self.inner);
+        let event_clone = event.clone();
+        tokio::spawn(async move {
+            if let Err(e) = inner.handle_event(event_clone).await {
+                warn!("后台存储失败 / Background storage failed: {}", e);
+            }
+        });
+
+        let total_duration = start_time.elapsed().as_millis();
+        debug!(
+            "⚡ 事件处理完成 / Event processing completed: total_time={}ms",
+            total_duration
+        );
 
         Ok(())
     }

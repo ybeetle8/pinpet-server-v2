@@ -13,6 +13,8 @@ pub struct KlineData {
     pub volume: f64,       // 成交量 / Volume
     pub is_final: bool,    // 是否为最终K线 / Is final K-line
     pub update_count: u32, // 更新次数 / Update count
+    #[serde(default)]
+    pub last_event_timestamp: u64, // 最后更新事件的时间戳(秒),用于防止乱序覆盖 / Last event timestamp (seconds) for out-of-order protection
 }
 
 /// 实时K线数据结构 / Real-time K-line data structure
