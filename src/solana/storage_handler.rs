@@ -723,6 +723,7 @@ impl StorageEventHandler {
             event.timestamp.timestamp() as u32,
             close_price_before,  // 平仓前价格 / Price before close
             event.latest_price,  // 平仓后价格 / Price after close
+            current_order.realized_sol_amount,  // 平仓前的已实现收益 / Realized SOL amount before close
         )?;
 
         info!(
@@ -929,6 +930,7 @@ impl StorageEventHandler {
     /// * `close_timestamp` - 平仓时间戳 / Close timestamp
     /// * `close_price_before` - 平仓前价格 / Price before close
     /// * `close_price_after` - 平仓后价格 / Price after close
+    /// * `realized_sol_amount_before` - 平仓前的已实现收益 / Realized SOL amount before close
     fn save_partial_close_record(
         &self,
         mint: &str,
@@ -937,6 +939,7 @@ impl StorageEventHandler {
         close_timestamp: u32,
         close_price_before: u128,
         close_price_after: u128,
+        realized_sol_amount_before: u64,
     ) -> anyhow::Result<()> {
         use crate::orderbook::types::{ClosedOrderRecord, CloseInfo};
 
@@ -945,6 +948,7 @@ impl StorageEventHandler {
             close_timestamp,
             close_price_before,
             close_price_after,
+            realized_sol_amount_before,
             close_reason: 4, // 用户主动半平仓 / User initiated partial close
         };
 

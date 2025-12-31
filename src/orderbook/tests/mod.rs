@@ -1,7 +1,8 @@
 // OrderBook 测试模块
 // OrderBook Test Module
 
-use crate::orderbook::{MarginOrder, OrderBookDBManager, OrderBookHeader};
+use crate::orderbook::{MarginOrder, OrderBookDBManager};
+use crate::orderbook::types::OrderBookHeader;
 use rocksdb::{Options, DB};
 use std::sync::Arc;
 use uuid::Uuid;

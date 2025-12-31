@@ -27,7 +27,7 @@ fn test_delete_single_order_from_middle() {
     insert_orders(&manager, 5);
 
     // 删除中间的两个订单 (index=2, index=3)
-    manager.batch_remove_by_indices_unsafe(&[2, 3]).unwrap();
+    manager.batch_remove_by_indices_unsafe(&[2, 3], 1, 0, 0).unwrap();
 
     // 验证 header
     let header = manager.load_header().unwrap();
@@ -65,7 +65,7 @@ fn test_delete_head_order() {
 
     // 删除头节点 (index=0)
     // 注意: 删除后,原来的 index=2 会被移动到 index=0
-    manager.batch_remove_by_indices_unsafe(&[0]).unwrap();
+    manager.batch_remove_by_indices_unsafe(&[0], 1, 0, 0).unwrap();
 
     // 验证 header
     let header = manager.load_header().unwrap();
@@ -105,7 +105,7 @@ fn test_delete_tail_order() {
     insert_orders(&manager, 3);
 
     // 删除尾节点 (index=2)
-    manager.batch_remove_by_indices_unsafe(&[2]).unwrap();
+    manager.batch_remove_by_indices_unsafe(&[2], 1, 0, 0).unwrap();
 
     // 验证 header
     let header = manager.load_header().unwrap();
@@ -131,7 +131,7 @@ fn test_batch_delete_multiple_orders() {
 
     // 批量删除: index = [2, 5, 8]
     manager
-        .batch_remove_by_indices_unsafe(&[2, 5, 8])
+        .batch_remove_by_indices_unsafe(&[2, 5, 8], 1, 0, 0)
         .unwrap();
 
     // 验证 header
@@ -173,7 +173,7 @@ fn test_delete_all_orders() {
 
     // 删除所有订单
     manager
-        .batch_remove_by_indices_unsafe(&[0, 1, 2, 3, 4])
+        .batch_remove_by_indices_unsafe(&[0, 1, 2, 3, 4], 1, 0, 0)
         .unwrap();
 
     // 验证 header
@@ -202,7 +202,7 @@ fn test_delete_with_duplicates() {
 
     // 删除重复的索引 [1, 3, 1, 3, 2]
     manager
-        .batch_remove_by_indices_unsafe(&[1, 3, 1, 3, 2])
+        .batch_remove_by_indices_unsafe(&[1, 3, 1, 3, 2], 1, 0, 0)
         .unwrap();
 
     // 验证 header (应该只删除3个: 1, 2, 3)
@@ -223,7 +223,7 @@ fn test_delete_empty_array() {
     insert_orders(&manager, 3);
 
     // 删除空数组
-    manager.batch_remove_by_indices_unsafe(&[]).unwrap();
+    manager.batch_remove_by_indices_unsafe(&[], 1, 0, 0).unwrap();
 
     // 验证 header (应该没有变化)
     let header = manager.load_header().unwrap();

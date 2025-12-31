@@ -112,7 +112,7 @@ fn test_batch_delete_1000_orders_from_5000() {
     let start = Instant::now();
 
     // 批量删除
-    manager.batch_remove_by_indices_unsafe(&to_delete).unwrap();
+    manager.batch_remove_by_indices_unsafe(&to_delete, 1, 0, 0).unwrap();
 
     let elapsed = start.elapsed();
     println!(
@@ -215,7 +215,7 @@ fn test_mixed_operations_stress() {
     // 3. 删除每隔10个的订单
     println!("📝 步骤3: 删除100个订单...");
     let to_delete: Vec<u16> = (0..1000).filter(|i| i % 10 == 0).collect();
-    manager.batch_remove_by_indices_unsafe(&to_delete).unwrap();
+    manager.batch_remove_by_indices_unsafe(&to_delete, 1, 0, 0).unwrap();
 
     // 4. 再插入500个
     println!("📝 步骤4: 再插入500个订单...");

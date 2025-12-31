@@ -314,6 +314,12 @@ pub struct CloseInfo {
     #[schema(value_type = String)]
     pub close_price_after: u128,
 
+    /// 平仓前的已实现收益(lamports) - 平仓操作执行之前的累计已实现收益
+    /// Realized SOL amount before close (lamports) - Accumulated realized profit before close operation
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub realized_sol_amount_before: u64,
+
     /// 关闭原因 / Close reason:
     /// - 1: 用户主动平仓 / User close
     /// - 2: 强制清算 / Forced liquidation

@@ -70,7 +70,7 @@ fn test_bug_1_writebatch_pointer_conflict() {
     // 3. 删除中间节点 index=2 (Order C)
     // 3. Delete middle node index=2 (Order C)
     println!("\n--- 删除 index=2 (Order C) ---");
-    let result = manager.batch_remove_by_indices_unsafe(&[2]);
+    let result = manager.batch_remove_by_indices_unsafe(&[2], 1, 0, 0);
 
     match result {
         Ok(_) => println!("✅ 删除操作完成"),
@@ -276,7 +276,7 @@ fn test_bug_multiple_middle_deletions() {
     let delete_indices = vec![2, 5, 7];
     println!("\n--- 删除 indices={:?} ---", delete_indices);
 
-    let result = manager.batch_remove_by_indices_unsafe(&delete_indices);
+    let result = manager.batch_remove_by_indices_unsafe(&delete_indices, 1, 0, 0);
 
     match result {
         Ok(_) => println!("✅ 删除操作完成"),
@@ -428,7 +428,7 @@ fn test_bug_sequential_deletions() {
     for (round, indices) in delete_sequence.iter().enumerate() {
         println!("--- Round {}: 删除 {:?} ---", round + 1, indices);
 
-        let result = manager.batch_remove_by_indices_unsafe(indices);
+        let result = manager.batch_remove_by_indices_unsafe(indices, 1, 0, 0);
 
         match result {
             Ok(_) => {
@@ -493,7 +493,7 @@ fn test_bug_tail_pointer_tracking() {
     // 2. 测试场景 1: 删除中间节点
     // 2. Test scenario 1: Delete middle node
     println!("\n--- 场景 1: 删除中间节点 index=2 ---");
-    manager.batch_remove_by_indices_unsafe(&[2]).expect("Failed to delete");
+    manager.batch_remove_by_indices_unsafe(&[2], 1, 0, 0).expect("Failed to delete");
 
     let header1 = manager.load_header().expect("Failed to load header");
     println!("删除后: head={}, tail={}, total={}", header1.head, header1.tail, header1.total);
@@ -612,7 +612,7 @@ fn test_bug_head_pointer_move() {
     // - header.head 应该更新为指向原来 index=1 的节点
     // - header.tail 应该更新为 index=0 (原 index=3 移动到此)
     println!("\n--- 场景: 删除 head 节点 index=0 ---");
-    manager.batch_remove_by_indices_unsafe(&[0]).expect("Failed to delete");
+    manager.batch_remove_by_indices_unsafe(&[0], 1, 0, 0).expect("Failed to delete");
 
     let header_after = manager.load_header().expect("Failed to load header");
     println!("删除后: head={}, tail={}, total={}",
@@ -694,7 +694,7 @@ fn test_bug_head_is_tail_move() {
     // 2. Delete index=0 (head node)
     // index=1 会被移动到 index=0,然后它既是 head 也是 tail
     println!("\n--- 场景: 删除 head 节点 ---");
-    manager.batch_remove_by_indices_unsafe(&[0]).expect("Failed to delete");
+    manager.batch_remove_by_indices_unsafe(&[0], 1, 0, 0).expect("Failed to delete");
 
     let header_after = manager.load_header().expect("Failed to load header");
     println!("删除后: head={}, tail={}, total={}",

@@ -756,11 +756,15 @@ impl OrderBookDBManager {
 
             // ✅ 新增: 构建并保存已关闭订单记录
             // ✅ New: Build and save closed order record
+            // 记录平仓前的已实现收益 / Record realized_sol_amount before close
+            let realized_sol_amount_before = removed_order.realized_sol_amount;
+
             let close_record = self.build_close_record(
                 &removed_order,
                 now,
                 close_price_before,
                 close_price_after,
+                realized_sol_amount_before,
                 close_reason,
             )?;
 
@@ -1284,7 +1288,9 @@ impl OrderBookDBManager {
             let order = self.get_order(index)?;
 
             // 保存关闭记录 / Save close record
-            let close_record = self.build_close_record(&order, now, close_price_before, close_price_after, close_reason)?;
+            // 记录平仓前的已实现收益 / Record realized_sol_amount before close
+            let realized_sol_amount_before = order.realized_sol_amount;
+            let close_record = self.build_close_record(&order, now, close_price_before, close_price_after, realized_sol_amount_before, close_reason)?;
             let close_key = Self::closed_order_key(
                 &order.user,
                 now,
@@ -1590,6 +1596,7 @@ impl OrderBookDBManager {
         close_timestamp: u32,
         close_price_before: u128,
         close_price_after: u128,
+        realized_sol_amount_before: u64,
         close_reason: u8,
     ) -> Result<crate::orderbook::types::ClosedOrderRecord> {
         use crate::orderbook::types::{ClosedOrderRecord, CloseInfo};
@@ -1602,6 +1609,7 @@ impl OrderBookDBManager {
                 close_timestamp,
                 close_price_before,
                 close_price_after,
+                realized_sol_amount_before,
                 close_reason,
             },
         })
