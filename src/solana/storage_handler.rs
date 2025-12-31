@@ -700,8 +700,8 @@ impl StorageEventHandler {
             // 被平掉部分的持仓 = 原持仓 - 新持仓
             // Closed portion position = old position - new position
             position_asset_amount: current_order.position_asset_amount.saturating_sub(event.position_asset_amount),
-            // 本次半平仓产生的利润 / Profit from this partial close
-            realized_sol_amount: realized_sol_amount_delta,
+            // 平仓后的累计已实现收益(使用事件中的累计值,而非增量) / Accumulated realized P&L after close (use cumulative value from event, not delta)
+            realized_sol_amount: event.realized_sol_amount,
             version: current_order.version,
             start_time: current_order.start_time,
             end_time: current_order.end_time,
