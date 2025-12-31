@@ -640,7 +640,8 @@ impl OrderBookDBManager {
     /// # 参数 / Parameters
     /// * `indices` - 待删除的索引切片(可乱序、可重复)
     /// * `close_reason` - 关闭原因
-    /// * `previous_price` - 平仓前的价格(来自 TokenStorage 的上一次价格)
+    /// * `close_price_before` - 平仓前的价格(来自 TokenStorage 的上一次价格)
+    /// * `close_price_after` - 平仓后的价格(来自事件的最新价格)
     ///
     /// # 返回值 / Returns
     /// 成功返回 Ok(())
@@ -650,7 +651,8 @@ impl OrderBookDBManager {
         &self,
         indices: &[u16],
         close_reason: u8,
-        previous_price: u128,
+        close_price_before: u128,
+        close_price_after: u128,
     ) -> Result<()> {
         // 0. 处理空数组
         // 0. Handle empty array
@@ -669,7 +671,7 @@ impl OrderBookDBManager {
 
         // 2. 调用内部实现（假设锁已持有）
         // 2. Call internal implementation (assumes lock is held)
-        self.batch_remove_by_indices_internal(&sorted_indices, close_reason, previous_price)
+        self.batch_remove_by_indices_internal(&sorted_indices, close_reason, close_price_before, close_price_after)
     }
 
     /// 内部批量删除逻辑（不获取锁，由调用方保证锁已持有）
@@ -687,7 +689,8 @@ impl OrderBookDBManager {
         &self,
         sorted_indices: &[u16],
         close_reason: u8,
-        previous_price: u128,
+        close_price_before: u128,
+        close_price_after: u128,
     ) -> Result<()> {
 
         // 2. 读取初始状态
@@ -717,7 +720,7 @@ impl OrderBookDBManager {
         // 检查是否删除全部
         // Check if deleting all
         if delete_count >= old_total {
-            return self.batch_remove_all_with_close_records(close_reason, previous_price);
+            return self.batch_remove_all_with_close_records(close_reason, close_price_before, close_price_after);
         }
 
         // 3. 使用 WriteBatch 和本地缓存
@@ -756,7 +759,8 @@ impl OrderBookDBManager {
             let close_record = self.build_close_record(
                 &removed_order,
                 now,
-                previous_price,
+                close_price_before,
+                close_price_after,
                 close_reason,
             )?;
 
@@ -1027,7 +1031,8 @@ impl OrderBookDBManager {
         &self,
         indices: &[u16],
         close_reason: u8,
-        previous_price: u128,
+        close_price_before: u128,
+        close_price_after: u128,
     ) -> Result<Vec<RemovedOrderInfo>> {
         // 0. 处理空数组 / Handle empty array
         if indices.is_empty() {
@@ -1089,7 +1094,7 @@ impl OrderBookDBManager {
 
         // 4. 执行删除（调用内部版本，不重新获取锁）
         // 4. Perform deletion (call internal version, no re-locking)
-        self.batch_remove_by_indices_internal(&sorted_indices, close_reason, previous_price)?;
+        self.batch_remove_by_indices_internal(&sorted_indices, close_reason, close_price_before, close_price_after)?;
 
         info!("✅ Batch removed {} orders with info", removed_orders.len());
         Ok(removed_orders)
@@ -1265,7 +1270,8 @@ impl OrderBookDBManager {
     fn batch_remove_all_with_close_records(
         &self,
         close_reason: u8,
-        previous_price: u128,
+        close_price_before: u128,
+        close_price_after: u128,
     ) -> Result<()> {
         let mut batch = WriteBatch::default();
         let now_i64 = chrono::Utc::now().timestamp();
@@ -1278,7 +1284,7 @@ impl OrderBookDBManager {
             let order = self.get_order(index)?;
 
             // 保存关闭记录 / Save close record
-            let close_record = self.build_close_record(&order, now, previous_price, close_reason)?;
+            let close_record = self.build_close_record(&order, now, close_price_before, close_price_after, close_reason)?;
             let close_key = Self::closed_order_key(
                 &order.user,
                 now,
@@ -1582,7 +1588,8 @@ impl OrderBookDBManager {
         &self,
         order: &MarginOrder,
         close_timestamp: u32,
-        close_price: u128,
+        close_price_before: u128,
+        close_price_after: u128,
         close_reason: u8,
     ) -> Result<crate::orderbook::types::ClosedOrderRecord> {
         use crate::orderbook::types::{ClosedOrderRecord, CloseInfo};
@@ -1593,7 +1600,8 @@ impl OrderBookDBManager {
             order: order.clone(),
             close_info: CloseInfo {
                 close_timestamp,
-                close_price,
+                close_price_before,
+                close_price_after,
                 close_reason,
             },
         })

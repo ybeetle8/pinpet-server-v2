@@ -430,7 +430,8 @@ impl StorageEventHandler {
             // ✅ First get the previous price (last recorded price before this event)
             // 🔧 P0 修复: 获取当前数据库中的价格，即事件发生前的价格
             // 🔧 P0 Fix: Get price from database, which is the price before event
-            let previous_price = self.get_previous_price(&event.mint_account)?;
+            let close_price_before = self.get_previous_price(&event.mint_account)?;
+            let close_price_after = event.latest_price;
 
             let liquidate_manager = self.orderbook_storage
                 .get_or_create_manager(event.mint_account.clone(), liquidate_direction.to_string())?;
@@ -440,7 +441,8 @@ impl StorageEventHandler {
             let removed_orders = liquidate_manager.batch_remove_by_indices_unsafe_with_info(
                 &event.liquidate_indices,
                 2, // ForcedLiquidation
-                previous_price,
+                close_price_before,  // 平仓前价格 / Price before close
+                close_price_after,   // 平仓后价格 / Price after close
             )?;
 
             // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
@@ -492,7 +494,8 @@ impl StorageEventHandler {
 
         // ✅ 先获取平仓前的价格(上一次记录的价格)
         // ✅ First get the previous price (last recorded price before this event)
-        let previous_price = self.get_previous_price(&event.mint_account)?;
+        let close_price_before = self.get_previous_price(&event.mint_account)?;
+        let close_price_after = event.latest_price;
 
         // 获取 OrderBook 管理器 / Get OrderBook manager
         let manager = self.orderbook_storage
@@ -504,7 +507,8 @@ impl StorageEventHandler {
         let removed_orders = manager.batch_remove_by_indices_unsafe_with_info(
             &event.liquidate_indices,
             2, // ForcedLiquidation
-            previous_price,
+            close_price_before,  // 平仓前价格 / Price before close
+            close_price_after,   // 平仓后价格 / Price after close
         )?;
 
         // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
@@ -556,7 +560,8 @@ impl StorageEventHandler {
 
         // ✅ 先获取平仓前的价格(上一次记录的价格)
         // ✅ First get the previous price (last recorded price before this event)
-        let previous_price = self.get_previous_price(&event.mint_account)?;
+        let close_price_before = self.get_previous_price(&event.mint_account)?;
+        let close_price_after = event.latest_price;
 
         // 获取 OrderBook 管理器 / Get OrderBook manager
         let manager = self.orderbook_storage
@@ -568,7 +573,8 @@ impl StorageEventHandler {
         let removed_orders = manager.batch_remove_by_indices_unsafe_with_info(
             &event.liquidate_indices,
             1, // UserInitiated
-            previous_price,
+            close_price_before,  // 平仓前价格 / Price before close
+            close_price_after,   // 平仓后价格 / Price after close
         )?;
 
         // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
@@ -707,13 +713,16 @@ impl StorageEventHandler {
 
         // 保存半平仓历史记录 / Save partial close history record
         // 使用 close_reason = 4 (用户主动半平仓 / User initiated partial close)
-        // 使用最新价格 (即当前事件的价格) / Use latest price (current event's price)
+        // 获取平仓前价格（从 TokenStorage）/ Get price before close (from TokenStorage)
+        let close_price_before = self.get_previous_price(&event.mint_account)?;
+
         self.save_partial_close_record(
             &event.mint_account,
             direction,
             &closed_portion_order,
             event.timestamp.timestamp() as u32,
-            event.latest_price,
+            close_price_before,  // 平仓前价格 / Price before close
+            event.latest_price,  // 平仓后价格 / Price after close
         )?;
 
         info!(
@@ -761,14 +770,16 @@ impl StorageEventHandler {
 
             // ✅ 先获取平仓前的价格(上一次记录的价格)
             // ✅ First get the previous price (last recorded price before this event)
-            let previous_price = self.get_previous_price(&event.mint_account)?;
+            let close_price_before = self.get_previous_price(&event.mint_account)?;
+            let close_price_after = event.latest_price;
 
             // 强制清算,使用 CloseReason::ForcedLiquidation (2)
             // Forced liquidation, use CloseReason::ForcedLiquidation (2)
             let removed_orders = manager.batch_remove_by_indices_unsafe_with_info(
                 &event.liquidate_indices,
                 2, // ForcedLiquidation
-                previous_price,
+                close_price_before,  // 平仓前价格 / Price before close
+                close_price_after,   // 平仓后价格 / Price after close
             )?;
 
             // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
@@ -916,21 +927,24 @@ impl StorageEventHandler {
     /// * `direction` - 订单方向 / Order direction
     /// * `closed_portion` - 被平掉部分的订单数据 / Closed portion order data
     /// * `close_timestamp` - 平仓时间戳 / Close timestamp
-    /// * `close_price` - 平仓价格 / Close price
+    /// * `close_price_before` - 平仓前价格 / Price before close
+    /// * `close_price_after` - 平仓后价格 / Price after close
     fn save_partial_close_record(
         &self,
         mint: &str,
         direction: &str,
         closed_portion: &MarginOrder,
         close_timestamp: u32,
-        close_price: u128,
+        close_price_before: u128,
+        close_price_after: u128,
     ) -> anyhow::Result<()> {
         use crate::orderbook::types::{ClosedOrderRecord, CloseInfo};
 
         // 构建关闭信息 / Build close info
         let close_info = CloseInfo {
             close_timestamp,
-            close_price,
+            close_price_before,
+            close_price_after,
             close_reason: 4, // 用户主动半平仓 / User initiated partial close
         };
 

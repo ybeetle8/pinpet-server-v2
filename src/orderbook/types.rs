@@ -302,11 +302,17 @@ pub struct CloseInfo {
     /// Close timestamp (Unix timestamp)
     pub close_timestamp: u32,
 
-    /// 关闭时的价格(u128, Q64.64 格式) - 平仓事件发生前的价格
-    /// Close price (u128, Q64.64 format) - Price before close event occurred
+    /// 平仓前的价格(u128, Q64.64 格式) - 平仓操作执行之前的市场价格
+    /// Price before close (u128, Q64.64 format) - Market price before close operation
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
-    pub close_price: u128,
+    pub close_price_before: u128,
+
+    /// 平仓后的价格(u128, Q64.64 格式) - 平仓操作完成之后的市场价格
+    /// Price after close (u128, Q64.64 format) - Market price after close operation
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub close_price_after: u128,
 
     /// 关闭原因 / Close reason:
     /// - 1: 用户主动平仓 / User close
