@@ -10,6 +10,8 @@ use crate::markets::MarketsStorage;
 use crate::markets_abs::MarketsAbsStorage;
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::*;
 
 /// 存储事件处理器 - 将接收到的事件存储到RocksDB / Storage event handler - stores received events to RocksDB
 #[derive(Clone)]
@@ -627,6 +629,35 @@ impl StorageEventHandler {
             ));
         }
 
+        // ⭐ 核心修改：基于 lock_lp_token_amount 比例计算新保证金
+        // ⭐ Core change: Calculate new margin based on lock_lp_token_amount ratio
+        // 合约中的 event.margin_sol_amount 永远是初始值，不能直接使用
+        // event.margin_sol_amount in contract is always the initial value, cannot be used directly
+
+        let new_margin_sol_amount = Self::calculate_margin_by_token_ratio(
+            current_order.margin_sol_amount,       // 旧保证金 / Old margin
+            current_order.lock_lp_token_amount,    // 旧持仓 token / Old token position
+            event.lock_lp_token_amount,            // 新持仓 token (来自事件) / New token position (from event)
+        ).ok_or_else(|| anyhow::anyhow!(
+            "Failed to calculate new margin_sol_amount for order_id={}, order_index={}",
+            event.order_id, event.order_index
+        ))?;
+
+        info!(
+            "📊 半平仓保证金计算 / Partial close margin calculation:
+             - 订单 / Order: order_id={}, index={}
+             - 旧保证金 / Old margin: {} lamports
+             - 旧持仓 / Old token: {}
+             - 新持仓 / New token: {}
+             - 新保证金 / New margin: {} lamports",
+            event.order_id,
+            event.order_index,
+            current_order.margin_sol_amount,
+            current_order.lock_lp_token_amount,
+            event.lock_lp_token_amount,
+            new_margin_sol_amount
+        );
+
         // 计算本次半平仓产生的利润 / Calculate profit from this partial close
         // realized_sol_amount_delta = 事件的 realized_sol_amount - 当前仓位的 realized_sol_amount
         // realized_sol_amount_delta = event's realized_sol_amount - current position's realized_sol_amount
@@ -651,10 +682,12 @@ impl StorageEventHandler {
             lock_lp_token_amount: current_order.lock_lp_token_amount.saturating_sub(event.lock_lp_token_amount),
             next_lp_sol_amount: current_order.next_lp_sol_amount,
             next_lp_token_amount: current_order.next_lp_token_amount,
+            // ⭐ margin_init_sol_amount 永远不变 (保持原始值)
+            // ⭐ margin_init_sol_amount never changes (keep original value)
             margin_init_sol_amount: current_order.margin_init_sol_amount,
-            // 被平掉部分的保证金 = 原保证金 - 新保证金
-            // Closed portion margin = old margin - new margin
-            margin_sol_amount: current_order.margin_sol_amount.saturating_sub(event.margin_sol_amount),
+            // ⭐ 修改: 被平掉部分的保证金 = 原保证金 - 新计算的保证金
+            // ⭐ Change: Closed portion margin = old margin - newly calculated margin
+            margin_sol_amount: current_order.margin_sol_amount.saturating_sub(new_margin_sol_amount),
             // 被平掉部分的借款 = 原借款 - 新借款
             // Closed portion borrow = old borrow - new borrow
             borrow_amount: current_order.borrow_amount.saturating_sub(event.borrow_amount),
@@ -698,8 +731,12 @@ impl StorageEventHandler {
             next_lp_sol_amount: None,  // 不更新 / Don't update
             next_lp_token_amount: None,  // 不更新 / Don't update
             end_time: Some(event.end_time),
-            margin_init_sol_amount: None,  // 不更新 / Don't update
-            margin_sol_amount: Some(event.margin_sol_amount),
+            // ⭐ margin_init_sol_amount 永远不更新
+            // ⭐ margin_init_sol_amount never updates
+            margin_init_sol_amount: None,
+            // ⭐ 核心修改: 使用计算后的新保证金，而不是事件中的值
+            // ⭐ Core change: Use calculated new margin, not the value from event
+            margin_sol_amount: Some(new_margin_sol_amount),
             borrow_amount: Some(event.borrow_amount),
             position_asset_amount: Some(event.position_asset_amount),
             borrow_fee: Some(event.borrow_fee),
@@ -710,8 +747,8 @@ impl StorageEventHandler {
         manager.update_order(event.order_index, event.order_id, &update_data)?;
 
         info!(
-            "✅ PartialCloseEvent 订单更新完成 / PartialCloseEvent order update completed: order_id={}, order_index={}",
-            event.order_id, event.order_index
+            "✅ PartialCloseEvent 订单更新完成 / PartialCloseEvent order update completed: order_id={}, order_index={}, new_margin={}",
+            event.order_id, event.order_index, new_margin_sol_amount
         );
 
         // 2. 再删除清算的订单 / Then delete liquidated orders
@@ -761,6 +798,87 @@ impl StorageEventHandler {
     }
 
     // ==================== 辅助方法 / Helper Methods ====================
+
+    /// 基于 lock_lp_token_amount 的比例计算新的 margin_sol_amount
+    /// Calculate new margin_sol_amount based on lock_lp_token_amount ratio
+    ///
+    /// # 参数 / Parameters
+    /// * `old_margin` - 当前保证金 / Current margin SOL amount
+    /// * `old_token` - 旧的持仓 token 数量 / Old lock_lp_token_amount
+    /// * `new_token` - 新的持仓 token 数量 / New lock_lp_token_amount
+    ///
+    /// # 返回值 / Returns
+    /// 计算后的新保证金,如果计算失败返回 None
+    /// Calculated new margin, or None if calculation fails
+    ///
+    /// # 算法 / Algorithm
+    /// ```text
+    /// 新保证金 = 原保证金 × (新token数量 / 旧token数量)
+    /// new_margin = old_margin × (new_token / old_token)
+    /// ```
+    ///
+    /// # 特殊情况处理 / Edge Cases
+    /// - 如果 old_token = 0: 返回 None (避免除零)
+    /// - 如果 new_token = 0: 返回 0 (仓位全平)
+    /// - 如果 new_token > old_token: 返回 None (异常情况,仓位不应增加)
+    /// - 如果计算结果 > u64::MAX: 返回 None (溢出)
+    fn calculate_margin_by_token_ratio(
+        old_margin: u64,
+        old_token: u64,
+        new_token: u64,
+    ) -> Option<u64> {
+        // 特殊情况1: 旧持仓为0,无法计算比例
+        if old_token == 0 {
+            warn!("⚠️  无法计算保证金比例: old_token = 0");
+            return None;
+        }
+
+        // 特殊情况2: 新持仓为0,保证金也为0
+        if new_token == 0 {
+            return Some(0);
+        }
+
+        // 特殊情况3: 新持仓大于旧持仓,异常情况
+        if new_token > old_token {
+            warn!(
+                "⚠️  异常: 新持仓 ({}) 大于旧持仓 ({}), 半平仓不应增加仓位",
+                new_token, old_token
+            );
+            return None;
+        }
+
+        // 转换为 Decimal 进行高精度计算 (使用默认28位精度)
+        let old_margin_dec = Decimal::from(old_margin);
+        let old_token_dec = Decimal::from(old_token);
+        let new_token_dec = Decimal::from(new_token);
+
+        // 计算比例: ratio = new_token / old_token
+        let ratio = new_token_dec / old_token_dec;
+
+        // 计算新保证金: new_margin = old_margin × ratio
+        let new_margin_dec = old_margin_dec * ratio;
+
+        // 舍入到最接近的整数 (使用银行家舍入)
+        let new_margin_rounded = new_margin_dec.round();
+
+        // 转换回 u64
+        match new_margin_rounded.to_u64() {
+            Some(value) => {
+                info!(
+                    "💰 保证金按比例计算 / Margin calculated by ratio: old_margin={}, old_token={}, new_token={}, ratio={}, new_margin={}",
+                    old_margin, old_token, new_token, ratio, value
+                );
+                Some(value)
+            }
+            None => {
+                error!(
+                    "❌ 保证金计算溢出 / Margin calculation overflow: old_margin={}, ratio={}, result={}",
+                    old_margin, ratio, new_margin_rounded
+                );
+                None
+            }
+        }
+    }
 
     /// 获取平仓前的价格(从 TokenStorage 获取上一次记录的价格)
     /// Get previous price before close (last recorded price from TokenStorage)
@@ -1092,4 +1210,106 @@ pub async fn process_buy_sell_with_liquidations(
     event_storage.store_events(&signature, all_events).await?;
 
     Ok(())
+}
+// ==================== 测试模块 / Test Module ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_margin_by_token_ratio_normal() {
+        // 正常场景: 平50% / Normal case: close 50%
+        let old_margin = 100_000_000_000_u64; // 100 SOL
+        let old_token = 1_000_000_000_u64;
+        let new_token = 500_000_000_u64;
+
+        let result = StorageEventHandler::calculate_margin_by_token_ratio(
+            old_margin, old_token, new_token
+        );
+
+        assert_eq!(result, Some(50_000_000_000)); // 50 SOL
+    }
+
+    #[test]
+    fn test_calculate_margin_by_token_ratio_precision() {
+        // 高精度测试: 复杂比例 / High precision test: complex ratio
+        let old_margin = 100_000_000_000_u64; // 100 SOL
+        let old_token = 1_000_000_u64;
+        let new_token = 666_667_u64; // 保留 66.6667%
+
+        let result = StorageEventHandler::calculate_margin_by_token_ratio(
+            old_margin, old_token, new_token
+        );
+
+        // 期望: 66.6667 SOL ≈ 66_666_700_000 lamports
+        assert!(result.is_some());
+        let value = result.unwrap();
+        // 允许一定的舍入误差
+        assert!(value >= 66_666_000_000 && value <= 66_667_000_000);
+    }
+
+    #[test]
+    fn test_calculate_margin_by_token_ratio_zero_old_token() {
+        // 边界: 旧持仓为0 / Edge case: old token = 0
+        let result = StorageEventHandler::calculate_margin_by_token_ratio(
+            100_000_000_000, 0, 50_000_000
+        );
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_calculate_margin_by_token_ratio_zero_new_token() {
+        // 边界: 新持仓为0 (全平) / Edge case: new token = 0 (full close)
+        let result = StorageEventHandler::calculate_margin_by_token_ratio(
+            100_000_000_000, 1_000_000, 0
+        );
+        assert_eq!(result, Some(0));
+    }
+
+    #[test]
+    fn test_calculate_margin_by_token_ratio_increase() {
+        // 异常: 新持仓大于旧持仓 / Abnormal: new token > old token
+        let result = StorageEventHandler::calculate_margin_by_token_ratio(
+            100_000_000_000, 500_000, 1_000_000
+        );
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_multiple_partial_close_sequence() {
+        // 模拟多次半平仓 / Simulate multiple partial closes
+        let mut margin = 100_000_000_000_u64; // 100 SOL
+        let mut token = 1_000_000_000_u64;
+
+        // 第一次平50% / First close: 50%
+        let new_token_1 = 500_000_000;
+        margin = StorageEventHandler::calculate_margin_by_token_ratio(
+            margin, token, new_token_1
+        ).unwrap();
+        assert_eq!(margin, 50_000_000_000); // 50 SOL
+        token = new_token_1;
+
+        // 第二次再平50% / Second close: 50% again
+        let new_token_2 = 250_000_000;
+        margin = StorageEventHandler::calculate_margin_by_token_ratio(
+            margin, token, new_token_2
+        ).unwrap();
+        assert_eq!(margin, 25_000_000_000); // 25 SOL
+        token = new_token_2;
+
+        // 第三次再平50% / Third close: 50% again
+        let new_token_3 = 125_000_000;
+        margin = StorageEventHandler::calculate_margin_by_token_ratio(
+            margin, token, new_token_3
+        ).unwrap();
+        assert_eq!(margin, 12_500_000_000); // 12.5 SOL
+        token = new_token_3;
+
+        // 第四次平光 / Fourth close: close all
+        margin = StorageEventHandler::calculate_margin_by_token_ratio(
+            margin, token, 0
+        ).unwrap();
+        assert_eq!(margin, 0);
+    }
 }
