@@ -961,15 +961,16 @@ impl StorageEventHandler {
         };
 
         // 生成键 / Generate key
-        // 键格式: orderbook_user_closed:{user}:{close_timestamp:010}:{mint}:{direction}:{order_id:020}
-        // Key format: orderbook_user_closed:{user}:{close_timestamp:010}:{mint}:{direction}:{order_id:020}
-        let close_key = format!(
-            "orderbook_user_closed:{}:{:010}:{}:{}:{:020}",
-            closed_portion.user,
+        // 使用统一的键生成函数,确保时间戳反转 / Use unified key generation function to ensure timestamp inversion
+        // 键格式: orderbook_user_closed:{user}:{inverted_timestamp:010}:{mint}:{direction}:{order_id:020}
+        // Key format: orderbook_user_closed:{user}:{inverted_timestamp:010}:{mint}:{direction}:{order_id:020}
+        use crate::orderbook::manager::OrderBookDBManager;
+        let close_key = OrderBookDBManager::closed_order_key(
+            &closed_portion.user,
             close_timestamp,
             mint,
             direction,
-            closed_portion.order_id
+            closed_portion.order_id,
         );
 
         // 序列化并保存到数据库 / Serialize and save to database

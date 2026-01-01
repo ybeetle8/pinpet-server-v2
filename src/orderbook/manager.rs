@@ -98,7 +98,7 @@ impl OrderBookDBManager {
     /// # 注意 / Note
     /// 使用 u32::MAX - timestamp 反转时间戳，使得 RocksDB 扫描时按时间倒序(最新→最旧)
     /// Uses u32::MAX - timestamp to invert, so RocksDB scan returns in reverse chronological order (newest→oldest)
-    fn closed_order_key(
+    pub fn closed_order_key(
         user_address: &str,
         close_timestamp: u32,
         mint: &str,

@@ -175,17 +175,19 @@ impl ClosedOrdersQuery {
             }
         }
 
-        // ✅ 修复排序: 反转结果以确保按 close_timestamp 降序
-        // ✅ Fix sorting: Reverse results to ensure descending order by close_timestamp
+        // ✅ 时间戳反转设计已修复 / Timestamp inversion design fixed
         //
-        // 虽然键设计上使用了反转时间戳 (u32::MAX - timestamp) 来实现倒序,
-        // 但实际测试发现 prefix_iterator 返回的顺序与预期相反。
-        // 在找到根本原因之前,先通过 reverse() 确保正确的排序。
+        // 根本原因: PartialClose 保存时没有使用反转时间戳,导致数据库键混乱
+        // Root cause: PartialClose was not using inverted timestamps, causing DB key disorder
         //
-        // Although the key design uses inverted timestamps (u32::MAX - timestamp) for reverse order,
-        // actual testing shows prefix_iterator returns the opposite order.
-        // Until root cause is found, use reverse() to ensure correct sorting.
-        records.reverse();
+        // 修复方案: 统一使用 OrderBookDBManager::closed_order_key() 函数保存所有 closed orders
+        // Fix: Unified use of OrderBookDBManager::closed_order_key() for all closed orders
+        //
+        // 现在所有数据都正确使用反转时间戳,RocksDB prefix_iterator 自动按时间降序返回
+        // Now all data uses inverted timestamps correctly, RocksDB prefix_iterator returns in descending order automatically
+        //
+        // 注意: 旧数据(修复前)仍然是错误的,需要数据迁移或清除重建
+        // Note: Old data (before fix) is still incorrect, requires migration or rebuild
 
         Ok(records)
     }
