@@ -2,7 +2,6 @@
 use crate::kline::types::{EventHistoryResponse, EventUpdateMessage, KlineHistoryResponse, KlineRealtimeData};
 use crate::solana::PinpetEvent;
 use anyhow::Result;
-use chrono::Utc;
 use std::sync::Arc;
 
 /// 价格精度常量 (23位小数) / Precision constant for u128 to f64 conversion (23 decimal places)
@@ -74,6 +73,19 @@ impl KlineDataProcessor {
         }
     }
 
+    /// 从事件获取时间戳 / Get timestamp from event
+    pub fn get_event_timestamp(event: &PinpetEvent) -> chrono::DateTime<chrono::Utc> {
+        match event {
+            PinpetEvent::TokenCreated(e) => e.timestamp,
+            PinpetEvent::BuySell(e) => e.timestamp,
+            PinpetEvent::LongShort(e) => e.timestamp,
+            PinpetEvent::FullClose(e) => e.timestamp,
+            PinpetEvent::PartialClose(e) => e.timestamp,
+            PinpetEvent::MilestoneDiscount(e) => e.timestamp,
+            PinpetEvent::Liquidate(e) => e.timestamp,
+        }
+    }
+
     /// 获取历史K线数据 / Get historical K-line data
     /// 从数据库查询已聚合的K线数据 / Query aggregated K-line data from database
     pub async fn get_kline_history(
@@ -140,11 +152,15 @@ impl KlineDataProcessor {
 
         let data: Vec<EventUpdateMessage> = events
             .into_iter()
-            .map(|event| EventUpdateMessage {
-                symbol: symbol.to_string(),
-                event_type: Self::get_event_type_name(&event),
-                event_data: event,
-                timestamp: Utc::now().timestamp_millis() as u64,
+            .map(|event| {
+                // 从事件本身获取时间戳并转换为毫秒级数字 / Get timestamp from event and convert to milliseconds
+                let event_timestamp_ms = Self::get_event_timestamp(&event).timestamp_millis() as u64;
+                EventUpdateMessage {
+                    symbol: symbol.to_string(),
+                    event_type: Self::get_event_type_name(&event),
+                    event_data: event,
+                    timestamp: event_timestamp_ms,
+                }
             })
             .collect();
 
