@@ -76,7 +76,7 @@ pub struct QueryByMintParams {
     #[serde(default = "default_page")]
     pub page: u32,
     /// 每页数量 / Page size
-    #[param(example = 20, minimum = 1, maximum = 100)]
+    #[param(example = 20, minimum = 1, maximum = 1000)]
     #[serde(default = "default_page_size")]
     pub page_size: u32,
     /// 排序方向 / Sort order
@@ -100,7 +100,7 @@ pub struct QueryByUserParams {
     #[serde(default = "default_page")]
     pub page: u32,
     /// 每页数量 / Page size
-    #[param(example = 20, minimum = 1, maximum = 100)]
+    #[param(example = 20, minimum = 1, maximum = 1000)]
     #[serde(default = "default_page_size")]
     pub page_size: u32,
     /// 排序方向 / Sort order
@@ -130,7 +130,7 @@ pub struct QueryUserTokenCreatedParams {
     #[serde(default = "default_page")]
     pub page: u32,
     /// 每页数量 / Page size
-    #[param(example = 20, minimum = 1, maximum = 100)]
+    #[param(example = 20, minimum = 1, maximum = 1000)]
     #[serde(default = "default_page_size")]
     pub page_size: u32,
     /// 排序方向 / Sort order (asc: 最早创建的在前, desc: 最新创建的在前)
@@ -160,7 +160,7 @@ pub struct QueryBySlotRangeParams {
     #[serde(default = "default_page")]
     pub page: u32,
     /// 每页数量 / Page size
-    #[param(example = 50, minimum = 1, maximum = 500)]
+    #[param(example = 50, minimum = 1, maximum = 1000)]
     #[serde(default = "default_slot_range_page_size")]
     pub page_size: u32,
     /// 排序方向（按 slot）/ Sort order (by slot)
