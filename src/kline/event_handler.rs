@@ -100,6 +100,10 @@ impl EventHandler for KlineEventHandler {
             // 即使内部处理失败,也继续进行K线推送 / Continue with K-line push even if inner handler fails
         }
 
+        // 🔧 等待数据库写入完成,避免竞态条件导致推送的K线开高低收相同
+        // 🔧 Wait for database write to complete, avoid race condition causing same OHLC in pushed kline
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+
         // 2. 填充 USD 价格并广播交易事件 (所有事件都推送)
         // 2. Fill USD price and broadcast trading event (all events are pushed)
         let mut event_with_usd = event.clone();
