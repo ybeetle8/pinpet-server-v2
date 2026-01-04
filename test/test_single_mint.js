@@ -7,7 +7,7 @@ const { io } = require('socket.io-client');
 
 // 配置 / Configuration
 const SERVER_URL = 'http://192.168.18.5:3000';
-const MINT_ADDRESS = '8a7TF1Wx6VBcgzeqBN7BFDNXDmBVUA9prcu9qGRrZ41n'; // 在这里填写要监听的 mint 地址 / Fill in the mint address to monitor here
+const MINT_ADDRESS = 'J6Z2XDGrGwkkxNpStA6RrGm5DbQVnt2AfWR1tfqodPet'; // 在这里填写要监听的 mint 地址 / Fill in the mint address to monitor here
 const INTERVAL = 's30'; // K线间隔 / K-line interval
 
 let socket = null;

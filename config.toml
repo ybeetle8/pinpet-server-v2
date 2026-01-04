@@ -27,6 +27,8 @@ max_background_jobs = 32
 
 [solana]
 # Solana节点配置 / Solana node configuration
+#rpc_url = "http://162.250.124.66:8899"
+#ws_url = "ws://162.250.124.66:8900"
 rpc_url = "http://192.168.18.5:8899"
 ws_url = "ws://192.168.18.5:8900"
 # 请替换为实际的Pinpet程序ID / Please replace with the actual Pinpet program ID

@@ -6,8 +6,9 @@
 const { io } = require('socket.io-client');
 const axios = require('axios');
 
-// 配置
-const SERVER_URL = 'http://192.168.18.5:3000';
+// 配置http://localhost:3000/kline
+//const SERVER_URL = 'http://192.168.18.5:3000';
+const SERVER_URL = 'http://localhost:3000';
 const INTERVAL = 's30'; // K线间隔，用于订阅但不显示K线数据
 
 let currentMint = null; 
