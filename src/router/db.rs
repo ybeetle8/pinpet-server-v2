@@ -172,6 +172,20 @@ pub struct QueryBySlotRangeParams {
     pub event_types: Option<String>,
 }
 
+/// 获取最近事件请求参数 / Get latest events request parameters
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct LatestEventsParams {
+    /// 返回事件数量，默认100，最大5000 / Number of events to return, default 100, max 5000
+    #[param(example = 100, minimum = 1, maximum = 5000)]
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+fn default_limit() -> usize {
+    100
+}
+
 /// Slot 范围查询响应 / Slot range query response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(title = "SlotRangeQueryResponse", description = "Slot 范围查询响应")]
@@ -249,6 +263,17 @@ pub struct PaginatedEvents {
 pub struct EventList {
     /// 事件列表 / Event list
     pub events: Vec<PinpetEvent>,
+}
+
+/// 最近事件响应 / Latest events response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(title = "LatestEventsResponse", description = "最近事件响应")]
+pub struct LatestEventsResponse {
+    /// 事件列表（按 slot 降序，最新在前）/ Event list (sorted by slot descending, newest first)
+    pub events: Vec<PinpetEvent>,
+    /// 实际返回数量 / Actual count returned
+    #[schema(example = 100)]
+    pub count: usize,
 }
 
 fn default_page() -> u32 { 1 }
@@ -611,6 +636,73 @@ pub async fn query_events_by_slot_range(
     }
 }
 
+/// 获取最近的事件 / Get latest events
+#[utoipa::path(
+    get,
+    path = "/db/events/latest",
+    tag = "events",
+    summary = "获取最近的事件 / Get latest events",
+    description = "获取最近发生的事件，按 slot 降序排列（最新在前）/ Get recently occurred events, sorted by slot descending (newest first)",
+    params(LatestEventsParams),
+    responses(
+        (status = 200, description = "成功 / Success",
+         body = crate::docs::ApiResponse<LatestEventsResponse>),
+        (status = 400, description = "参数错误 / Bad Request",
+         body = crate::docs::ErrorApiResponse,
+         example = json!({
+             "code": 400,
+             "msg": "Limit must be between 1 and 5000",
+             "data": null
+         })
+        ),
+        (status = 500, description = "服务器内部错误 / Internal Server Error",
+         body = crate::docs::ErrorApiResponse)
+    )
+)]
+pub async fn get_latest_events(
+    State(state): State<DbState>,
+    Query(params): Query<LatestEventsParams>,
+) -> ApiResult {
+    // 验证参数 / Validate parameters
+    if params.limit == 0 || params.limit > 5000 {
+        return Ok(ok_result::<LatestEventsResponse>(Err(
+            crate::util::result::ApiError::BadRequest(
+                "Limit must be between 1 and 5000".to_string()
+            ),
+        )));
+    }
+
+    // 创建事件存储 / Create event storage
+    let event_storage = match state.db.create_event_storage() {
+        Ok(storage) => storage,
+        Err(e) => {
+            return Ok(ok_result::<LatestEventsResponse>(Err(
+                crate::util::result::ApiError::InternalError(
+                    format!("创建事件存储失败 / Failed to create event storage: {}", e)
+                ),
+            )))
+        }
+    };
+
+    // 查询最近事件 / Query latest events
+    let result = event_storage.get_latest_events(params.limit).await;
+
+    match result {
+        Ok(events) => {
+            let count = events.len();
+            Ok(ok_result::<LatestEventsResponse>(Ok(LatestEventsResponse {
+                events,
+                count,
+            })))
+        }
+        Err(e) => Ok(ok_result::<LatestEventsResponse>(Err(
+            crate::util::result::ApiError::InternalError(
+                format!("查询最近事件失败 / Failed to query latest events: {}", e)
+            ),
+        ))),
+    }
+}
+
 /// 创建数据库路由
 pub fn routes() -> Router<DbState> {
     Router::new()
@@ -622,4 +714,5 @@ pub fn routes() -> Router<DbState> {
         .route("/db/events/by_signature", get(query_events_by_signature))
         .route("/db/events/user_token_created", get(query_user_token_created))
         .route("/db/events/by_slot_range", get(query_events_by_slot_range))
+        .route("/db/events/latest", get(get_latest_events))
 }

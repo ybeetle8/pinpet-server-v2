@@ -933,6 +933,61 @@ impl EventStorage {
     ) -> Result<Option<crate::kline::types::KlineData>> {
         self.kline_storage.get_kline_by_time(mint, interval, time).await
     }
+
+    /// 获取最近的事件 / Get latest events
+    ///
+    /// 通过倒序扫描主键 `event:` 前缀获取最新的事件
+    /// Retrieves latest events by reverse scanning the `event:` prefix
+    ///
+    /// # Arguments
+    /// * `limit` - 返回的最大事件数量（1-5000）/ Maximum number of events to return (1-5000)
+    ///
+    /// # Returns
+    /// 按 slot 降序排列的事件列表（最新的在前）/ Event list sorted by slot in descending order (newest first)
+    pub async fn get_latest_events(&self, limit: usize) -> Result<Vec<PinpetEvent>> {
+        // 限制最大值 / Limit maximum value
+        let limit = limit.min(5000);
+
+        // 创建倒序迭代器 / Create reverse iterator
+        let db = Arc::clone(&self.db);
+        let events = tokio::task::spawn_blocking(move || {
+            let mut result = Vec::with_capacity(limit);
+            let iter = db.iterator(IteratorMode::End);
+
+            // 倒序遍历 / Reverse iteration
+            for item in iter {
+                if result.len() >= limit {
+                    break;
+                }
+
+                let (key, value) = match item {
+                    Ok(kv) => kv,
+                    Err(e) => {
+                        tracing::error!("迭代器错误 / Iterator error: {}", e);
+                        continue;
+                    }
+                };
+
+                // 检查键前缀 / Check key prefix
+                if !key.starts_with(b"event:") {
+                    continue;
+                }
+
+                // 反序列化事件 / Deserialize event
+                match serde_json::from_slice::<PinpetEvent>(&value) {
+                    Ok(event) => result.push(event),
+                    Err(e) => {
+                        tracing::error!("反序列化事件失败 / Failed to deserialize event: {}", e);
+                        continue;
+                    }
+                }
+            }
+
+            result
+        }).await?;
+
+        Ok(events)
+    }
 }
 
 /// 数据库统计信息 / Database statistics
