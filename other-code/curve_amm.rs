@@ -14,8 +14,10 @@ pub struct CurveAMM;
 
 impl CurveAMM {
 
-    pub const INITIAL_SOL_RESERVE_DECIMAL: Decimal = Decimal::from_parts(30, 0, 0, false, 0);
-    pub const INITIAL_TOKEN_RESERVE_DECIMAL: Decimal = Decimal::from_parts(1073000000, 0, 0, false, 0);
+    // ============ 已废弃：改为从 BorrowingBondingCurve 读取 ============
+    // 这两个常量已不再使用，注释掉避免误用
+    // pub const INITIAL_SOL_RESERVE_DECIMAL: Decimal = Decimal::from_parts(30, 0, 0, false, 0);
+    // pub const INITIAL_TOKEN_RESERVE_DECIMAL: Decimal = Decimal::from_parts(1073000000, 0, 0, false, 0);
     //pub const INITIAL_K_DECIMAL: Decimal = Decimal::from_parts(2125228928, 7, 0, false, 0);
     /// 可以出现的最小价格，低于这个价格，可能溢出
     pub const INITIAL_MIN_PRICE_DECIMAL: Decimal = Decimal::from_parts(1, 0, 0, false, 9);
@@ -38,11 +40,11 @@ impl CurveAMM {
     /// SOL精度因子的Decimal表示 = 1000000000
     pub const SOL_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(1000000000, 0, 0, false, 0);
 
-    /// u64 的极大值 用来分配无限流动性等
-    pub const MAX_U64: u64 = 3046744073709551614;
+    /// 最大虚拟流动性极值
+    pub const MAX_VIRTUAL_LIQUIDITY: u64 = 3000000000000000000;
 
-    /// AMM价格计算上限 - 防止 Decimal 运算溢出/panic
-    pub const PRICE_CALCULATION_LIMIT: u128 = 50_000_000_000_000_000_000_000_000_000_000;
+    /// AMM价格计算上限 - 防止 Decimal 运算溢出/panic  (几呼不可能达到的价格)
+    pub const PRICE_CALCULATION_LIMIT: u128 = 70_000_000_000_000_000_000_000_000_000;
 
 
     /// 将u128价格转换为Decimal
@@ -136,57 +138,88 @@ impl CurveAMM {
         amount_decimal.checked_div(Self::SOL_PRECISION_FACTOR_DECIMAL)
     }
 
-    /// 计算初始k值
-    /// 
+    // ============ 已废弃：删除此函数 ============
+    // 改用 calculate_k_from_reserves 函数，从池子参数动态计算 k 值
+    // pub fn calculate_initial_k() -> Decimal {
+    //     Self::INITIAL_SOL_RESERVE_DECIMAL * Self::INITIAL_TOKEN_RESERVE_DECIMAL
+    // }
+
+    /// 根据初始储备量计算 k 值（Decimal 版本）
+    ///
+    /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (lamports, 9位精度)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (最小单位, 9位精度)
+    ///
     /// # 返回值
-    /// * `Decimal` - 初始储备量的乘积k值
+    /// * `Option<Decimal>` - 成功返回 k 值，失败返回 None
+    ///
+    /// # 计算公式
+    /// k = (sol / 10^9) * (token / 10^9)
     #[inline(always)]
-    pub fn calculate_initial_k() -> Decimal {
-        Self::INITIAL_SOL_RESERVE_DECIMAL * Self::INITIAL_TOKEN_RESERVE_DECIMAL
-        //Self::INITIAL_K_DECIMAL
+    pub fn calculate_k_from_reserves(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
+    ) -> Option<Decimal> {
+        // 转换为 Decimal
+        let sol_decimal = Self::u64_to_sol_decimal(initial_virtual_sol)?;
+        let token_decimal = Self::u64_to_token_decimal(initial_virtual_token)?;
+
+        // 计算 k = sol * token
+        sol_decimal.checked_mul(token_decimal)
     }
 
     /// 获取初始价格（1个token兑换的SOL数量）
-    /// 
+    ///
+    /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量
+    /// * `initial_virtual_token` - 初始虚拟Token储备量
+    ///
     /// # 返回值
     /// * `Option<u128>` - 以u128表示的初始价格，如果计算失败则返回None
-    /// 初始价格: 279,589,934,762,348,555,452
-    /// 10倍价格: 2,795,899,347,623,485,554,520
-    /// 100倍价格: 27,958,993,476,234,855,545,200
-    /// 1000倍价格: 279,589,934,762,348,555,452,000
     #[inline(always)]
-    pub fn get_initial_price() -> Option<u128> {
-        // 计算初始价格 = 初始SOL储备 / 初始Token储备
-        let initial_price = Self::INITIAL_SOL_RESERVE_DECIMAL.checked_div(Self::INITIAL_TOKEN_RESERVE_DECIMAL)?;
-        
+    pub fn get_initial_price(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
+    ) -> Option<u128> {
+        // 转换为 Decimal
+        let sol_decimal = Self::u64_to_sol_decimal(initial_virtual_sol)?;
+        let token_decimal = Self::u64_to_token_decimal(initial_virtual_token)?;
+
+        // 计算初始价格 = SOL储备 / Token储备
+        let initial_price = sol_decimal.checked_div(token_decimal)?;
+
         // 转换为u128格式
         Self::decimal_to_u128(initial_price)
     }
 
     /// 计算从低价到高价购买token需要的SOL和获得的token数量
-    /// 
+    ///
     /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (池子参数)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (池子参数)
     /// * `start_low_price` - 开始价格（较低）
     /// * `end_high_price` - 目标价格（较高）
-    /// 
+    ///
     /// # 返回值
     /// * `Option<(u64, u64)>` - 成功则返回Some((需要投入的SOL数量, 能获得的token数量))，失败则返回None
     /// SOL数量以9位精度表示，四舍五入；token数量以6位精度表示，四舍五入
     pub fn buy_from_price_to_price(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
         start_low_price: u128,
         end_high_price: u128,
     ) -> Option<(u64, u64)> {
         // 转换为Decimal进行计算
         let start_price_dec = Self::u128_to_decimal(start_low_price)?;
         let end_price_dec = Self::u128_to_decimal(end_high_price)?;
-        
+
         // 确保起始价格低于结束价格
         if start_price_dec >= end_price_dec {
             return None;
         }
-        
-        // 使用初始k值
-        let k = Self::calculate_initial_k();
+
+        // 使用池子参数计算 k 值
+        let k = Self::calculate_k_from_reserves(initial_virtual_sol, initial_virtual_token)?;
         
         // 计算起始和结束状态的储备量
         let (start_sol_reserve, start_token_reserve) = Self::calculate_reserves_by_price(start_price_dec, k)?;
@@ -213,29 +246,33 @@ impl CurveAMM {
     }
     
     /// 计算从高价到低价出售token能获得的SOL数量
-    /// 
+    ///
     /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (池子参数)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (池子参数)
     /// * `start_high_price` - 开始价格（较高）
     /// * `end_low_price` - 目标价格（较低）
-    /// 
+    ///
     /// # 返回值
     /// * `Option<(u64, u64)>` - 成功则返回Some((需要出售的token数量, 获得的SOL数量))，失败则返回None
-    /// token数量以6位精度表示，四舍五入；SOL数量以9位精度表示，四舍五入 
+    /// token数量以6位精度表示，四舍五入；SOL数量以9位精度表示，四舍五入
     pub fn sell_from_price_to_price(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
         start_high_price: u128,
         end_low_price: u128,
     ) -> Option<(u64, u64)> {
         // 转换为Decimal进行计算
         let start_price_dec = Self::u128_to_decimal(start_high_price)?;
         let end_price_dec = Self::u128_to_decimal(end_low_price)?;
-        
+
         // 确保起始价格高于结束价格
         if start_price_dec <= end_price_dec {
             return None;
         }
-        
-        // 使用初始k值
-        let k = Self::calculate_initial_k();
+
+        // 使用池子参数计算 k 值
+        let k = Self::calculate_k_from_reserves(initial_virtual_sol, initial_virtual_token)?;
         
         // 计算起始和结束状态的储备量
         let (start_sol_reserve, start_token_reserve) = Self::calculate_reserves_by_price(start_price_dec, k)?;
@@ -279,19 +316,25 @@ impl CurveAMM {
     }
 
     /// 根据价格计算储备量 (u64接口)
-    /// 
+    ///
     /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (池子参数，放在最前面)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (池子参数，放在最前面)
     /// * `price` - 价格(u128格式，1 token 换多少 SOL)
-    /// 
+    ///
     /// # 返回值
     /// * `Option<(u64, u64)>` - 成功则返回Some((SOL储备, token储备))，失败则返回None
     /// SOL和token数量都使用四舍五入转换
-    pub fn price_to_reserves(price: u128) -> Option<(u64, u64)> {
+    pub fn price_to_reserves(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
+        price: u128,
+    ) -> Option<(u64, u64)> {
         // 1. 将 u128 价格转换为 Decimal
         let price_decimal = Self::u128_to_decimal(price)?;
-        
-        // 2. 获取 k 值（使用 calculate_initial_k）
-        let k = Self::calculate_initial_k();
+
+        // 2. 使用池子参数计算 k 值
+        let k = Self::calculate_k_from_reserves(initial_virtual_sol, initial_virtual_token)?;
         
         // 3. 调用现有函数计算储备量
         let (sol_reserve_decimal, token_reserve_decimal) = Self::calculate_reserves_by_price(price_decimal, k)?;
@@ -347,29 +390,33 @@ impl CurveAMM {
 
     
     /// 基于起始价格和SOL输入量计算token输出量和结束价格
-    /// 
+    ///
     /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (池子参数)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (池子参数)
     /// * `start_low_price` - 开始价格（较低）
     /// * `sol_input_amount` - 买入用的SOL数量
-    /// 
+    ///
     /// # 返回值
     /// * `Option<(u128, u64)>` - 成功则返回Some((交易完成后的价格, 得到的token数量))，失败则返回None
     /// 价格向下取整，token数量四舍五入
     pub fn buy_from_price_with_sol_input(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
         start_low_price: u128,
         sol_input_amount: u64,
     ) -> Option<(u128, u64)> {
         // 转换为Decimal进行计算
         let start_price_dec = Self::u128_to_decimal(start_low_price)?;
         let sol_input_dec = Self::u64_to_sol_decimal(sol_input_amount)?;
-        
+
         // 检查输入参数是否有效
         if start_price_dec <= Decimal::ZERO || sol_input_dec <= Decimal::ZERO {
             return None;
         }
-        
-        // 使用初始k值
-        let k = Self::calculate_initial_k();
+
+        // 使用池子参数计算 k 值
+        let k = Self::calculate_k_from_reserves(initial_virtual_sol, initial_virtual_token)?;
         
         // 计算起始状态的储备量
         let (start_sol_reserve, start_token_reserve) = Self::calculate_reserves_by_price(start_price_dec, k)?;
@@ -399,29 +446,33 @@ impl CurveAMM {
     }
 
     /// 基于起始价格和token输入量计算SOL输出量和结束价格
-    /// 
+    ///
     /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (池子参数)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (池子参数)
     /// * `start_high_price` - 开始价格（较高）
-    /// * `token_input_amount` - 卖出的token数量 
-    /// 
+    /// * `token_input_amount` - 卖出的token数量
+    ///
     /// # 返回值
     /// * `Option<(u128, u64)>` - 成功则返回Some((交易完成后的价格, 得到的SOL数量))，失败则返回None
     /// 价格向下取整，SOL数量四舍五入
     pub fn sell_from_price_with_token_input(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
         start_high_price: u128,
         token_input_amount: u64,
     ) -> Option<(u128, u64)> {
         // 转换为Decimal进行计算
         let start_price_dec = Self::u128_to_decimal(start_high_price)?;
         let token_input_dec = Self::u64_to_token_decimal(token_input_amount)?;
-        
+
         // 检查输入参数是否有效
         if start_price_dec <= Decimal::ZERO || token_input_dec <= Decimal::ZERO {
             return None;
         }
-        
-        // 使用初始k值
-        let k = Self::calculate_initial_k();
+
+        // 使用池子参数计算 k 值
+        let k = Self::calculate_k_from_reserves(initial_virtual_sol, initial_virtual_token)?;
         
         // 计算起始状态的储备量
         let (start_sol_reserve, start_token_reserve) = Self::calculate_reserves_by_price(start_price_dec, k)?;
@@ -451,29 +502,33 @@ impl CurveAMM {
     }
 
     /// 基于起始价格和期望token输出量计算需要的SOL输入量和结束价格
-    /// 
+    ///
     /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (池子参数)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (池子参数)
     /// * `start_low_price` - 开始价格（较低）
     /// * `token_output_amount` - 希望得到的token数量
-    /// 
+    ///
     /// # 返回值
     /// * `Option<(u128, u64)>` - 成功则返回Some((交易完成后的价格, 需要付出的SOL数量))，失败则返回None
     /// 价格向下取整，SOL数量四舍五入
     pub fn buy_from_price_with_token_output(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
         start_low_price: u128,
         token_output_amount: u64,
     ) -> Option<(u128, u64)> {
         // 转换为Decimal进行计算
         let start_price_dec = Self::u128_to_decimal(start_low_price)?;
         let token_output_dec = Self::u64_to_token_decimal(token_output_amount)?;
-        
+
         // 检查输入参数是否有效
         if start_price_dec <= Decimal::ZERO || token_output_dec <= Decimal::ZERO {
             return None;
         }
-        
-        // 使用初始k值
-        let k = Self::calculate_initial_k();
+
+        // 使用池子参数计算 k 值
+        let k = Self::calculate_k_from_reserves(initial_virtual_sol, initial_virtual_token)?;
         
         // 计算起始状态的储备量
         let (start_sol_reserve, start_token_reserve) = Self::calculate_reserves_by_price(start_price_dec, k)?;
@@ -508,29 +563,33 @@ impl CurveAMM {
     }
 
     /// 基于起始价格和期望SOL输出量计算需要的token输入量和结束价格
-    /// 
+    ///
     /// # 参数
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 (池子参数)
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 (池子参数)
     /// * `start_high_price` - 开始价格（较高）
     /// * `sol_output_amount` - 希望得到的SOL数量
-    /// 
+    ///
     /// # 返回值
     /// * `Option<(u128, u64)>` - 成功则返回Some((交易完成后的价格, 需要付出的token数量))，失败则返回None
     /// 价格向下取整，token数量四舍五入
     pub fn sell_from_price_with_sol_output(
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
         start_high_price: u128,
         sol_output_amount: u64,
     ) -> Option<(u128, u64)> {
         // 转换为Decimal进行计算
         let start_price_dec = Self::u128_to_decimal(start_high_price)?;
         let sol_output_dec = Self::u64_to_sol_decimal(sol_output_amount)?;
-        
+
         // 检查输入参数是否有效
         if start_price_dec <= Decimal::ZERO || sol_output_dec <= Decimal::ZERO {
             return None;
         }
-        
-        // 使用初始k值
-        let k = Self::calculate_initial_k();
+
+        // 使用池子参数计算 k 值
+        let k = Self::calculate_k_from_reserves(initial_virtual_sol, initial_virtual_token)?;
         
         // 计算起始状态的储备量
         let (start_sol_reserve, start_token_reserve) = Self::calculate_reserves_by_price(start_price_dec, k)?;
