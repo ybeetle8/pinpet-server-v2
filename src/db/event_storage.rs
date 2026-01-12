@@ -1146,25 +1146,45 @@ async fn enrich_token_created_event_with_stats(
 
     // 附加 mc 和 usd_price (设置到顶层字段) / Attach mc and usd_price (set to top-level fields)
     if let Ok(price_u128) = event.latest_price.to_string().parse::<u128>() {
-        let price_decimal = Decimal::from(price_u128);
         let sol_price = price_service.get_price_sync();
 
-        // 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
-        // mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
-        let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
-        let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
+        // ✅ 使用 u128_to_decimal 检查价格是否在安全范围内
+        if let Some(normalized_price) = crate::curve_amm::CurveAMM::u128_to_decimal(price_u128) {
+            if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
+                // 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
+                if let Some(token_value) = normalized_price.checked_mul(crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL) {
+                    if let Some(mc_decimal) = token_value.checked_mul(sol_price_decimal) {
+                        event.mc = Some(format!("{:.2}", mc_decimal));
 
-        if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
-            let mc_decimal = token_value * sol_price_decimal;
-            event.mc = Some(format!("{:.2}", mc_decimal));
+                        // 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
+                        let price_decimal = Decimal::from(price_u128);
+                        if let Some(usd_price_decimal) = price_decimal.checked_mul(sol_price_decimal) {
+                            event.usd_price = Some(usd_price_decimal.trunc().to_string());
 
-            // 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
-            // usd_price = latest_price * sol_price
-            let usd_price_decimal = price_decimal * sol_price_decimal;
-            event.usd_price = Some(usd_price_decimal.trunc().to_string());
-
-            info!("附加 mc 和 usd_price / Attached mc and usd_price for {}: mc={:.2}, usd_price={}",
-                  mint, mc_decimal, usd_price_decimal.trunc());
+                            info!("附加 mc 和 usd_price / Attached mc and usd_price for {}: mc={:.2}, usd_price={}",
+                                  mint, mc_decimal, usd_price_decimal.trunc());
+                        } else {
+                            warn!("USD price 计算溢出 / USD price calculation overflow for {}", mint);
+                            event.usd_price = Some("overflow".to_string());
+                        }
+                    } else {
+                        warn!("MC 计算溢出 / MC calculation overflow for {}", mint);
+                        event.mc = Some("overflow".to_string());
+                        event.usd_price = Some("overflow".to_string());
+                    }
+                } else {
+                    warn!("Token value 计算溢出 / Token value calculation overflow for {}", mint);
+                    event.mc = Some("overflow".to_string());
+                    event.usd_price = Some("overflow".to_string());
+                }
+            }
+        } else {
+            warn!(
+                "价格超出安全范围 / Price exceeds safe limit: mint={}, price={}",
+                mint, price_u128
+            );
+            event.mc = Some("too_high".to_string());
+            event.usd_price = Some("too_high".to_string());
         }
     }
 

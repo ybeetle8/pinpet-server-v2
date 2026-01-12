@@ -457,26 +457,45 @@ pub struct TokenStatsResponse {
 fn to_search_result(detail: &crate::db::TokenDetail, sol_price: f64) -> TokenSearchResult {
     use rust_decimal::Decimal;
     use rust_decimal::prelude::FromPrimitive;
-    use std::str::FromStr;
 
     let mut mc = "0.00".to_string();
     let mut usd_price = "0".to_string();
 
     // 计算 mc 和 usd_price / Calculate mc and usd_price
     if let Ok(price_u128) = detail.latest_price.parse::<u128>() {
-        if let Ok(price_decimal) = Decimal::from_str(&price_u128.to_string()) {
+        // ✅ 使用 u128_to_decimal 检查价格是否在安全范围内
+        if let Some(normalized_price) = crate::curve_amm::CurveAMM::u128_to_decimal(price_u128) {
             if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
                 // 1. 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
-                let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
-                let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
-                let mc_decimal = token_value * sol_price_decimal;
-                mc = format!("{:.2}", mc_decimal);
+                if let Some(token_value) = normalized_price.checked_mul(crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL) {
+                    if let Some(mc_decimal) = token_value.checked_mul(sol_price_decimal) {
+                        mc = format!("{:.2}", mc_decimal);
+                    } else {
+                        tracing::warn!("MC 计算溢出 / MC calculation overflow for token: {}", detail.mint_account);
+                        mc = "overflow".to_string();
+                    }
+                } else {
+                    tracing::warn!("Token value 计算溢出 / Token value calculation overflow for token: {}", detail.mint_account);
+                    mc = "overflow".to_string();
+                }
 
                 // 2. 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
-                let usd_price_decimal = price_decimal * sol_price_decimal;
-                // 转换为字符串(整数形式,去掉小数部分) / Convert to string (integer form, remove decimal part)
-                usd_price = usd_price_decimal.trunc().to_string();
+                let price_decimal = Decimal::from(price_u128);
+                if let Some(usd_price_decimal) = price_decimal.checked_mul(sol_price_decimal) {
+                    // 转换为字符串(整数形式,去掉小数部分) / Convert to string (integer form, remove decimal part)
+                    usd_price = usd_price_decimal.trunc().to_string();
+                } else {
+                    tracing::warn!("USD price 计算溢出 / USD price calculation overflow for token: {}", detail.mint_account);
+                    usd_price = "overflow".to_string();
+                }
             }
+        } else {
+            tracing::warn!(
+                "价格超出安全范围 / Price exceeds safe limit: token={}, price={}",
+                detail.mint_account, price_u128
+            );
+            mc = "too_high".to_string();
+            usd_price = "too_high".to_string();
         }
     }
 
@@ -650,23 +669,39 @@ fn enrich_token_with_prices(token: &mut crate::db::TokenDetail, sol_price: f64) 
 
     // 解析 latest_price / Parse latest_price
     if let Ok(price_u128) = token.latest_price.parse::<u128>() {
-        // 直接从 u128 创建 Decimal,而不是先转为字符串
-        let price_decimal = Decimal::from(price_u128);
+        // ✅ 使用 u128_to_decimal 检查价格是否在安全范围内
+        if let Some(normalized_price) = crate::curve_amm::CurveAMM::u128_to_decimal(price_u128) {
+            if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
+                // 1. 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
+                if let Some(token_value) = normalized_price.checked_mul(crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL) {
+                    if let Some(mc_decimal) = token_value.checked_mul(sol_price_decimal) {
+                        token.mc = Some(format!("{:.2}", mc_decimal));
+                    } else {
+                        tracing::warn!("MC 计算溢出 / MC calculation overflow for token: {}", token.mint_account);
+                        token.mc = Some("overflow".to_string());
+                    }
+                } else {
+                    tracing::warn!("Token value 计算溢出 / Token value calculation overflow for token: {}", token.mint_account);
+                    token.mc = Some("overflow".to_string());
+                }
 
-        // 1. 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
-        // mc = (latest_price / PRICE_PRECISION) * INITIAL_TOKEN_RESERVE * sol_price
-        let normalized_price = price_decimal / crate::curve_amm::CurveAMM::PRICE_PRECISION_FACTOR_DECIMAL;
-        let token_value = normalized_price * crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL;
-
-        if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
-            let mc_decimal = token_value * sol_price_decimal;
-            token.mc = Some(format!("{:.2}", mc_decimal));
-
-            // 2. 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
-            // usd_price = latest_price * sol_price
-            let usd_price_decimal = price_decimal * sol_price_decimal;
-            // 转换为字符串(整数形式,去掉小数部分) / Convert to string (integer form, remove decimal part)
-            token.usd_price = Some(usd_price_decimal.trunc().to_string());
+                // 2. 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
+                let price_decimal = Decimal::from(price_u128);
+                if let Some(usd_price_decimal) = price_decimal.checked_mul(sol_price_decimal) {
+                    // 转换为字符串(整数形式,去掉小数部分) / Convert to string (integer form, remove decimal part)
+                    token.usd_price = Some(usd_price_decimal.trunc().to_string());
+                } else {
+                    tracing::warn!("USD price 计算溢出 / USD price calculation overflow for token: {}", token.mint_account);
+                    token.usd_price = Some("overflow".to_string());
+                }
+            }
+        } else {
+            tracing::warn!(
+                "价格超出安全范围 / Price exceeds safe limit: token={}, price={}",
+                token.mint_account, price_u128
+            );
+            token.mc = Some("too_high".to_string());
+            token.usd_price = Some("too_high".to_string());
         }
     }
 }

@@ -45,7 +45,9 @@ impl CurveAMM {
     pub const MAX_U64: u64 = 3046744073709551614;
 
     /// AMM价格计算上限 - 防止 Decimal 运算溢出/panic
-    pub const PRICE_CALCULATION_LIMIT: u128 = 50_000_000_000_000_000_000_000_000_000_000;
+    /// 设置为 3×10^26,确保 price × sol_price ≤ 6×10^28 < Decimal::MAX (7.9×10^28)
+    pub const PRICE_CALCULATION_LIMIT: u128 = 50_000_000_000_000_000_000_000_000_000_0;
+    //300_000_000_000_000_000_000_000_000; // 3×10^26
 
 
     /// 将u128价格转换为Decimal
