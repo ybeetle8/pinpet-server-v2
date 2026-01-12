@@ -21,6 +21,8 @@ impl VolumeStorage {
     ///
     /// # 参数 / Parameters
     /// * `mint` - Token mint 地址 / Token mint address
+    /// * `initial_virtual_sol` - 初始虚拟SOL储备量 / Initial virtual SOL reserve
+    /// * `initial_virtual_token` - 初始虚拟Token储备量 / Initial virtual Token reserve
     /// * `price_before` - 变动前的价格 / Price before change
     /// * `price_after` - 变动后的价格 / Price after change
     /// * `sol_price_usd` - SOL/USD 汇率 / SOL to USD exchange rate
@@ -28,15 +30,17 @@ impl VolumeStorage {
     pub fn update_volume(
         &self,
         mint: &str,
+        initial_virtual_sol: u64,
+        initial_virtual_token: u64,
         price_before: u128,
         price_after: u128,
         sol_price_usd: f64,
         timestamp: u64,
     ) -> Result<()> {
-        // 1. 计算 SOL 储备变化 / Calculate SOL reserve change
-        let (sol_reserve_before, _) = CurveAMM::price_to_reserves(price_before)
+        // 1. 计算 SOL 储备变化,使用动态池子参数 / Calculate SOL reserve change using dynamic pool parameters
+        let (sol_reserve_before, _) = CurveAMM::price_to_reserves(initial_virtual_sol, initial_virtual_token, price_before)
             .context("Failed to calculate reserves before")?;
-        let (sol_reserve_after, _) = CurveAMM::price_to_reserves(price_after)
+        let (sol_reserve_after, _) = CurveAMM::price_to_reserves(initial_virtual_sol, initial_virtual_token, price_after)
             .context("Failed to calculate reserves after")?;
 
         // 2. 计算绝对值差额 / Calculate absolute difference

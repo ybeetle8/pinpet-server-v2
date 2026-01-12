@@ -53,6 +53,28 @@ pub struct TokenDetail {
     pub up_orderbook: String,               // 做空订单簿地址 / Short orderbook address
     pub down_orderbook: String,             // 做多订单簿地址 / Long orderbook address
 
+    // ============ 第一阶段:动态流动池参数 / Phase 1: Dynamic Liquidity Pool Parameters ============
+    /// 初始虚拟SOL储备量 (lamports, 9位精度, 默认30 SOL)
+    /// Initial virtual SOL reserve amount (lamports, 9 decimal places, default 30 SOL)
+    #[serde(default = "default_initial_virtual_sol")]
+    pub initial_virtual_sol: u64,
+
+    /// 初始虚拟Token储备量 (最小单位, 9位精度, 默认10.73亿Token)
+    /// Initial virtual Token reserve amount (smallest unit, 9 decimal places, default 1.073 billion Token)
+    #[serde(default = "default_initial_virtual_token")]
+    pub initial_virtual_token: u64,
+
+    // ============ 第二阶段:高级版池子参数 / Phase 2: Advanced Pool Parameters ============
+    /// 池子类型: 0=普通版(默认参数+支持手续费减半), 1=高级版(自定义参数+手续费永不减半)
+    /// Pool type: 0=Normal version(default params+supports fee discount), 1=Advanced version(custom params+no fee discount)
+    #[serde(default)]
+    pub pool_type: u8,
+
+    /// 借贷池代币占比(5-30代表5%-30%, 普通版固定20, 仅用于信息展示)
+    /// Borrow pool token ratio(5-30 represents 5%-30%, fixed at 20 for normal version, informational only)
+    #[serde(default = "default_borrow_pool_ratio")]
+    pub borrow_pool_ratio: u8,
+
     // ===== 价格信息 / Price Info =====
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mc: Option<String>,                 // 市值(美元,格式化,2位小数) / Market cap (USD, formatted, 2 decimals)
@@ -76,6 +98,25 @@ pub struct TokenDetail {
     // ===== 扩展字段 / Extension Fields =====
     #[serde(default)]
     pub extras: HashMap<String, Value>,     // 预留扩展字段 / Reserved extension fields
+}
+
+// ===== 默认值函数 / Default value functions =====
+/// 默认初始虚拟SOL储备量: 30 SOL
+/// Default initial virtual SOL reserve: 30 SOL
+fn default_initial_virtual_sol() -> u64 {
+    30_000_000_000 // 30 SOL
+}
+
+/// 默认初始虚拟Token储备量: 10.73亿 Token
+/// Default initial virtual Token reserve: 1.073 billion Token
+fn default_initial_virtual_token() -> u64 {
+    1_073_000_000_000_000_000 // 10.73亿 Token / 1.073 billion Token
+}
+
+/// 默认借贷池代币占比: 20%
+/// Default borrow pool token ratio: 20%
+fn default_borrow_pool_ratio() -> u8 {
+    20 // 20%
 }
 
 /// Token URI 元数据 / Token URI metadata
@@ -169,6 +210,13 @@ impl TokenStorage {
             uri: event.uri.clone(),
             up_orderbook: event.up_orderbook.clone(),
             down_orderbook: event.down_orderbook.clone(),
+
+            // ============ 新增字段赋值 / New field assignments ============
+            initial_virtual_sol: event.initial_virtual_sol,
+            initial_virtual_token: event.initial_virtual_token,
+            pool_type: event.pool_type,
+            borrow_pool_ratio: event.borrow_pool_ratio,
+
             mc: None,  // 将在查询时计算 / Will be calculated on query
             latest_price: event.latest_price.to_string(),
             usd_price: None,  // 将在查询时计算 / Will be calculated on query

@@ -992,23 +992,38 @@ impl StorageEventHandler {
     fn update_volume_statistics(&self, event: &PinpetEvent) -> anyhow::Result<()> {
         use crate::curve_amm::CurveAMM;
 
-        // 提取事件信息 / Extract event info
-        let (mint, price_after, timestamp) = match event {
-            PinpetEvent::TokenCreated(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::BuySell(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::LongShort(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::FullClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::PartialClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::MilestoneDiscount(_) | PinpetEvent::Liquidate(_) => {
-                // 这两个事件不包含价格变动,不更新交易额 / These events don't contain price changes, skip volume update
-                return Ok(());
+        // 提取事件信息和动态池子参数 / Extract event info and dynamic pool parameters
+        let (mint, price_after, timestamp, initial_virtual_sol, initial_virtual_token) = match event {
+            PinpetEvent::TokenCreated(e) => {
+                (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64, e.initial_virtual_sol, e.initial_virtual_token)
+            },
+            _ => {
+                // 非 TokenCreated 事件需要从数据库获取 token 参数 / Non-TokenCreated events need to fetch token params from database
+                let (mint_str, price, ts) = match event {
+                    PinpetEvent::BuySell(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::LongShort(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::FullClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::PartialClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::MilestoneDiscount(_) | PinpetEvent::Liquidate(_) => {
+                        // 这两个事件不包含价格变动,不更新交易额 / These events don't contain price changes, skip volume update
+                        return Ok(());
+                    },
+                    _ => unreachable!()
+                };
+
+                // 从数据库获取 token / Fetch token from database
+                let token = self.token_storage.get_token_by_mint(mint_str)
+                    .map_err(|e| anyhow::anyhow!("Failed to get token from storage: {}", e))?
+                    .ok_or_else(|| anyhow::anyhow!("Token not found: {}", mint_str))?;
+
+                (mint_str, price, ts, token.initial_virtual_sol, token.initial_virtual_token)
             }
         };
 
         // 获取变动前的价格 / Get price before change
-        let price_before = if matches!(event, PinpetEvent::TokenCreated(_)) {
-            // TokenCreated 事件使用初始价格 / TokenCreated event uses initial price
-            CurveAMM::get_initial_price()
+        let price_before = if let PinpetEvent::TokenCreated(tc_event) = event {
+            // TokenCreated 事件使用初始价格,使用事件的动态参数 / TokenCreated event uses initial price with dynamic parameters
+            CurveAMM::get_initial_price(tc_event.initial_virtual_sol, tc_event.initial_virtual_token)
                 .ok_or_else(|| anyhow::anyhow!("Failed to get initial price"))?
         } else {
             // 其他事件从数据库获取上一次的价格 / Other events get previous price from database
@@ -1026,9 +1041,11 @@ impl StorageEventHandler {
             sol_price_usd
         );
 
-        // 更新交易额 / Update volume
+        // 更新交易额,传入动态池子参数 / Update volume with dynamic pool parameters
         if let Err(e) = self.volume_storage.update_volume(
             mint,
+            initial_virtual_sol,
+            initial_virtual_token,
             price_before,
             price_after,
             sol_price_usd,
@@ -1049,26 +1066,41 @@ impl StorageEventHandler {
     fn update_change_statistics(&self, event: &PinpetEvent) -> anyhow::Result<()> {
         use crate::curve_amm::CurveAMM;
 
-        // 提取事件信息 / Extract event info
-        let (mint, price_after, timestamp) = match event {
-            PinpetEvent::TokenCreated(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::BuySell(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::LongShort(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::FullClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::PartialClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
-            PinpetEvent::MilestoneDiscount(_) | PinpetEvent::Liquidate(_) => {
-                // 这两个事件不包含价格变动,不更新涨跌幅 / These events don't contain price changes, skip change update
-                return Ok(());
+        // 提取事件信息和动态池子参数 / Extract event info and dynamic pool parameters
+        let (mint, price_after, timestamp, initial_virtual_sol, initial_virtual_token) = match event {
+            PinpetEvent::TokenCreated(e) => {
+                (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64, e.initial_virtual_sol, e.initial_virtual_token)
+            },
+            _ => {
+                // 非 TokenCreated 事件需要从数据库获取 token 参数 / Non-TokenCreated events need to fetch token params from database
+                let (mint_str, price, ts) = match event {
+                    PinpetEvent::BuySell(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::LongShort(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::FullClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::PartialClose(e) => (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64),
+                    PinpetEvent::MilestoneDiscount(_) | PinpetEvent::Liquidate(_) => {
+                        // 这两个事件不包含价格变动,不更新涨跌幅 / These events don't contain price changes, skip change update
+                        return Ok(());
+                    },
+                    _ => unreachable!()
+                };
+
+                // 从数据库获取 token / Fetch token from database
+                let token = self.token_storage.get_token_by_mint(mint_str)
+                    .map_err(|e| anyhow::anyhow!("Failed to get token from storage: {}", e))?
+                    .ok_or_else(|| anyhow::anyhow!("Token not found: {}", mint_str))?;
+
+                (mint_str, price, ts, token.initial_virtual_sol, token.initial_virtual_token)
             }
         };
 
         // 获取 SOL/USD 汇率 / Get SOL/USD exchange rate
         let sol_price_usd = self.sol_price_service.get_price_sync();
 
-        // 将价格从 lamports 转换为 USD / Convert price from lamports to USD
+        // 将价格从 lamports 转换为 USD,使用动态池子参数 / Convert price from lamports to USD using dynamic pool parameters
         // price 单位是 lamports, 需要转换为 SOL 再转换为 USD
         // price is in lamports, need to convert to SOL then to USD
-        let (sol_reserve, _token_reserve) = CurveAMM::price_to_reserves(price_after)
+        let (sol_reserve, _token_reserve) = CurveAMM::price_to_reserves(initial_virtual_sol, initial_virtual_token, price_after)
             .ok_or_else(|| anyhow::anyhow!("Failed to calculate reserves"))?;
 
         // SOL 储备单位是 lamports (1 SOL = 10^9 lamports)

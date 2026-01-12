@@ -65,6 +65,44 @@ pub struct TokenCreatedEvent {
     pub signature: String,
     pub slot: u64,
 
+    // ============ 第一阶段:动态流动池参数 / Phase 1: Dynamic Liquidity Pool Parameters ============
+    /// 初始虚拟SOL储备量 (lamports, 9位精度)
+    /// 用于计算 k 值和价格曲线
+    /// 默认值: 30_000_000_000 (30 SOL)
+    /// Initial virtual SOL reserve amount (lamports, 9 decimal places)
+    /// Used to calculate k value and price curve
+    /// Default value: 30_000_000_000 (30 SOL)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub initial_virtual_sol: u64,
+
+    /// 初始虚拟Token储备量 (最小单位, 9位精度)
+    /// 用于计算 k 值和价格曲线
+    /// 默认值: 1_073_000_000_000_000_000 (10.73亿 Token)
+    /// Initial virtual Token reserve amount (smallest unit, 9 decimal places)
+    /// Used to calculate k value and price curve
+    /// Default value: 1_073_000_000_000_000_000 (1.073 billion Token)
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub initial_virtual_token: u64,
+
+    // ============ 第二阶段:高级版池子参数 / Phase 2: Advanced Pool Parameters ============
+    /// 池子类型
+    /// 0 = 普通版(使用默认参数,支持手续费减半)
+    /// 1 = 高级版(自定义参数,手续费永不减半)
+    /// Pool type
+    /// 0 = Normal version (default parameters, supports fee discount)
+    /// 1 = Advanced version (custom parameters, no fee discount)
+    pub pool_type: u8,
+
+    /// 借贷池代币占比(仅记录,用于信息展示)
+    /// 实际数值范围:5-30(代表 5%-30%)
+    /// 普通版固定为 20
+    /// Borrow pool token ratio (informational only)
+    /// Actual value range: 5-30 (representing 5%-30%)
+    /// Fixed at 20 for normal version
+    pub borrow_pool_ratio: u8,
+
     // ===== URI元数据 / URI Metadata =====
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uri_data: Option<crate::db::TokenUriData>, // URI解析后的元数据 / Parsed URI metadata
@@ -412,6 +450,13 @@ impl EventParser {
                     timestamp,
                     signature: signature.to_string(),
                     slot,
+
+                    // ============ 新增字段赋值 / New field assignments ============
+                    initial_virtual_sol: event.initial_virtual_sol,
+                    initial_virtual_token: event.initial_virtual_token,
+                    pool_type: event.pool_type,
+                    borrow_pool_ratio: event.borrow_pool_ratio,
+
                     uri_data: None,  // URI数据稍后填充 / URI data will be filled later
                     extras: std::collections::HashMap::new(),  // 初始化为空 / Initialize as empty
                 })))
@@ -563,6 +608,14 @@ struct TokenCreatedRaw {
     up_orderbook: Pubkey,
     down_orderbook: Pubkey,
     latest_price: u128,
+
+    // ============ 新增字段:动态流动池参数 / New fields: Dynamic Liquidity Pool Parameters ============
+    initial_virtual_sol: u64,       // 初始虚拟SOL储备量 / Initial virtual SOL reserve
+    initial_virtual_token: u64,     // 初始虚拟Token储备量 / Initial virtual Token reserve
+
+    // ============ 新增字段:高级版池子参数 / New fields: Advanced Pool Parameters ============
+    pool_type: u8,                  // 池子类型 / Pool type
+    borrow_pool_ratio: u8,          // 借贷池代币占比 / Borrow pool token ratio
 }
 
 #[derive(BorshDeserialize)]

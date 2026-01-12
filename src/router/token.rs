@@ -467,16 +467,22 @@ fn to_search_result(detail: &crate::db::TokenDetail, sol_price: f64) -> TokenSea
         if let Some(normalized_price) = crate::curve_amm::CurveAMM::u128_to_decimal(price_u128) {
             if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
                 // 1. 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
-                if let Some(token_value) = normalized_price.checked_mul(crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL) {
-                    if let Some(mc_decimal) = token_value.checked_mul(sol_price_decimal) {
-                        mc = format!("{:.2}", mc_decimal);
+                // 使用 detail 的动态 initial_virtual_token 参数 / Use dynamic initial_virtual_token from detail
+                if let Some(token_reserve_decimal) = crate::curve_amm::CurveAMM::u64_to_token_decimal(detail.initial_virtual_token) {
+                    if let Some(token_value) = normalized_price.checked_mul(token_reserve_decimal) {
+                        if let Some(mc_decimal) = token_value.checked_mul(sol_price_decimal) {
+                            mc = format!("{:.2}", mc_decimal);
+                        } else {
+                            tracing::warn!("MC 计算溢出 / MC calculation overflow for token: {}", detail.mint_account);
+                            mc = "overflow".to_string();
+                        }
                     } else {
-                        tracing::warn!("MC 计算溢出 / MC calculation overflow for token: {}", detail.mint_account);
+                        tracing::warn!("Token value 计算溢出 / Token value calculation overflow for token: {}", detail.mint_account);
                         mc = "overflow".to_string();
                     }
                 } else {
-                    tracing::warn!("Token value 计算溢出 / Token value calculation overflow for token: {}", detail.mint_account);
-                    mc = "overflow".to_string();
+                    tracing::warn!("Token reserve decimal 转换失败 / Token reserve decimal conversion failed for token: {}", detail.mint_account);
+                    mc = "error".to_string();
                 }
 
                 // 2. 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
@@ -673,16 +679,22 @@ fn enrich_token_with_prices(token: &mut crate::db::TokenDetail, sol_price: f64) 
         if let Some(normalized_price) = crate::curve_amm::CurveAMM::u128_to_decimal(price_u128) {
             if let Some(sol_price_decimal) = Decimal::from_f64(sol_price) {
                 // 1. 计算 mc (市值,美元,格式化) / Calculate mc (market cap, USD, formatted)
-                if let Some(token_value) = normalized_price.checked_mul(crate::curve_amm::CurveAMM::INITIAL_TOKEN_RESERVE_DECIMAL) {
-                    if let Some(mc_decimal) = token_value.checked_mul(sol_price_decimal) {
-                        token.mc = Some(format!("{:.2}", mc_decimal));
+                // 使用 token 的动态 initial_virtual_token 参数 / Use dynamic initial_virtual_token from token
+                if let Some(token_reserve_decimal) = crate::curve_amm::CurveAMM::u64_to_token_decimal(token.initial_virtual_token) {
+                    if let Some(token_value) = normalized_price.checked_mul(token_reserve_decimal) {
+                        if let Some(mc_decimal) = token_value.checked_mul(sol_price_decimal) {
+                            token.mc = Some(format!("{:.2}", mc_decimal));
+                        } else {
+                            tracing::warn!("MC 计算溢出 / MC calculation overflow for token: {}", token.mint_account);
+                            token.mc = Some("overflow".to_string());
+                        }
                     } else {
-                        tracing::warn!("MC 计算溢出 / MC calculation overflow for token: {}", token.mint_account);
+                        tracing::warn!("Token value 计算溢出 / Token value calculation overflow for token: {}", token.mint_account);
                         token.mc = Some("overflow".to_string());
                     }
                 } else {
-                    tracing::warn!("Token value 计算溢出 / Token value calculation overflow for token: {}", token.mint_account);
-                    token.mc = Some("overflow".to_string());
+                    tracing::warn!("Token reserve decimal 转换失败 / Token reserve decimal conversion failed for token: {}", token.mint_account);
+                    token.mc = Some("error".to_string());
                 }
 
                 // 2. 计算 usd_price (Token美元价格,大整数,保持10^23精度) / Calculate usd_price (Token USD price, big integer, 10^23 precision)
