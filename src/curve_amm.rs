@@ -23,7 +23,10 @@ impl CurveAMM {
     // pub const INITIAL_TOKEN_RESERVE_DECIMAL: Decimal = Decimal::from_parts(1073000000, 0, 0, false, 0);
     //pub const INITIAL_K_DECIMAL: Decimal = Decimal::from_parts(2125228928, 7, 0, false, 0);
     /// 可以出现的最小价格，低于这个价格，可能溢出
-    pub const INITIAL_MIN_PRICE_DECIMAL: Decimal = Decimal::from_parts(1, 0, 0, false, 9);
+    /// Minimum price threshold to prevent overflow
+    /// 修改为 10^-15 以支持极小价格 (原值: 10^-9)
+    /// Changed to 10^-15 to support very small prices (original: 10^-9)
+    pub const INITIAL_MIN_PRICE_DECIMAL: Decimal = Decimal::from_parts(1, 0, 0, false, 15);
 
     /// 精度因子的Decimal表示 = 1000000000000000
     //pub const PRICE_PRECISION_FACTOR_DECIMAL: Decimal = Decimal::from_parts(2764472320, 232830, 0, false, 0);
