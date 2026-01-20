@@ -1,5 +1,6 @@
 // K线数据处理器 / K-line data processor
 use crate::kline::types::{EventHistoryResponse, EventUpdateMessage, KlineHistoryResponse, KlineRealtimeData};
+use crate::price::SolPriceService;
 use crate::solana::PinpetEvent;
 use anyhow::Result;
 use std::sync::Arc;
@@ -10,12 +11,13 @@ pub const PRICE_PRECISION: u128 = 10_u128.pow(23);
 /// K线数据处理器 / K-line data processor
 pub struct KlineDataProcessor {
     event_storage: Arc<crate::db::EventStorage>,
+    price_service: Arc<SolPriceService>,
 }
 
 impl KlineDataProcessor {
     /// 创建新的K线数据处理器 / Create new K-line data processor
-    pub fn new(event_storage: Arc<crate::db::EventStorage>) -> Self {
-        Self { event_storage }
+    pub fn new(event_storage: Arc<crate::db::EventStorage>, price_service: Arc<SolPriceService>) -> Self {
+        Self { event_storage, price_service }
     }
 
     /// 将u128价格转换为f64 / Convert u128 price to f64 with precision handling
@@ -138,6 +140,38 @@ impl KlineDataProcessor {
         })
     }
 
+    /// 填充事件的USD价格 / Fill USD price for event
+    /// 将SOL价格转换为USD价格(整数字符串,精度10^23) / Convert SOL price to USD price (integer string, precision 10^23)
+    fn fill_usd_price(&self, event: &mut PinpetEvent) {
+        // 获取 SOL 价格 (get_price_sync 返回 f64, 有默认值 140.0)
+        // Get SOL price (get_price_sync returns f64, with default value 140.0)
+        let sol_price_usd = self.price_service.get_price_sync();
+
+        // 提取 latest_price 并转换为 USD (整数格式,精度 10^23)
+        if let Some(price_in_sol) = Self::extract_price_from_event(event) {
+            // price_in_sol 是 f64, sol_price_usd 是 f64
+            // 为了得到精度 10^23 的整数价格:
+            // 1. 计算浮点数价格: price_in_sol * sol_price_usd
+            // 2. 乘以 10^23 得到整数
+            let price_usd_float = price_in_sol * sol_price_usd;
+            let precision = 1e23; // 10^23
+            let price_usd_integer = (price_usd_float * precision) as u128;
+
+            // 转换为字符串
+            let price_usd_str = price_usd_integer.to_string();
+
+            // 填充对应事件的 latest_price_usd 字段
+            match event {
+                PinpetEvent::TokenCreated(e) => e.latest_price_usd = Some(price_usd_str),
+                PinpetEvent::BuySell(e) => e.latest_price_usd = Some(price_usd_str),
+                PinpetEvent::LongShort(e) => e.latest_price_usd = Some(price_usd_str),
+                PinpetEvent::FullClose(e) => e.latest_price_usd = Some(price_usd_str),
+                PinpetEvent::PartialClose(e) => e.latest_price_usd = Some(price_usd_str),
+                _ => {}
+            }
+        }
+    }
+
     /// 获取历史交易事件 / Get historical events
     pub async fn get_event_history(
         &self,
@@ -145,10 +179,15 @@ impl KlineDataProcessor {
         limit: usize,
     ) -> Result<EventHistoryResponse> {
         // 从数据库查询事件（降序，最新的在前）/ Query events from database (descending, newest first)
-        let events = self
+        let mut events = self
             .event_storage
             .query_by_mint(symbol, Some(limit), false)  // false = 降序 / descending
             .await?;
+
+        // 填充每个事件的USD价格 / Fill USD price for each event
+        for event in &mut events {
+            self.fill_usd_price(event);
+        }
 
         let data: Vec<EventUpdateMessage> = events
             .into_iter()

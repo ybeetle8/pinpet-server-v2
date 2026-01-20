@@ -146,6 +146,7 @@ async fn main() {
         // 创建K线推送服务 / Create K-line socket service
         let (kline_service, layer) = match kline::KlineSocketService::new(
             event_storage_for_kline,
+            price_service.clone(),
             kline_config,
         ) {
             Ok((service, layer)) => (Arc::new(service), Some(layer)),

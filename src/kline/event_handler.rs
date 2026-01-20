@@ -46,23 +46,32 @@ impl KlineEventHandler {
             }
         };
 
-        // 提取 latest_price 并转换为 USD
+        // 提取 latest_price 并转换为 USD (整数格式,精度 10^23)
         if let Some(price_in_sol) = KlineDataProcessor::extract_price_from_event(event) {
-            let price_usd = price_in_sol * sol_price_usd;
+            // price_in_sol 是 f64, sol_price_usd 是 f64
+            // 为了得到精度 10^23 的整数价格:
+            // 1. 计算浮点数价格: price_in_sol * sol_price_usd
+            // 2. 乘以 10^23 得到整数
+            let price_usd_float = price_in_sol * sol_price_usd;
+            let precision = 1e23; // 10^23
+            let price_usd_integer = (price_usd_float * precision) as u128;
+
+            // 转换为字符串
+            let price_usd_str = price_usd_integer.to_string();
 
             // 填充对应事件的 latest_price_usd 字段
             match event {
-                PinpetEvent::TokenCreated(e) => e.latest_price_usd = Some(price_usd),
-                PinpetEvent::BuySell(e) => e.latest_price_usd = Some(price_usd),
-                PinpetEvent::LongShort(e) => e.latest_price_usd = Some(price_usd),
-                PinpetEvent::FullClose(e) => e.latest_price_usd = Some(price_usd),
-                PinpetEvent::PartialClose(e) => e.latest_price_usd = Some(price_usd),
+                PinpetEvent::TokenCreated(e) => e.latest_price_usd = Some(price_usd_str.clone()),
+                PinpetEvent::BuySell(e) => e.latest_price_usd = Some(price_usd_str.clone()),
+                PinpetEvent::LongShort(e) => e.latest_price_usd = Some(price_usd_str.clone()),
+                PinpetEvent::FullClose(e) => e.latest_price_usd = Some(price_usd_str.clone()),
+                PinpetEvent::PartialClose(e) => e.latest_price_usd = Some(price_usd_str.clone()),
                 _ => {}
             }
 
             debug!(
-                "填充USD价格 / Filled USD price: {} SOL × {} USD/SOL = {} USD",
-                price_in_sol, sol_price_usd, price_usd
+                "填充USD价格 / Filled USD price: {} SOL × {} USD/SOL = {} (整数: {}, 精度: 10^23)",
+                price_in_sol, sol_price_usd, price_usd_float, price_usd_str
             );
         }
 

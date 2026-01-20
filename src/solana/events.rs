@@ -58,7 +58,7 @@ pub struct TokenCreatedEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usd_price: Option<String>,       // Token美元价格(大整数) / Token USD price (big integer)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
+    pub latest_price_usd: Option<String>, // 最新的价格(USD单位,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23)
 
     #[schema(value_type = String)]
     pub timestamp: DateTime<Utc>,
@@ -129,7 +129,7 @@ pub struct BuySellEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
+    pub latest_price_usd: Option<String>, // 最新的价格(USD单位,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23)
     pub liquidate_indices: Vec<u16>,    // 需要清算的订单索引列表 / Liquidation order indices (indices, not order IDs!)
     #[schema(value_type = String)]
     pub timestamp: DateTime<Utc>,
@@ -148,7 +148,7 @@ pub struct LongShortEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
+    pub latest_price_usd: Option<String>, // 最新的价格(USD单位,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23)
     #[serde_as(as = "DisplayFromStr")]
     pub open_price: u128,                // 开仓价格(SOL单位,不转换) / Open price (SOL, not converted)
     pub order_type: u8,                  // 订单类型 / Order type: 1:做多/long 2:做空/short
@@ -201,7 +201,7 @@ pub struct FullCloseEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
+    pub latest_price_usd: Option<String>, // 最新的价格(USD单位,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23)
     pub order_id: u64,                   // 平仓订单的唯一编号 / Unique order ID
     pub order_index: u16,                // 平仓订单的索引 / Order index in the orderbook
     pub liquidate_indices: Vec<u16>,    // 需要清算的订单索引列表 / Liquidation indices
@@ -231,7 +231,7 @@ pub struct PartialCloseEvent {
     #[serde_as(as = "DisplayFromStr")]
     pub latest_price: u128,              // 最新的价格(SOL单位) / Latest price (SOL)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_price_usd: Option<f64>,   // 最新的价格(USD单位) / Latest price (USD)
+    pub latest_price_usd: Option<String>, // 最新的价格(USD单位,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23)
     pub order_id: u64,                   // 平仓订单的唯一编号 / Order ID
     pub order_index: u16,                // 开仓的订单在订单账本中的索引 / Order index in the orderbook
     // 部分平仓订单的参数(修改后的值) / Partial close order parameters (modified values)

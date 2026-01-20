@@ -7,6 +7,7 @@ use crate::kline::{
     types::*,
 };
 use crate::db::EventStorage;
+use crate::price::SolPriceService;
 use crate::solana::PinpetEvent;
 use anyhow::Result;
 use chrono::Utc;
@@ -31,6 +32,7 @@ impl KlineSocketService {
     /// 创建新的Socket服务并返回服务实例和Layer / Create new Socket service and return (Service, Layer)
     pub fn new(
         event_storage: Arc<EventStorage>,
+        price_service: Arc<SolPriceService>,
         config: KlineConfig,
     ) -> Result<(Self, socketioxide::layer::SocketIoLayer)> {
         // 创建 SocketIoxide 实例 / Create SocketIoxide instance
@@ -40,7 +42,7 @@ impl KlineSocketService {
             .max_payload(1024 * 1024) // 1MB 最大负载 / 1MB max payload
             .build_layer();
 
-        let data_processor = Arc::new(KlineDataProcessor::new(event_storage.clone()));
+        let data_processor = Arc::new(KlineDataProcessor::new(event_storage.clone(), price_service));
 
         let service = Self {
             socketio: io,

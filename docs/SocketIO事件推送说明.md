@@ -355,7 +355,7 @@ socket.emit('history', {
 | `up_orderbook` | String | 做空订单账本PDA / Short orderbook PDA |
 | `down_orderbook` | String | 做多订单账本PDA / Long orderbook PDA |
 | `latest_price` | String | 最新价格(SOL) / Latest price (SOL) |
-| `latest_price_usd` | f64 \| null | 最新价格(USD) / Latest price (USD) |
+| `latest_price_usd` | String \| null | 最新价格(USD,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23) |
 | `timestamp` | String | ISO 8601时间戳 / ISO 8601 timestamp |
 | `signature` | String | 交易签名 / Transaction signature |
 | `slot` | u64 | 区块槽位 / Block slot |
@@ -372,7 +372,7 @@ socket.emit('history', {
 | `token_amount` | String | Token数量 / Token amount |
 | `sol_amount` | String | SOL数量 / SOL amount |
 | `latest_price` | String | 最新价格(SOL) / Latest price (SOL) |
-| `latest_price_usd` | f64 \| null | 最新价格(USD) / Latest price (USD) |
+| `latest_price_usd` | String \| null | 最新价格(USD,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23) |
 | `liquidate_indices` | Array&lt;u16&gt; | 清算订单索引列表 / Liquidation order indices |
 | `timestamp` | String | ISO 8601时间戳 / ISO 8601 timestamp |
 | `signature` | String | 交易签名 / Transaction signature |
@@ -389,7 +389,7 @@ socket.emit('history', {
 | `order_id` | u64 | 订单唯一编号 / Unique order ID |
 | `order_index` | u16 | 订单在账本中的索引 / Order index in orderbook |
 | `latest_price` | String | 最新价格(SOL) / Latest price (SOL) |
-| `latest_price_usd` | f64 \| null | 最新价格(USD) / Latest price (USD) |
+| `latest_price_usd` | String \| null | 最新价格(USD,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23) |
 | `open_price` | String | 开仓价格(SOL) / Open price (SOL) |
 | `order_type` | u8 | 订单类型: 1=做多, 2=做空 / Order type: 1=long, 2=short |
 | `lock_lp_start_price` | String | 锁定LP区间开始价 / LP lock range start price |
@@ -421,7 +421,7 @@ socket.emit('history', {
 | `final_sol_amount` | String | 最终SOL数量 / Final SOL amount |
 | `user_close_profit` | String | 用户平仓利润(SOL) / User closing profit (SOL) |
 | `latest_price` | String | 最新价格(SOL) / Latest price (SOL) |
-| `latest_price_usd` | f64 \| null | 最新价格(USD) / Latest price (USD) |
+| `latest_price_usd` | String \| null | 最新价格(USD,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23) |
 | `order_id` | u64 | 订单ID / Order ID |
 | `order_index` | u16 | 订单索引 / Order index |
 | `liquidate_indices` | Array&lt;u16&gt; | 清算订单索引列表 / Liquidation indices |
@@ -443,7 +443,7 @@ socket.emit('history', {
 | `final_sol_amount` | String | 最终SOL数量 / Final SOL amount |
 | `user_close_profit` | String | 用户平仓利润(SOL) / User closing profit (SOL) |
 | `latest_price` | String | 最新价格(SOL) / Latest price (SOL) |
-| `latest_price_usd` | f64 \| null | 最新价格(USD) / Latest price (USD) |
+| `latest_price_usd` | String \| null | 最新价格(USD,整数字符串,精度10^23) / Latest price (USD, integer string, precision 10^23) |
 | `order_id` | u64 | 订单ID / Order ID |
 | `order_index` | u16 | 订单索引 / Order index |
 | `order_type` | u8 | 订单类型: 1=做多, 2=做空 / Order type: 1=long, 2=short |
@@ -654,7 +654,7 @@ The server uses a room mechanism to manage subscriptions:
 
 1. **价格单位 / Price Units**:
    - `latest_price`: 原始价格,单位为 SOL (u128) / Raw price in SOL (u128)
-   - `latest_price_usd`: USD 价格,由服务端根据 SOL/USD 汇率计算 / USD price, calculated by server based on SOL/USD rate
+   - `latest_price_usd`: USD 价格(整数字符串,精度 10^23),由服务端根据 SOL/USD 汇率计算 / USD price (integer string, precision 10^23), calculated by server based on SOL/USD rate
    - K线中的价格均为 USD / K-line prices are in USD
 
 2. **订阅限制 / Subscription Limits**:
