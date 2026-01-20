@@ -92,8 +92,9 @@ impl SolPriceService {
                 match self.fetch_from_coingecko().await {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::error!("❌ 两个 API 都失败了,保留旧价格 / Both APIs failed, keeping old price: {}", e);
-                        return;
+                        tracing::warn!("⚠️ 两个 API 都失败了,使用调试默认价格 150.0 / Both APIs failed, using debug default price 150.0: {}", e);
+                        // 用于调试的默认价格 / Default price for debugging
+                        150.0
                     }
                 }
             }
@@ -136,8 +137,8 @@ impl SolPriceService {
             tracing::info!("🚀 开始首次 SOL 价格查询... / Starting first SOL price query...");
             self.update_price().await;
 
-            // 每 3 分钟更新一次 / Update every 3 minutes
-            let mut interval = tokio::time::interval(Duration::from_secs(180));
+            // 每 30 分钟更新一次 / Update every 30 minutes
+            let mut interval = tokio::time::interval(Duration::from_secs(1800));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             loop {
@@ -147,6 +148,6 @@ impl SolPriceService {
             }
         });
 
-        tracing::info!("✅ SOL 价格定时更新任务已启动 (每3分钟) / SOL price periodic update task started (every 3 minutes)");
+        tracing::info!("✅ SOL 价格定时更新任务已启动 (每30分钟) / SOL price periodic update task started (every 30 minutes)");
     }
 }
