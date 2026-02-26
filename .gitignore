@@ -13,3 +13,8 @@ test-ledger
 notes/
 old/
 logs/
+
+cer/pinpet.key
+cer/pinpet.pem
+
+
