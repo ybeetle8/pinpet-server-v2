@@ -10,6 +10,14 @@ pinpet Server 是一个基于 Rust 开发的服务端应用程序，主要用于
 ### 文档路径
   无特殊规定的话都放到 notes 目录, 用 md 方式编写, 用中文取文件名.
 
+## 服务访问地址
+启动服务后，可通过以下地址访问：
+- **健康检查**: `http://localhost:3000/health`
+- **Swagger API 文档**: `http://localhost:3000/swagger-ui`
+- **OpenAPI JSON**: `http://localhost:3000/api-docs/openapi.json`
+- **数据库接口**: `http://localhost:3000/db/*`
+- **K线 WebSocket**: `ws://localhost:3000/kline` (如果启用)
+
 ## 开发规范
   md文档就写中文的
   代码注释写中英文双语的.

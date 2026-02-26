@@ -32,7 +32,7 @@ max_background_jobs = 32
 rpc_url = "http://192.168.18.5:8899"
 ws_url = "ws://192.168.18.5:8900"
 # 请替换为实际的Pinpet程序ID / Please replace with the actual Pinpet program ID
-program_id = "ApKJdjeboGy3kXoLAhtjnoQ15EgmDFaqqAajSZwEBoQq"
+program_id = "F2FzigE1Z374iDvreiM6hZQe6oGXgomJfv8PyybvUXye"
 # 事件监听器配置 / Event listener configuration
 enable_event_listener = true
 commitment = "processed"  # processed/confirmed/finalized
