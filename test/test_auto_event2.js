@@ -18,8 +18,10 @@ const httpsAgent = new https.Agent({
 });
 
 // 配置http://localhost:3000/kline
-//const SERVER_URL = 'https://localhost';
-const SERVER_URL = 'https://162.250.124.66';
+//const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'https://localhost:8443';
+const SERVER_URL_WSS = 'wss://localhost:8443';
+//const SERVER_URL = 'https://162.250.124.66';
 //const SERVER_URL = 'https://api.pinpet.fun';
 const INTERVAL = 's30'; // K线间隔，用于订阅但不显示K线数据
 
