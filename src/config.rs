@@ -21,10 +21,38 @@ pub struct ServerConfig {
     /// 默认30秒,可避免频繁查询 / Default 30 seconds to avoid frequent queries
     #[serde(default = "default_token_list_cache_ttl")]
     pub token_list_cache_ttl_secs: u64,
+    /// 是否启用SSL / Enable SSL
+    #[serde(default = "default_ssl_enabled")]
+    pub ssl_enabled: bool,
+    /// SSL端口 / SSL port
+    #[serde(default = "default_ssl_port")]
+    pub ssl_port: u16,
+    /// SSL证书路径 / SSL certificate path
+    #[serde(default = "default_ssl_cert_path")]
+    pub ssl_cert_path: String,
+    /// SSL私钥路径 / SSL private key path
+    #[serde(default = "default_ssl_key_path")]
+    pub ssl_key_path: String,
 }
 
 fn default_token_list_cache_ttl() -> u64 {
     30
+}
+
+fn default_ssl_enabled() -> bool {
+    false
+}
+
+fn default_ssl_port() -> u16 {
+    443
+}
+
+fn default_ssl_cert_path() -> String {
+    "cer/pinpet.pem".to_string()
+}
+
+fn default_ssl_key_path() -> String {
+    "cer/pinpet.key".to_string()
 }
 
 #[derive(Debug, Deserialize, Clone)]

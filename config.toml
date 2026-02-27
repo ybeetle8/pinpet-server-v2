@@ -1,6 +1,11 @@
 [server]
 host = "0.0.0.0"
 port = 3000
+# SSL/HTTPS 配置 / SSL/HTTPS configuration
+ssl_enabled = true
+ssl_port = 8443
+ssl_cert_path = "cer/pinpet.pem"
+ssl_key_path = "cer/pinpet.key"
 
 
 [database]

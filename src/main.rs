@@ -11,11 +11,13 @@ mod orderbook_sync;
 mod price;
 mod router;
 mod solana;
+mod tls;
 mod util;
 mod volume;
 
 use axum::Router;
 use std::sync::Arc;
+use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, fmt};
 use utoipa::OpenApi;
@@ -446,22 +448,140 @@ async fn main() {
             .layer(cors)
     };
 
-    // 绑定地址
-    let addr = format!("{}:{}", config.server.host, config.server.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    // 克隆 app 用于 HTTPS 服务器 / Clone app for HTTPS server
+    let app_for_https = app.clone();
 
-    tracing::info!("服务器启动成功！");
-    tracing::info!("访问 http://localhost:{}/health 测试接口", config.server.port);
-    tracing::info!("访问 http://localhost:{}/swagger-ui 查看 API 文档", config.server.port);
-    tracing::info!("访问 http://localhost:{}/db/* 测试数据库接口", config.server.port);
+    // 启动 HTTP 服务器 / Start HTTP server
+    let http_addr = format!("{}:{}", config.server.host, config.server.port);
+    let http_config = config.clone();
+    let http_handle = tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind(&http_addr)
+            .await
+            .expect("无法绑定 HTTP 地址 / Failed to bind HTTP address");
 
-    if config.kline.enable_kline_service {
-        tracing::info!("📊 K线 WebSocket 服务:");
-        tracing::info!("  WS   ws://{}:{}/kline - 实时K线数据订阅 / Real-time K-line data subscription", config.server.host, config.server.port);
-        tracing::info!("  事件 / Events: subscribe, unsubscribe, history, kline_data, event_data");
-        tracing::info!("  支持间隔 / Supported intervals: s1, s30, m5");
+        tracing::info!("📡 HTTP 服务器启动成功 / HTTP Server started successfully");
+        tracing::info!("   访问 / Visit: http://localhost:{}/health", http_config.server.port);
+        tracing::info!("   Swagger: http://localhost:{}/swagger-ui", http_config.server.port);
+        tracing::info!("   数据库 / Database: http://localhost:{}/db/*", http_config.server.port);
+
+        if http_config.kline.enable_kline_service {
+            tracing::info!("📊 K线 WebSocket 服务 / K-line WebSocket Service:");
+            tracing::info!("   WS: ws://{}:{}/kline", http_config.server.host, http_config.server.port);
+            tracing::info!("   事件 / Events: subscribe, unsubscribe, history, kline_data, event_data");
+            tracing::info!("   支持间隔 / Intervals: s1, s30, m5");
+        }
+
+        axum::serve(listener, app)
+            .await
+            .expect("HTTP 服务器运行失败 / HTTP server failed");
+    });
+
+    // 启动 HTTPS 服务器(如果启用) / Start HTTPS server (if enabled)
+    let https_handle = if config.server.ssl_enabled {
+        let https_addr = format!("{}:{}", config.server.host, config.server.ssl_port);
+        let cert_path = config.server.ssl_cert_path.clone();
+        let key_path = config.server.ssl_key_path.clone();
+        let https_config = config.clone();
+
+        Some(tokio::spawn(async move {
+            // 加载 TLS 配置 / Load TLS configuration
+            let tls_config = match tls::load_tls_config(&cert_path, &key_path) {
+                Ok(config) => config,
+                Err(e) => {
+                    tracing::error!("❌ TLS 配置加载失败 / Failed to load TLS config: {}", e);
+                    tracing::error!("   HTTPS 服务器将不会启动 / HTTPS server will not start");
+                    return;
+                }
+            };
+
+            let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
+
+            // 绑定 TCP 监听器 / Bind TCP listener
+            let listener = match tokio::net::TcpListener::bind(&https_addr).await {
+                Ok(listener) => listener,
+                Err(e) => {
+                    tracing::error!("❌ 无法绑定 HTTPS 地址 / Failed to bind HTTPS address {}: {}", https_addr, e);
+                    return;
+                }
+            };
+
+            tracing::info!("🔒 HTTPS 服务器启动成功 / HTTPS Server started successfully");
+            tracing::info!("   访问 / Visit: https://localhost:{}/health", https_config.server.ssl_port);
+            tracing::info!("   Swagger: https://localhost:{}/swagger-ui", https_config.server.ssl_port);
+            tracing::info!("   数据库 / Database: https://localhost:{}/db/*", https_config.server.ssl_port);
+
+            if https_config.kline.enable_kline_service {
+                tracing::info!("📊 K线 WebSocket 服务 / K-line WebSocket Service:");
+                tracing::info!("   WSS: wss://{}:{}/kline", https_config.server.host, https_config.server.ssl_port);
+            }
+
+            // 接受连接 / Accept connections
+            loop {
+                let (tcp_stream, _remote_addr) = match listener.accept().await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        tracing::error!("接受连接失败 / Failed to accept connection: {}", e);
+                        continue;
+                    }
+                };
+
+                let tls_acceptor = tls_acceptor.clone();
+                let app_service = app_for_https.clone();
+
+                tokio::spawn(async move {
+                    // TLS 握手 / TLS handshake
+                    let tls_stream = match tls_acceptor.accept(tcp_stream).await {
+                        Ok(stream) => stream,
+                        Err(e) => {
+                            tracing::debug!("TLS 握手失败 / TLS handshake failed: {}", e);
+                            return;
+                        }
+                    };
+
+                    // 将 Router 转换为 Service / Convert Router to Service
+                    let hyper_service = hyper::service::service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
+                        app_service.clone().oneshot(request)
+                    });
+
+                    // 使用 hyper 处理连接 / Handle connection with hyper
+                    if let Err(e) = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(
+                            hyper_util::rt::TokioIo::new(tls_stream),
+                            hyper_service,
+                        )
+                        .await
+                    {
+                        tracing::debug!("处理 HTTPS 连接失败 / Failed to handle HTTPS connection: {}", e);
+                    }
+                });
+            }
+        }))
+    } else {
+        tracing::info!("ℹ️ HTTPS 服务器已禁用 / HTTPS server disabled");
+        None
+    };
+
+    // 等待服务器运行 / Wait for servers to run
+    tracing::info!("✅ 服务器初始化完成 / Server initialization completed");
+
+    // 等待任一服务器退出 / Wait for any server to exit
+    tokio::select! {
+        result = http_handle => {
+            if let Err(e) = result {
+                tracing::error!("❌ HTTP 服务器任务失败 / HTTP server task failed: {}", e);
+            }
+        }
+        result = async {
+            if let Some(handle) = https_handle {
+                handle.await
+            } else {
+                // 如果没有 HTTPS 服务器,永久等待 / If no HTTPS server, wait forever
+                std::future::pending().await
+            }
+        } => {
+            if let Err(e) = result {
+                tracing::error!("❌ HTTPS 服务器任务失败 / HTTPS server task failed: {}", e);
+            }
+        }
     }
-
-    // 启动服务器
-    axum::serve(listener, app).await.unwrap();
 }
