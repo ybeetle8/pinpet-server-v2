@@ -100,6 +100,7 @@ fn default_max_background_jobs() -> i32 {
 pub struct SolanaConfig {
     pub rpc_url: String,                    // Solana RPC URL
     pub ws_url: String,                     // Solana WebSocket URL
+    pub rpc_price_url: String,              // 用于获取链上价格的 RPC URL / RPC URL for fetching on-chain price
     pub program_id: String,                 // 程序ID / Program ID
     pub enable_event_listener: bool,        // 是否启用事件监听 / Enable event listener
     pub commitment: String,                 // 承诺级别 / Commitment level: processed/confirmed/finalized

@@ -110,12 +110,13 @@ async fn main() {
     tracing::info!("✅ Solana 客户端创建成功 / Solana client created successfully");
 
     // 初始化 SOL 价格服务 / Initialize SOL price service
-    tracing::info!("🚀 初始化 SOL 价格服务 / Initializing SOL price service");
-    let price_service = Arc::new(price::SolPriceService::new());
+    let price_service = Arc::new(price::SolPriceService::new(config.solana.rpc_price_url.clone()));
+
+    // 初始化价格(同步获取,失败则panic) / Initialize price (sync fetch, panic on failure)
+    price_service.initialize_price().await;
 
     // 启动定时更新任务 / Start periodic update task
     price_service.clone().start_periodic_update();
-    tracing::info!("✅ SOL 价格服务初始化成功 / SOL price service initialized successfully");
 
     // 设置价格服务到 db_storage (必须在创建 EventStorage 之前) / Set price service to db_storage (must be before creating EventStorage)
     db_storage.set_price_service(price_service.clone());
