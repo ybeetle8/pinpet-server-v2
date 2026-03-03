@@ -27,7 +27,6 @@ max_background_jobs = 32
 
 [solana]
 # Solana节点配置 / Solana node configuration
-rpc_price_url = "https://api-mainnet.helius-rpc.com/v0/transactions/?api-key=666f279b-0b08-41cd-97f4-461811d7fc7a"
 #rpc_url = "http://162.250.124.66:8899"
 #ws_url = "ws://162.250.124.66:8900"
 rpc_url = "http://192.168.18.5:8899"

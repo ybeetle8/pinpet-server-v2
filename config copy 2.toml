@@ -27,13 +27,12 @@ max_background_jobs = 32
 
 [solana]
 # Solana节点配置 / Solana node configuration
-rpc_price_url = "https://api-mainnet.helius-rpc.com/v0/transactions/?api-key=666f279b-0b08-41cd-97f4-461811d7fc7a"
 #rpc_url = "http://162.250.124.66:8899"
 #ws_url = "ws://162.250.124.66:8900"
-rpc_url = "http://192.168.18.5:8899"
-ws_url = "ws://192.168.18.5:8900"
+rpc_url = "https://api-mainnet.helius-rpc.com/v0/transactions/?api-key=666f279b-0b08-41cd-97f4-461811d7fc7a"
+ws_url = "wss://mainnet.helius-rpc.com/?api-key=666f279b-0b08-41cd-97f4-461811d7fc7a"
 # 请替换为实际的Pinpet程序ID / Please replace with the actual Pinpet program ID
-program_id = "F2FzigE1Z374iDvreiM6hZQe6oGXgomJfv8PyybvUXye"
+program_id = "CYdRzRacZ5kTc9Ht3U7mFhbsyxG3sZGEzC4cNf2Gjg2W"
 # 事件监听器配置 / Event listener configuration
 enable_event_listener = true
 commitment = "processed"  # processed/confirmed/finalized
