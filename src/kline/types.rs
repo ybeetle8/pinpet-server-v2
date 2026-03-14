@@ -96,6 +96,7 @@ pub struct SubscribeRequest {
     pub symbol: String,                  // mint_account mint地址 / mint address
     pub interval: String,                // s1, s30, m5 时间间隔 / time interval
     pub subscription_id: Option<String>, // 客户端订阅ID / Client subscription ID
+    pub limit: Option<usize>,            // 历史K线数量(默认100,最大1000) / History K-line limit (default 100, max 1000)
 }
 
 /// Socket.IO取消订阅请求 / Socket.IO unsubscribe request

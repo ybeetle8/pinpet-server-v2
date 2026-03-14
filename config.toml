@@ -28,7 +28,7 @@ max_background_jobs = 32
 [solana]
 # Solana节点配置 / Solana node configuration
 # 用于获取链上价格的 RPC URL / RPC URL for fetching on-chain price
-rpc_price_url = "https://mainnet.helius-rpc.com/?api-key=666f279b-0b08-41cd-97f4-461811d7fc7a"
+rpc_price_url = "https://mainnet.helius-rpc.com/?api-key=7919f9f6-a6e8-4597-baf2-601f64ec9e5e"
 #rpc_url = "http://162.250.124.66:8899"
 #ws_url = "ws://162.250.124.66:8900"
 rpc_url = "http://192.168.18.5:8899"

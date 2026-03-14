@@ -175,8 +175,11 @@ impl KlineSocketService {
                             }
 
                             // 推送历史K线数据 / Push historical K-line data
+                            // 使用客户端传入的limit，默认100，最大1000
+                            // Use client-provided limit, default 100, max 1000
+                            let history_limit = data.limit.unwrap_or(100).min(1000);
                             if let Ok(history) = data_processor
-                                .get_kline_history(&data.symbol, &data.interval, 100)
+                                .get_kline_history(&data.symbol, &data.interval, history_limit)
                                 .await
                             {
                                 if let Err(e) = socket.emit("history_data", &history) {
