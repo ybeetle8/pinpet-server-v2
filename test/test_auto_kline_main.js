@@ -125,7 +125,7 @@ function subscribeKline(mint) {
         symbol: mint,
         interval: INTERVAL,
         subscription_id: `auto_monitor_${Date.now()}`,
-        limit: 105
+        limit: 205
     });
 }
 

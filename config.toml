@@ -33,6 +33,7 @@ rpc_price_url = "https://mainnet.helius-rpc.com/?api-key=7919f9f6-a6e8-4597-baf2
 #ws_url = "ws://162.250.124.66:8900"
 rpc_url = "http://192.168.18.5:8899"
 ws_url = "ws://192.168.18.5:8900"
+ws_url2 = "ws://47.109.157.92:8900"
 # 请替换为实际的Pinpet程序ID / Please replace with the actual Pinpet program ID
 program_id = "F2FzigE1Z374iDvreiM6hZQe6oGXgomJfv8PyybvUXye"
 # 事件监听器配置 / Event listener configuration
