@@ -1,0 +1,8 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-03-30T22:30:00Z",
+  "blocked_mints": [
+    "E4eZZGy2kPQUta3mWLhkuS9AygUx7vFcpMSZhGJZvPin"
+  ],
+  "comment": "Add mint addresses to block from token list APIs"
+}

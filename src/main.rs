@@ -13,6 +13,7 @@ mod router;
 mod solana;
 mod util;
 mod volume;
+mod blocked_mints;
 
 use axum::Router;
 use std::sync::Arc;
@@ -411,6 +412,19 @@ async fn main() {
     let markets_abs_storage_for_api = Arc::new(markets_abs::MarketsAbsStorage::new(stats_storage.db()));
     tracing::info!("✅ 绝对钱包数存储初始化成功(API) / Markets abs storage initialized successfully (API)");
 
+    // 初始化 Mint 地址屏蔽服务 / Initialize blocked mints service
+    let blocked_mints_service = match blocked_mints::BlockedMintsService::new("blocked_mints.json") {
+        Ok(service) => {
+            service.clone().start_auto_refresh(std::time::Duration::from_secs(300)); // 5分钟刷新一次
+            Arc::new(service)
+        }
+        Err(e) => {
+            tracing::warn!("⚠️  Mint屏蔽服务初始化失败，使用空列表 / Failed to initialize blocked mints service, using empty list: {}", e);
+            Arc::new(blocked_mints::BlockedMintsService::new("blocked_mints.json").unwrap())
+        }
+    };
+    tracing::info!("✅ Mint地址屏蔽服务初始化成功 / Blocked mints service initialized successfully");
+
     // 创建路由
     let api_router = router::create_router(
         db_storage,
@@ -425,6 +439,7 @@ async fn main() {
         config.clone(),
         solana_client.clone(),
         sync_service_for_api,
+        blocked_mints_service,
     );
 
     // 创建 Swagger UI

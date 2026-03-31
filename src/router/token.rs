@@ -47,6 +47,9 @@ pub struct TokenState {
     // 缓存配置和存储 / Cache configuration and storage
     pub cache_ttl_secs: u64,
     pub list_cache: TokenListCache,
+
+    // Mint地址屏蔽服务 / Mint address blocking service
+    pub blocked_mints_service: Arc<crate::blocked_mints::BlockedMintsService>,
 }
 
 /// 根据symbol查询Token列表参数 / Get tokens by symbol parameters
@@ -280,6 +283,16 @@ pub async fn get_latest_tokens(
         .get_latest_tokens(limit, params.before_timestamp)
     {
         Ok(mut tokens) => {
+            // 过滤屏蔽的mint / Filter blocked mints
+            let blocked_service = state.blocked_mints_service.clone();
+            let mut filtered_tokens = Vec::new();
+            for token in tokens {
+                if !blocked_service.is_blocked(&token.mint_account).await {
+                    filtered_tokens.push(token);
+                }
+            }
+            tokens = filtered_tokens;
+
             // 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
             let sol_price = state.price_service.get_price_sync();
             enrich_tokens_with_prices(&mut tokens, sol_price);
@@ -782,6 +795,16 @@ async fn handle_local_tokens(
 ) -> Result<TokenListResponse, (StatusCode, String)> {
     match state.token_storage.get_latest_tokens(limit, None) {
         Ok(mut tokens) => {
+            // 过滤屏蔽的mint / Filter blocked mints
+            let blocked_service = state.blocked_mints_service.clone();
+            let mut filtered_tokens = Vec::new();
+            for token in tokens {
+                if !blocked_service.is_blocked(&token.mint_account).await {
+                    filtered_tokens.push(token);
+                }
+            }
+            tokens = filtered_tokens;
+
             // 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
             let sol_price = state.price_service.get_price_sync();
             enrich_tokens_with_prices(&mut tokens, sol_price);
@@ -843,11 +866,21 @@ async fn handle_liquid_tokens(
             )
         })?;
 
-    // 4. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+    // 4. 过滤屏蔽的mint / Filter blocked mints
+    let blocked_service = state.blocked_mints_service.clone();
+    let mut filtered_tokens = Vec::new();
+    for token in tokens {
+        if !blocked_service.is_blocked(&token.mint_account).await {
+            filtered_tokens.push(token);
+        }
+    }
+    tokens = filtered_tokens;
+
+    // 5. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
     let sol_price = state.price_service.get_price_sync();
     enrich_tokens_with_prices(&mut tokens, sol_price);
 
-    // 5. 按原始顺序排序 (volume 从高到低) / Sort by original order (volume desc)
+    // 6. 按原始顺序排序 (volume 从高到低) / Sort by original order (volume desc)
     // RocksDB 返回的可能是无序的,需要根据 mints 顺序重新排列
     // RocksDB might return unordered, need to reorder by mints
     let mint_index: std::collections::HashMap<String, usize> = mints
@@ -908,11 +941,21 @@ async fn handle_rising_tokens(
             )
         })?;
 
-    // 4. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+    // 4. 过滤屏蔽的mint / Filter blocked mints
+    let blocked_service = state.blocked_mints_service.clone();
+    let mut filtered_tokens = Vec::new();
+    for token in tokens {
+        if !blocked_service.is_blocked(&token.mint_account).await {
+            filtered_tokens.push(token);
+        }
+    }
+    tokens = filtered_tokens;
+
+    // 5. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
     let sol_price = state.price_service.get_price_sync();
     enrich_tokens_with_prices(&mut tokens, sol_price);
 
-    // 5. 按原始顺序排序 / Sort by original order
+    // 6. 按原始顺序排序 / Sort by original order
     let mint_index: std::collections::HashMap<String, usize> = mints
         .iter()
         .enumerate()
@@ -921,7 +964,7 @@ async fn handle_rising_tokens(
 
     tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
 
-    // 6. 附加完整的统计数据到 extras / Enrich all tokens with complete stats
+    // 7. 附加完整的统计数据到 extras / Enrich all tokens with complete stats
     for token in &mut tokens {
         enrich_token_with_stats(state, token).await;
     }
@@ -971,11 +1014,21 @@ async fn handle_hottest_tokens(
             )
         })?;
 
-    // 4. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
+    // 4. 过滤屏蔽的mint / Filter blocked mints
+    let blocked_service = state.blocked_mints_service.clone();
+    let mut filtered_tokens = Vec::new();
+    for token in tokens {
+        if !blocked_service.is_blocked(&token.mint_account).await {
+            filtered_tokens.push(token);
+        }
+    }
+    tokens = filtered_tokens;
+
+    // 5. 获取SOL价格并计算价格信息 / Get SOL price and calculate price info
     let sol_price = state.price_service.get_price_sync();
     enrich_tokens_with_prices(&mut tokens, sol_price);
 
-    // 5. 按原始顺序排序 / Sort by original order
+    // 6. 按原始顺序排序 / Sort by original order
     let mint_index: std::collections::HashMap<String, usize> = mints
         .iter()
         .enumerate()
@@ -984,7 +1037,7 @@ async fn handle_hottest_tokens(
 
     tokens.sort_by_key(|t| mint_index.get(&t.mint_account).copied().unwrap_or(usize::MAX));
 
-    // 6. 附加完整的统计数据到 extras / Enrich all tokens with complete stats
+    // 7. 附加完整的统计数据到 extras / Enrich all tokens with complete stats
     for token in &mut tokens {
         enrich_token_with_stats(state, token).await;
     }

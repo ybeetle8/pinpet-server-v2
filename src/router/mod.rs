@@ -28,6 +28,7 @@ pub fn create_router(
     config: Arc<crate::config::Config>,
     solana_client: crate::solana::SolanaClient,
     sync_service: Option<Arc<crate::orderbook_sync::OrderBookSyncService>>,
+    blocked_mints_service: Arc<crate::blocked_mints::BlockedMintsService>,
 ) -> Router {
     // 创建 Token 状态
     let token_state = token::TokenState {
@@ -38,6 +39,7 @@ pub fn create_router(
         markets_abs_storage: markets_abs_storage.clone(),
         cache_ttl_secs: config.server.token_list_cache_ttl_secs,
         list_cache: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+        blocked_mints_service: blocked_mints_service.clone(),
     };
 
     // 创建 K线 状态
