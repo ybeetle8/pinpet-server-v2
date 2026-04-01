@@ -115,12 +115,16 @@ impl UserOrderQueryService {
             let id_key = format!("orderbook_id_map:{}:{}:{:010}", mint, direction, order_id);
             let index: u16 = match snapshot.get(id_key.as_bytes())? {
                 Some(bytes) => {
-                    if bytes.len() == 2 {
+                    // 优先尝试 JSON 格式 / Try JSON format first
+                    if let Ok(idx) = serde_json::from_slice::<u16>(&bytes) {
+                        idx
+                    } else if bytes.len() == 2 {
                         // 二进制格式 (le_bytes) / Binary format (le_bytes)
                         u16::from_le_bytes([bytes[0], bytes[1]])
                     } else {
-                        // JSON 格式 (向后兼容) / JSON format (backward compatibility)
-                        serde_json::from_slice(&bytes)?
+                        return Err(OrderBookError::InvalidAccountData(
+                            format!("Invalid index format for order_id {}", order_id)
+                        ).into());
                     }
                 }
                 None => {
