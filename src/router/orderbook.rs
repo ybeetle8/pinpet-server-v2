@@ -405,26 +405,30 @@ pub async fn get_user_active_orders(
         }
     }
 
-    // 创建查询服务 / Create query service
-    let query_service = UserOrderQueryService::new(orderbook_storage.db());
+    // 🔧 使用 spawn_blocking 包装所有同步 RocksDB 操作
+    // 🔧 Use spawn_blocking to wrap all synchronous RocksDB operations
+    let user_address_clone = user_address.clone();
+    let mint_clone = params.mint.clone();
+    let direction_clone = params.direction.clone();
 
-    // 查询用户活跃订单 / Query user active orders
-    let (total, orders) = match query_service.query_user_active_orders(
-        &user_address,
-        params.mint.as_deref(),
-        params.direction.as_deref(),
-        page,
-        page_size,
-    ) {
-        Ok(result) => result,
-        Err(e) => {
-            error!("❌ 查询用户活跃订单失败 / Failed to query user active orders: {}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Query failed: {}", e),
-            ));
-        }
-    };
+    let result = tokio::task::spawn_blocking(move || -> Result<_, String> {
+        let query_service = UserOrderQueryService::new(orderbook_storage.db());
+
+        query_service.query_user_active_orders(
+            &user_address_clone,
+            mint_clone.as_deref(),
+            direction_clone.as_deref(),
+            page,
+            page_size,
+        ).map_err(|e| format!("Query failed: {}", e))
+    }).await.map_err(|e| {
+        error!("❌ spawn_blocking 任务失败 / spawn_blocking task failed: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Task failed: {}", e))
+    })?.map_err(|e: String| {
+        (StatusCode::INTERNAL_SERVER_ERROR, e)
+    })?;
+
+    let (total, orders) = result;
 
     // 构建响应 / Construct response
     let items: Vec<UserActiveOrderItem> = orders
