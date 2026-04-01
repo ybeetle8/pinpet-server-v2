@@ -369,7 +369,7 @@ impl OrderBookDBManager {
             // 更新 ID 映射
             // Update ID mapping
             let id_key = self.id_map_key(current_order_id);
-            batch.put(id_key.as_bytes(), &serde_json::to_vec(&0u16)?);
+            batch.put(id_key.as_bytes(), &0u16.to_le_bytes());
 
             // 添加用户活跃订单索引
             // Add user active order index
@@ -436,7 +436,7 @@ impl OrderBookDBManager {
         // 更新 ID 映射
         // Update ID mapping
         let id_key = self.id_map_key(current_order_id);
-        batch.put(id_key.as_bytes(), &serde_json::to_vec(&old_total)?);
+        batch.put(id_key.as_bytes(), &old_total.to_le_bytes());
 
         // 添加用户活跃订单索引
         // Add user active order index
@@ -569,7 +569,7 @@ impl OrderBookDBManager {
         // 更新 ID 映射
         // Update ID mapping
         let id_key = self.id_map_key(current_order_id);
-        batch.put(id_key.as_bytes(), &serde_json::to_vec(&old_total)?);
+        batch.put(id_key.as_bytes(), &old_total.to_le_bytes());
 
         // 添加用户活跃订单索引
         // Add user active order index
@@ -878,7 +878,7 @@ impl OrderBookDBManager {
                 // 更新 ID 映射
                 // Update ID mapping
                 let id_key = self.id_map_key(tail_order_id);
-                batch.put(id_key.as_bytes(), &serde_json::to_vec(&remove_index)?);
+                batch.put(id_key.as_bytes(), &remove_index.to_le_bytes());
 
                 // 删除原位置
                 // Delete original position
@@ -1181,7 +1181,7 @@ impl OrderBookDBManager {
         // 更新 ID 映射
         // Update ID mapping
         let id_key = self.id_map_key(tail_order_id);
-        batch.put(id_key.as_bytes(), &serde_json::to_vec(&target_index)?);
+        batch.put(id_key.as_bytes(), &target_index.to_le_bytes());
 
         // 删除原位置
         // Delete original position
@@ -1671,7 +1671,7 @@ impl OrderBookDBManager {
 
             // 写入 ID 映射 / Write ID mapping
             let id_map_key = self.id_map_key(order.order_id);
-            batch.put(id_map_key.as_bytes(), &serde_json::to_vec(index)?);
+            batch.put(id_map_key.as_bytes(), &index.to_le_bytes());
 
             // 添加用户活跃订单索引 / Add user active order index
             self.add_user_active_index(&mut batch, &order.user, order.start_time, order.order_id);
