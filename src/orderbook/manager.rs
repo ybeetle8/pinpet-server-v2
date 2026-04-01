@@ -1671,7 +1671,7 @@ impl OrderBookDBManager {
 
             // 写入 ID 映射 / Write ID mapping
             let id_map_key = self.id_map_key(order.order_id);
-            batch.put(id_map_key.as_bytes(), &index.to_le_bytes());
+            batch.put(id_map_key.as_bytes(), &serde_json::to_vec(index)?);
 
             // 添加用户活跃订单索引 / Add user active order index
             self.add_user_active_index(&mut batch, &order.user, order.start_time, order.order_id);

@@ -114,7 +114,15 @@ impl UserOrderQueryService {
             // ⭐ Query index on snapshot
             let id_key = format!("orderbook_id_map:{}:{}:{:010}", mint, direction, order_id);
             let index: u16 = match snapshot.get(id_key.as_bytes())? {
-                Some(bytes) => serde_json::from_slice(&bytes)?,
+                Some(bytes) => {
+                    if bytes.len() == 2 {
+                        // 二进制格式 (le_bytes) / Binary format (le_bytes)
+                        u16::from_le_bytes([bytes[0], bytes[1]])
+                    } else {
+                        // JSON 格式 (向后兼容) / JSON format (backward compatibility)
+                        serde_json::from_slice(&bytes)?
+                    }
+                }
                 None => {
                     // ⚠️ 理论上在快照内不应该发生,但防御性编程
                     // ⚠️ Should not happen within snapshot, but defensive programming
