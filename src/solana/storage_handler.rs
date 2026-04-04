@@ -1067,7 +1067,7 @@ impl StorageEventHandler {
         use crate::curve_amm::CurveAMM;
 
         // 提取事件信息和动态池子参数 / Extract event info and dynamic pool parameters
-        let (mint, price_after, timestamp, initial_virtual_sol, initial_virtual_token) = match event {
+        let (mint, price_after, timestamp, _initial_virtual_sol, initial_virtual_token) = match event {
             PinpetEvent::TokenCreated(e) => {
                 (&e.mint_account, e.latest_price, e.timestamp.timestamp() as u64, e.initial_virtual_sol, e.initial_virtual_token)
             },
@@ -1097,16 +1097,22 @@ impl StorageEventHandler {
         // 获取 SOL/USD 汇率 / Get SOL/USD exchange rate
         let sol_price_usd = self.sol_price_service.get_price_sync();
 
-        // 将价格从 lamports 转换为 USD,使用动态池子参数 / Convert price from lamports to USD using dynamic pool parameters
-        // price 单位是 lamports, 需要转换为 SOL 再转换为 USD
-        // price is in lamports, need to convert to SOL then to USD
-        let (sol_reserve, _token_reserve) = CurveAMM::price_to_reserves(initial_virtual_sol, initial_virtual_token, price_after)
-            .ok_or_else(|| anyhow::anyhow!("Failed to calculate reserves"))?;
-
-        // SOL 储备单位是 lamports (1 SOL = 10^9 lamports)
-        // SOL reserve is in lamports (1 SOL = 10^9 lamports)
-        let sol_amount = sol_reserve as f64 / 1_000_000_000.0;
-        let price_usd = sol_amount * sol_price_usd;
+        // 使用与 mc（市值）相同口径的公式计算 price_usd / Use the same formula as mc (market cap) to calculate price_usd
+        // 公式: price_usd = (latest_price / 10^23) × (initial_virtual_token / 10^9) × sol_price_usd
+        // Formula: price_usd = normalized_price × token_supply × sol_price_usd
+        // 注意: 旧公式用 sol_reserve（与 price 是平方根关系），导致涨跌幅被压缩
+        // Note: Old formula used sol_reserve (sqrt relationship with price), causing change_percent to be compressed
+        let normalized_price = CurveAMM::u128_to_decimal(price_after)
+            .ok_or_else(|| anyhow::anyhow!("Failed to convert price to decimal"))?;
+        let token_supply = CurveAMM::u64_to_token_decimal(initial_virtual_token)
+            .ok_or_else(|| anyhow::anyhow!("Failed to convert token supply to decimal"))?;
+        let sol_price_decimal = Decimal::from_f64(sol_price_usd)
+            .ok_or_else(|| anyhow::anyhow!("Failed to convert SOL price to decimal"))?;
+        let mc_decimal = normalized_price
+            .checked_mul(token_supply)
+            .and_then(|v| v.checked_mul(sol_price_decimal))
+            .ok_or_else(|| anyhow::anyhow!("MC calculation overflow"))?;
+        let price_usd = mc_decimal.to_f64().unwrap_or(0.0);
 
         debug!(
             "📊 Change计算参数 / Change calc params: mint={}, price_usd=${:.9}, timestamp={}",
