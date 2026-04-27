@@ -1,0 +1,11 @@
+cp -f /root/pinpet-server-main/pinpet-server-v2-up /root/pinpet-server-main/pinpet-server-v2
+
+
+
+
+
+
+
+
+
+
