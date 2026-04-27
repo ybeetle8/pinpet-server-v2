@@ -8,6 +8,8 @@ use crate::volume::VolumeStorage;
 use crate::change::ChangeStorage;
 use crate::markets::MarketsStorage;
 use crate::markets_abs::MarketsAbsStorage;
+use crate::order_summary::{OrderSummaryStorage, PartialCloseDelta};
+use crate::orderbook::manager::RemovedOrderInfo;
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 use rust_decimal::Decimal;
@@ -23,6 +25,7 @@ pub struct StorageEventHandler {
     change_storage: Arc<ChangeStorage>,
     markets_storage: Arc<MarketsStorage>,
     markets_abs_storage: Arc<MarketsAbsStorage>,
+    order_summary_storage: Arc<OrderSummaryStorage>,
     sol_price_service: Arc<crate::price::SolPriceService>,
     kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
     sync_monitor: Option<Arc<crate::orderbook_sync::OrderBookSyncMonitor>>,
@@ -38,6 +41,7 @@ impl StorageEventHandler {
         change_storage: Arc<ChangeStorage>,
         markets_storage: Arc<MarketsStorage>,
         markets_abs_storage: Arc<MarketsAbsStorage>,
+        order_summary_storage: Arc<OrderSummaryStorage>,
         sol_price_service: Arc<crate::price::SolPriceService>,
     ) -> Self {
         Self {
@@ -48,6 +52,7 @@ impl StorageEventHandler {
             change_storage,
             markets_storage,
             markets_abs_storage,
+            order_summary_storage,
             sol_price_service,
             kline_socket_service: None,
             sync_monitor: None,
@@ -118,12 +123,22 @@ impl EventHandler for StorageEventHandler {
         let liquidate_events = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<PinpetEvent>> {
             let mut additional_events = Vec::new();
 
+            // 保存各事件处理返回的被删除订单信息 / Save removed order info from each event handler
+            let mut long_short_removed: Vec<RemovedOrderInfo> = Vec::new();
+            let mut buy_sell_removed: Vec<RemovedOrderInfo> = Vec::new();
+            let mut full_close_removed: Vec<RemovedOrderInfo> = Vec::new();
+            let mut partial_close_removed: Vec<RemovedOrderInfo> = Vec::new();
+            let mut partial_close_delta = PartialCloseDelta::default();
+
             // ====== 第一步：处理订单操作 / Step 1: Process order operations ======
 
             // 如果是 LongShortEvent，插入到 OrderBook / If LongShortEvent, insert to OrderBook
             if let PinpetEvent::LongShort(ref ls_event) = event_for_processing {
                 match this.handle_long_short_event(ls_event) {
-                    Ok(events) => additional_events.extend(events),
+                    Ok((events, removed)) => {
+                        additional_events.extend(events);
+                        long_short_removed = removed;
+                    },
                     Err(e) => {
                         error!("❌ 处理 LongShortEvent 失败 / Failed to handle LongShortEvent: {}", e);
                         // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
@@ -134,7 +149,10 @@ impl EventHandler for StorageEventHandler {
             // 如果是 BuySellEvent，处理清算 / If BuySellEvent, handle liquidations
             if let PinpetEvent::BuySell(ref bs_event) = event_for_processing {
                 match this.handle_buy_sell_event(bs_event) {
-                    Ok(events) => additional_events.extend(events),
+                    Ok((events, removed)) => {
+                        additional_events.extend(events);
+                        buy_sell_removed = removed;
+                    },
                     Err(e) => {
                         error!("❌ 处理 BuySellEvent 清算失败 / Failed to handle BuySellEvent liquidations: {}", e);
                         // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
@@ -145,7 +163,10 @@ impl EventHandler for StorageEventHandler {
             // 如果是 FullCloseEvent，处理清算 / If FullCloseEvent, handle liquidations
             if let PinpetEvent::FullClose(ref fc_event) = event_for_processing {
                 match this.handle_full_close_event(fc_event) {
-                    Ok(events) => additional_events.extend(events),
+                    Ok((events, removed)) => {
+                        additional_events.extend(events);
+                        full_close_removed = removed;
+                    },
                     Err(e) => {
                         error!("❌ 处理 FullCloseEvent 清算失败 / Failed to handle FullCloseEvent liquidations: {}", e);
                         // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
@@ -156,12 +177,106 @@ impl EventHandler for StorageEventHandler {
             // 如果是 PartialCloseEvent，处理更新和清算 / If PartialCloseEvent, handle update and liquidations
             if let PinpetEvent::PartialClose(ref pc_event) = event_for_processing {
                 match this.handle_partial_close_event(pc_event) {
-                    Ok(events) => additional_events.extend(events),
+                    Ok((events, removed, delta)) => {
+                        additional_events.extend(events);
+                        partial_close_removed = removed;
+                        partial_close_delta = delta;
+                    },
                     Err(e) => {
                         error!("❌ 处理 PartialCloseEvent 更新和清算失败 / Failed to handle PartialCloseEvent update and liquidations: {}", e);
                         // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
                     }
                 }
+            }
+
+            // ====== 第一步半：更新订单汇总 / Step 1.5: Update order summary ======
+            match &event_for_processing {
+                PinpetEvent::LongShort(e) => {
+                    let direction = if e.order_type == 1 { "dn" } else { "up" };
+                    // ① 加上新订单 / Add new order
+                    if let Err(err) = this.order_summary_storage.add_order(
+                        &e.mint_account, direction,
+                        e.margin_sol_amount,
+                        e.lock_lp_token_amount,
+                        e.borrow_amount,
+                        e.position_asset_amount,
+                    ) {
+                        error!("❌ 更新订单汇总失败 (LongShort add) / Failed to update order summary: {}", err);
+                    }
+                    // ② 减去被清算的对手方订单 / Subtract liquidated opposing orders
+                    if !long_short_removed.is_empty() {
+                        let liq_dir = if e.order_type == 1 { "up" } else { "dn" };
+                        for removed in &long_short_removed {
+                            if let Err(err) = this.order_summary_storage.sub_order(
+                                &e.mint_account, liq_dir,
+                                removed.margin_sol_amount,
+                                removed.lock_lp_token_amount,
+                                removed.borrow_amount,
+                                removed.position_asset_amount,
+                            ) {
+                                error!("❌ 更新订单汇总失败 (LongShort liquidate sub) / Failed to update order summary: {}", err);
+                            }
+                        }
+                    }
+                }
+                PinpetEvent::BuySell(e) => {
+                    // 减去被清算的订单 / Subtract liquidated orders
+                    if !buy_sell_removed.is_empty() {
+                        let direction = if e.is_buy { "up" } else { "dn" };
+                        for removed in &buy_sell_removed {
+                            if let Err(err) = this.order_summary_storage.sub_order(
+                                &e.mint_account, direction,
+                                removed.margin_sol_amount,
+                                removed.lock_lp_token_amount,
+                                removed.borrow_amount,
+                                removed.position_asset_amount,
+                            ) {
+                                error!("❌ 更新订单汇总失败 (BuySell liquidate sub) / Failed to update order summary: {}", err);
+                            }
+                        }
+                    }
+                }
+                PinpetEvent::FullClose(e) => {
+                    // 减去所有被删除的订单 (包含主订单) / Subtract all removed orders (including main order)
+                    let direction = if e.is_close_long { "dn" } else { "up" };
+                    for removed in &full_close_removed {
+                        if let Err(err) = this.order_summary_storage.sub_order(
+                            &e.mint_account, direction,
+                            removed.margin_sol_amount,
+                            removed.lock_lp_token_amount,
+                            removed.borrow_amount,
+                            removed.position_asset_amount,
+                        ) {
+                            error!("❌ 更新订单汇总失败 (FullClose sub) / Failed to update order summary: {}", err);
+                        }
+                    }
+                }
+                PinpetEvent::PartialClose(e) => {
+                    let direction = if e.is_close_long { "dn" } else { "up" };
+                    // ① 减去半平仓的差值 / Subtract partial close delta
+                    if let Err(err) = this.order_summary_storage.sub_order(
+                        &e.mint_account, direction,
+                        partial_close_delta.margin_sol,
+                        partial_close_delta.lock_lp_token,
+                        partial_close_delta.borrow,
+                        partial_close_delta.position_asset,
+                    ) {
+                        error!("❌ 更新订单汇总失败 (PartialClose delta sub) / Failed to update order summary: {}", err);
+                    }
+                    // ② 减去被清算的订单 / Subtract liquidated orders
+                    for removed in &partial_close_removed {
+                        if let Err(err) = this.order_summary_storage.sub_order(
+                            &e.mint_account, direction,
+                            removed.margin_sol_amount,
+                            removed.lock_lp_token_amount,
+                            removed.borrow_amount,
+                            removed.position_asset_amount,
+                        ) {
+                            error!("❌ 更新订单汇总失败 (PartialClose liquidate sub) / Failed to update order summary: {}", err);
+                        }
+                    }
+                }
+                _ => {} // TokenCreated / MilestoneDiscount / Liquidate 不影响汇总 / Don't affect summary
             }
 
             // ====== 第二步：更新统计信息（必须在更新价格之前）/ Step 2: Update statistics (must be before price update) ======
@@ -299,10 +414,11 @@ impl StorageEventHandler {
     }
 
     /// 处理 LongShortEvent 并插入到 OrderBook / Handle LongShortEvent and insert to OrderBook
+    /// 返回 (LiquidateEvents, RemovedOrderInfo列表) / Returns (LiquidateEvents, RemovedOrderInfo list)
     fn handle_long_short_event(
         &self,
         event: &super::events::LongShortEvent,
-    ) -> anyhow::Result<Vec<PinpetEvent>> {
+    ) -> anyhow::Result<(Vec<PinpetEvent>, Vec<RemovedOrderInfo>)> {
         // 1. 确定方向 / Determine direction
         // order_type: 1=做多/long/dn, 2=做空/short/up
         let direction = match event.order_type {
@@ -406,6 +522,7 @@ impl StorageEventHandler {
 
         // 处理清算 / Handle liquidations
         let mut liquidate_events = Vec::new();
+        let mut all_removed_orders: Vec<RemovedOrderInfo> = Vec::new();
         if !event.liquidate_indices.is_empty() {
             info!(
                 "🔥 处理 LongShortEvent 清算 / Processing LongShortEvent liquidations: count={}",
@@ -446,10 +563,10 @@ impl StorageEventHandler {
             )?;
 
             // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
-            for removed_order in removed_orders {
+            for removed_order in &removed_orders {
                 let liquidate_event = PinpetEvent::Liquidate(super::events::LiquidateEvent {
                     payer: event.payer.clone(),
-                    user_sol_account: removed_order.user,
+                    user_sol_account: removed_order.user.clone(),
                     mint_account: event.mint_account.clone(),
                     is_close_long: liquidate_direction == "dn",
                     final_token_amount: removed_order.position_asset_amount,
@@ -461,6 +578,7 @@ impl StorageEventHandler {
                 });
                 liquidate_events.push(liquidate_event);
             }
+            all_removed_orders = removed_orders;
 
             info!(
                 "✅ LongShortEvent 清算完成 / LongShortEvent liquidations completed: direction={}, count={}, generated {} LiquidateEvents",
@@ -468,18 +586,18 @@ impl StorageEventHandler {
             );
         }
 
-        Ok(liquidate_events)
+        Ok((liquidate_events, all_removed_orders))
     }
 
     /// 处理 BuySellEvent 的清算 / Handle BuySellEvent liquidations
-    /// 返回生成的 LiquidateEvent 列表 / Returns generated LiquidateEvent list
+    /// 返回 (LiquidateEvents, RemovedOrderInfo列表) / Returns (LiquidateEvents, RemovedOrderInfo list)
     fn handle_buy_sell_event(
         &self,
         event: &super::events::BuySellEvent,
-    ) -> anyhow::Result<Vec<PinpetEvent>> {
+    ) -> anyhow::Result<(Vec<PinpetEvent>, Vec<RemovedOrderInfo>)> {
         // 检查是否有需要清算的订单 / Check if there are orders to liquidate
         if event.liquidate_indices.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
 
         // 确定清算的方向 / Determine liquidation direction
@@ -513,10 +631,10 @@ impl StorageEventHandler {
 
         // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
         let mut liquidate_events = Vec::new();
-        for removed_order in removed_orders {
+        for removed_order in &removed_orders {
             let liquidate_event = PinpetEvent::Liquidate(super::events::LiquidateEvent {
                 payer: event.payer.clone(),
-                user_sol_account: removed_order.user,
+                user_sol_account: removed_order.user.clone(),
                 mint_account: event.mint_account.clone(),
                 is_close_long: direction == "dn",
                 final_token_amount: removed_order.position_asset_amount,
@@ -534,18 +652,18 @@ impl StorageEventHandler {
             &event.mint_account[..8], direction, event.liquidate_indices.len(), liquidate_events.len()
         );
 
-        Ok(liquidate_events)
+        Ok((liquidate_events, removed_orders))
     }
 
     /// 处理 FullCloseEvent 的清算 / Handle FullCloseEvent liquidations
-    /// 返回生成的 LiquidateEvent 列表 / Returns generated LiquidateEvent list
+    /// 返回 (LiquidateEvents, RemovedOrderInfo列表) / Returns (LiquidateEvents, RemovedOrderInfo list)
     fn handle_full_close_event(
         &self,
         event: &super::events::FullCloseEvent,
-    ) -> anyhow::Result<Vec<PinpetEvent>> {
+    ) -> anyhow::Result<(Vec<PinpetEvent>, Vec<RemovedOrderInfo>)> {
         // 检查是否有需要清算的订单 / Check if there are orders to liquidate
         if event.liquidate_indices.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
 
         // 确定清算的方向 / Determine liquidation direction
@@ -579,10 +697,10 @@ impl StorageEventHandler {
 
         // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
         let mut liquidate_events = Vec::new();
-        for removed_order in removed_orders {
+        for removed_order in &removed_orders {
             let liquidate_event = PinpetEvent::Liquidate(super::events::LiquidateEvent {
                 payer: event.payer.clone(),
-                user_sol_account: removed_order.user,
+                user_sol_account: removed_order.user.clone(),
                 mint_account: event.mint_account.clone(),
                 is_close_long: direction == "dn",
                 final_token_amount: removed_order.position_asset_amount,
@@ -600,15 +718,15 @@ impl StorageEventHandler {
             &event.mint_account[..8], direction, event.liquidate_indices.len(), liquidate_events.len()
         );
 
-        Ok(liquidate_events)
+        Ok((liquidate_events, removed_orders))
     }
 
     /// 处理 PartialCloseEvent 的更新和清算 / Handle PartialCloseEvent update and liquidations
-    /// 返回生成的 LiquidateEvent 列表 / Returns generated LiquidateEvent list
+    /// 返回 (LiquidateEvents, RemovedOrderInfo列表, PartialCloseDelta) / Returns (LiquidateEvents, RemovedOrderInfo list, PartialCloseDelta)
     fn handle_partial_close_event(
         &self,
         event: &super::events::PartialCloseEvent,
-    ) -> anyhow::Result<Vec<PinpetEvent>> {
+    ) -> anyhow::Result<(Vec<PinpetEvent>, Vec<RemovedOrderInfo>, PartialCloseDelta)> {
         // 确定更新和清算的方向 / Determine update and liquidation direction
         // is_close_long=true 更新 dn 方向的订单 / is_close_long=true updates dn direction orders
         // is_close_long=false 更新 up 方向的订单 / is_close_long=false updates up direction orders
@@ -674,6 +792,14 @@ impl StorageEventHandler {
             event.realized_sol_amount, current_order.realized_sol_amount, realized_sol_amount_delta
         );
 
+        // 计算半平仓差值 (旧值 - 新值) / Calculate partial close delta (old - new)
+        let pc_delta = PartialCloseDelta {
+            margin_sol: current_order.margin_sol_amount.saturating_sub(new_margin_sol_amount),
+            lock_lp_token: current_order.lock_lp_token_amount.saturating_sub(event.lock_lp_token_amount),
+            borrow: current_order.borrow_amount.saturating_sub(event.borrow_amount),
+            position_asset: current_order.position_asset_amount.saturating_sub(event.position_asset_amount),
+        };
+
         // 构建"被平掉部分"的订单记录 / Build order record for "closed portion"
         // 这个记录代表被平掉的那部分仓位 / This record represents the closed portion of the position
         let closed_portion_order = MarginOrder {
@@ -685,7 +811,7 @@ impl StorageEventHandler {
             // 被平掉的部分数量 = 原数量 - 新数量
             // Closed portion amount = old amount - new amount
             lock_lp_sol_amount: current_order.lock_lp_sol_amount.saturating_sub(event.lock_lp_sol_amount),
-            lock_lp_token_amount: current_order.lock_lp_token_amount.saturating_sub(event.lock_lp_token_amount),
+            lock_lp_token_amount: pc_delta.lock_lp_token,
             next_lp_sol_amount: current_order.next_lp_sol_amount,
             next_lp_token_amount: current_order.next_lp_token_amount,
             // ⭐ margin_init_sol_amount 永远不变 (保持原始值)
@@ -693,13 +819,13 @@ impl StorageEventHandler {
             margin_init_sol_amount: current_order.margin_init_sol_amount,
             // ⭐ 修改: 被平掉部分的保证金 = 原保证金 - 新计算的保证金
             // ⭐ Change: Closed portion margin = old margin - newly calculated margin
-            margin_sol_amount: current_order.margin_sol_amount.saturating_sub(new_margin_sol_amount),
+            margin_sol_amount: pc_delta.margin_sol,
             // 被平掉部分的借款 = 原借款 - 新借款
             // Closed portion borrow = old borrow - new borrow
-            borrow_amount: current_order.borrow_amount.saturating_sub(event.borrow_amount),
+            borrow_amount: pc_delta.borrow,
             // 被平掉部分的持仓 = 原持仓 - 新持仓
             // Closed portion position = old position - new position
-            position_asset_amount: current_order.position_asset_amount.saturating_sub(event.position_asset_amount),
+            position_asset_amount: pc_delta.position_asset,
             // 平仓后的累计已实现收益(使用事件中的累计值,而非增量) / Accumulated realized P&L after close (use cumulative value from event, not delta)
             realized_sol_amount: event.realized_sol_amount,
             version: current_order.version,
@@ -763,6 +889,7 @@ impl StorageEventHandler {
 
         // 2. 再删除清算的订单 / Then delete liquidated orders
         let mut liquidate_events = Vec::new();
+        let mut all_removed_orders: Vec<RemovedOrderInfo> = Vec::new();
         if !event.liquidate_indices.is_empty() {
             info!(
                 "🔥 处理 PartialCloseEvent 清算 / Processing PartialCloseEvent liquidations: count={}",
@@ -784,10 +911,10 @@ impl StorageEventHandler {
             )?;
 
             // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
-            for removed_order in removed_orders {
+            for removed_order in &removed_orders {
                 let liquidate_event = PinpetEvent::Liquidate(super::events::LiquidateEvent {
                     payer: event.payer.clone(),
-                    user_sol_account: removed_order.user,
+                    user_sol_account: removed_order.user.clone(),
                     mint_account: event.mint_account.clone(),
                     is_close_long: direction == "dn",
                     final_token_amount: removed_order.position_asset_amount,
@@ -799,6 +926,7 @@ impl StorageEventHandler {
                 });
                 liquidate_events.push(liquidate_event);
             }
+            all_removed_orders = removed_orders;
 
             info!(
                 "✅ PartialCloseEvent 清算完成 / PartialCloseEvent liquidations completed: count={}, generated {} LiquidateEvents",
@@ -806,7 +934,7 @@ impl StorageEventHandler {
             );
         }
 
-        Ok(liquidate_events)
+        Ok((liquidate_events, all_removed_orders, pc_delta))
     }
 
     // ==================== 辅助方法 / Helper Methods ====================

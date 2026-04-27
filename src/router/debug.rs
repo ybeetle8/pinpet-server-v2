@@ -11,9 +11,10 @@ use tracing::{error, info, warn};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::config::Config;
-use crate::db::OrderBookStorage;
+use crate::db::{OrderBookStorage, TokenStorage};
 use crate::orderbook::MarginOrder;
 use crate::orderbook_sync::{OrderBookSyncService, SyncResult};
+use crate::order_summary::{OrderSummaryStorage, RebuildResult};
 use crate::solana::{OrderBookReader, OrderBookComparator, ComparisonResult, SolanaClient};
 use crate::util::result::CommonResult;
 
@@ -24,6 +25,8 @@ pub struct DebugState {
     pub solana_client: SolanaClient,
     pub orderbook_storage: Arc<OrderBookStorage>,
     pub sync_service: Option<Arc<OrderBookSyncService>>,
+    pub order_summary_storage: Arc<OrderSummaryStorage>,
+    pub token_storage: Arc<TokenStorage>,
 }
 
 /// 创建 Debug 路由 / Create debug routes
@@ -32,6 +35,7 @@ pub fn routes() -> Router<DebugState> {
         .route("/api/debug/orderbook/:mint/:direction/chain", get(query_orderbook_from_chain))
         .route("/api/debug/orderbook/:mint/compare", get(compare_orderbook))
         .route("/api/debug/orderbook/:mint/sync", post(trigger_manual_sync))
+        .route("/api/debug/order-summary/rebuild", post(rebuild_order_summary))
 }
 
 /// OrderBook 查询参数 / OrderBook query parameters
@@ -483,6 +487,98 @@ pub async fn trigger_manual_sync(
             result.errors
         );
     }
+
+    Ok(Json(CommonResult::ok(result)))
+}
+
+/// 订单汇总重建请求 / Order summary rebuild request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RebuildOrderSummaryRequest {
+    /// 可选, 不传则重建所有 mint / Optional, rebuild all mints if not provided
+    pub mint: Option<String>,
+}
+
+/// 订单汇总重建响应 / Order summary rebuild response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RebuildOrderSummaryResponse {
+    /// 重建的 mint 数量 / Number of rebuilt mints
+    pub rebuilt_count: usize,
+    /// 重建结果 / Rebuild results
+    pub results: Vec<RebuildResult>,
+}
+
+/// 重建订单汇总数据 / Rebuild order summary data
+///
+/// 从 OrderBook 遍历重建指定 mint 或所有 mint 的订单汇总统计
+/// Rebuild order summary statistics from OrderBook traversal for specific or all mints
+///
+/// # 参数 / Parameters
+/// - `mint`: 可选的 Token mint 地址,不传则重建所有 / Optional Token mint address, rebuild all if not provided
+///
+/// # 返回值 / Returns
+/// 返回重建结果 / Returns rebuild results
+#[utoipa::path(
+    post,
+    path = "/api/debug/order-summary/rebuild",
+    request_body = RebuildOrderSummaryRequest,
+    responses(
+        (status = 200, description = "重建成功 / Rebuild successful", body = RebuildOrderSummaryResponse),
+        (status = 500, description = "服务器错误 / Server error")
+    ),
+    tag = "Debug"
+)]
+pub async fn rebuild_order_summary(
+    State(state): State<DebugState>,
+    Json(req): Json<RebuildOrderSummaryRequest>,
+) -> Result<Json<CommonResult<RebuildOrderSummaryResponse>>, (StatusCode, String)> {
+    info!(
+        "🔄 [DEBUG] 重建订单汇总 / Rebuilding order summary: mint={:?}",
+        req.mint
+    );
+
+    let order_summary_storage = state.order_summary_storage.clone();
+    let orderbook_storage = state.orderbook_storage.clone();
+    let token_storage = state.token_storage.clone();
+    let mint_filter = req.mint.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<RebuildOrderSummaryResponse> {
+        let mints = if let Some(mint) = mint_filter {
+            vec![mint]
+        } else {
+            // 获取所有 mint 地址 / Get all mint addresses
+            token_storage.get_all_mint_addresses()?
+        };
+
+        let mut results = Vec::new();
+        for mint in &mints {
+            let long_data = order_summary_storage.rebuild_from_orderbook(mint, "dn", &orderbook_storage)?;
+            let short_data = order_summary_storage.rebuild_from_orderbook(mint, "up", &orderbook_storage)?;
+            results.push(RebuildResult {
+                mint: mint.clone(),
+                long: long_data,
+                short: short_data,
+            });
+        }
+
+        Ok(RebuildOrderSummaryResponse {
+            rebuilt_count: results.len(),
+            results,
+        })
+    })
+    .await
+    .map_err(|e| {
+        error!("❌ 重建订单汇总失败 / Failed to rebuild order summary: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Rebuild failed: {}", e))
+    })?
+    .map_err(|e| {
+        error!("❌ 重建订单汇总失败 / Failed to rebuild order summary: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Rebuild failed: {}", e))
+    })?;
+
+    info!(
+        "✅ [DEBUG] 订单汇总重建完成 / Order summary rebuild completed: rebuilt_count={}",
+        result.rebuilt_count
+    );
 
     Ok(Json(CommonResult::ok(result)))
 }

@@ -24,6 +24,7 @@ pub fn create_router(
     change_storage: Arc<crate::change::ChangeStorage>,
     markets_storage: Arc<crate::markets::MarketsStorage>,
     markets_abs_storage: Arc<crate::markets_abs::MarketsAbsStorage>,
+    order_summary_storage: Arc<crate::order_summary::OrderSummaryStorage>,
     price_service: Arc<crate::price::SolPriceService>,
     config: Arc<crate::config::Config>,
     solana_client: crate::solana::SolanaClient,
@@ -37,6 +38,7 @@ pub fn create_router(
         volume_storage: volume_storage.clone(),
         change_storage: change_storage.clone(),
         markets_abs_storage: markets_abs_storage.clone(),
+        order_summary_storage: order_summary_storage.clone(),
         cache_ttl_secs: config.server.token_list_cache_ttl_secs,
         list_cache: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         blocked_mints_service: blocked_mints_service.clone(),
@@ -58,6 +60,8 @@ pub fn create_router(
         solana_client,
         orderbook_storage: orderbook_storage.clone(),
         sync_service,
+        order_summary_storage: order_summary_storage.clone(),
+        token_storage: token_storage.clone(),
     };
 
     // 创建 DB 状态 / Create DB state

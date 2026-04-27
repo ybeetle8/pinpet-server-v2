@@ -10,6 +10,7 @@ pub mod docs;
 pub mod kline;
 pub mod markets;
 pub mod markets_abs;
+pub mod order_summary;
 pub mod orderbook;
 pub mod orderbook_sync;
 pub mod price;

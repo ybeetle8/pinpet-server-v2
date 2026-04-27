@@ -18,6 +18,7 @@ use crate::util::CommonResult;
 use crate::volume::{Period, VolumeStorage};
 use crate::change::{ChangeDirection, ChangeStorage};
 use crate::markets_abs::MarketsAbsStorage;
+use crate::order_summary::{OrderSummaryStorage, OrderSummaryData};
 
 /// Token列表缓存项 / Token list cache item
 #[derive(Debug, Clone)]
@@ -47,6 +48,9 @@ pub struct TokenState {
     // 缓存配置和存储 / Cache configuration and storage
     pub cache_ttl_secs: u64,
     pub list_cache: TokenListCache,
+
+    // 订单汇总存储 / Order summary storage
+    pub order_summary_storage: Arc<OrderSummaryStorage>,
 
     // Mint地址屏蔽服务 / Mint address blocking service
     pub blocked_mints_service: Arc<crate::blocked_mints::BlockedMintsService>,
@@ -1059,10 +1063,11 @@ async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::Toke
     let period = Period::TwentyFourHours;
 
     // 并发查询所有统计数据 / Query all stats concurrently
-    let (volume_result, change_result, markets_abs_result) = tokio::join!(
+    let (volume_result, change_result, markets_abs_result, order_summary_result) = tokio::join!(
         query_volume_stats(state, mint, period),
         query_change_stats(state, mint, period),
-        query_markets_abs_stats(state, mint, period)
+        query_markets_abs_stats(state, mint, period),
+        query_order_summary(state, mint),
     );
 
     // 附加 Volume 数据 / Attach volume data
@@ -1107,6 +1112,18 @@ async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::Toke
             "markets_abs_first_seen".to_string(),
             serde_json::json!(markets_abs_data.first_seen),
         );
+    }
+
+    // 附加订单汇总数据 / Attach order summary data
+    if let Some((long_data, short_data)) = order_summary_result {
+        // 做多 / Long
+        token.extras.insert("long_margin_sol".into(), serde_json::json!(long_data.total_margin_sol.to_string()));
+        token.extras.insert("long_token_locked".into(), serde_json::json!(long_data.total_lock_lp_token.to_string()));
+        token.extras.insert("long_sol_borrowed".into(), serde_json::json!(long_data.total_borrow.to_string()));
+        // 做空 / Short
+        token.extras.insert("short_margin_sol".into(), serde_json::json!(short_data.total_margin_sol.to_string()));
+        token.extras.insert("short_sol_locked".into(), serde_json::json!(short_data.total_position_asset.to_string()));
+        token.extras.insert("short_token_borrowed".into(), serde_json::json!(short_data.total_borrow.to_string()));
     }
 }
 
@@ -1162,6 +1179,23 @@ async fn query_markets_abs_stats(
             None
         }
     }
+}
+
+/// 查询订单汇总 / Query order summary
+async fn query_order_summary(
+    state: &TokenState,
+    mint: &str,
+) -> Option<(OrderSummaryData, OrderSummaryData)> {
+    let storage = state.order_summary_storage.clone();
+    let mint = mint.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let long_data = storage.get(&mint, "dn").ok()?;
+        let short_data = storage.get(&mint, "up").ok()?;
+        Some((long_data, short_data))
+    })
+    .await
+    .ok()?
 }
 
 /// MarketsAbs 统计数据辅助结构 / MarketsAbs statistics helper struct

@@ -104,6 +104,7 @@ pub struct ErrorApiResponse {
         crate::router::debug::query_orderbook_from_chain,
         crate::router::debug::compare_orderbook,
         crate::router::debug::trigger_manual_sync,
+        crate::router::debug::rebuild_order_summary,
     ),
     components(
         schemas(
@@ -182,6 +183,10 @@ pub struct ErrorApiResponse {
             crate::router::debug::ChainOrderBookOrderDetail,
             crate::router::debug::ChainOrderBookQueryResponse,
             crate::router::debug::SyncParams,
+            crate::router::debug::RebuildOrderSummaryRequest,
+            crate::router::debug::RebuildOrderSummaryResponse,
+            crate::order_summary::OrderSummaryData,
+            crate::order_summary::RebuildResult,
             // 对比相关结构体 / Comparison structures
             crate::solana::orderbook_comparator::ComparisonResult,
             crate::solana::orderbook_comparator::OrderBookComparison,

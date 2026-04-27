@@ -9,14 +9,16 @@ use rocksdb::{WriteBatch, DB};
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
-/// 被删除订单的信息 (用于创建 LiquidateEvent)
-/// Information about removed order (for creating LiquidateEvent)
+/// 被删除订单的信息 (用于创建 LiquidateEvent 和更新订单汇总)
+/// Information about removed order (for creating LiquidateEvent and updating order summary)
 #[derive(Debug, Clone)]
 pub struct RemovedOrderInfo {
     pub index: u16,
     pub user: String,
     pub position_asset_amount: u64,
     pub margin_sol_amount: u64,
+    pub lock_lp_token_amount: u64,   // 锁定的LP代币数量 / Locked LP token amount
+    pub borrow_amount: u64,          // 借入数量 / Borrowed amount
 }
 
 /// OrderBook 数据库管理器
@@ -1084,6 +1086,8 @@ impl OrderBookDBManager {
                         user: order.user.clone(),
                         position_asset_amount: order.position_asset_amount,
                         margin_sol_amount: order.margin_sol_amount,
+                        lock_lp_token_amount: order.lock_lp_token_amount,
+                        borrow_amount: order.borrow_amount,
                     });
                 }
                 Err(e) => {

@@ -808,4 +808,23 @@ impl TokenStorage {
 
         Ok(tokens)
     }
+
+    /// 获取所有 mint 地址（通过扫描 token_created: 索引）
+    /// Get all mint addresses (by scanning token_created: prefix)
+    pub fn get_all_mint_addresses(&self) -> Result<Vec<String>> {
+        let prefix = "token_created:";
+        let mut mints = Vec::new();
+        let iter = self.db.prefix_iterator(prefix.as_bytes());
+        for item in iter {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+            if !key_str.starts_with(prefix) { break; }
+            // key 格式: token_created:{timestamp:010}:{mint}
+            // Key format: token_created:{timestamp:010}:{mint}
+            if let Some(mint) = key_str.rsplit(':').next() {
+                mints.push(mint.to_string());
+            }
+        }
+        Ok(mints)
+    }
 }
