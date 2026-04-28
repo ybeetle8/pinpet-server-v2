@@ -65,7 +65,7 @@ kline:{mint}:{interval}:{timestamp}
 | 字段 Field | 类型 Type | 说明 Description | 示例 Example |
 |-----------|----------|-----------------|--------------|
 | `mint` | String | 代币mint地址 / Token mint address | `7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU` |
-| `interval` | String | 时间间隔 / Time interval | `s1`, `s30`, `m5` |
+| `interval` | String | 时间间隔 / Time interval | `s1`, `s30`, `m5`, `h1`, `d1` |
 | `timestamp` | u64 (10位零填充) | Unix时间戳(秒) / Unix timestamp (seconds) | `0001732185600` (补零到10位) |
 
 #### 完整示例 / Complete Example:
@@ -82,11 +82,13 @@ kline:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU:s30:0001732185600
 
 ### 3.2 支持的时间间隔 / Supported Time Intervals
 
-| 间隔标识 Interval | 含义 Meaning | 时间长度 Duration |
-|------------------|-------------|------------------|
-| `s1` | 1秒K线 / 1-second K-line | 1秒 / 1 second |
-| `s30` | 30秒K线 / 30-second K-line | 30秒 / 30 seconds |
-| `m5` | 5分钟K线 / 5-minute K-line | 300秒 / 300 seconds |
+| 间隔标识 Interval | 含义 Meaning | 时间长度 Duration | 时间桶对齐 Alignment |
+|------------------|-------------|------------------|---------------------|
+| `s1` | 1秒K线 / 1-second K-line | 1秒 / 1 second | 不对齐 / No alignment |
+| `s30` | 30秒K线 / 30-second K-line | 30秒 / 30 seconds | 30秒边界 / 30s boundary |
+| `m5` | 5分钟K线 / 5-minute K-line | 300秒 / 300 seconds | 5分钟边界 / 5min boundary |
+| `h1` | 1小时K线 / 1-hour K-line | 3600秒 / 3600 seconds | 整点对齐 / Hour boundary |
+| `d1` | 1天K线 / 1-day K-line | 86400秒 / 86400 seconds | UTC 0点对齐 / UTC midnight |
 
 ---
 
@@ -252,6 +254,8 @@ Direction: Reverse iteration (from large to small)
 | `s1` | 24小时 / 24 hours | 高频数据,保留时间较短 / High-frequency data, shorter retention |
 | `s30` | 7天 / 7 days | 中频数据,适中保留 / Medium-frequency data, moderate retention |
 | `m5` | 30天 / 30 days | 低频数据,较长保留 / Low-frequency data, longer retention |
+| `h1` | 90天 / 90 days | 小时线,每天最多24条 / Hourly data, max 24 records per day |
+| `d1` | 永久 / Permanent | 日线,每天最多1条 / Daily data, max 1 record per day |
 
 ### 8.2 清理机制 / Cleanup Mechanism
 
@@ -380,9 +384,10 @@ If a single RocksDB instance cannot meet performance requirements, consider:
 | 版本 Version | 日期 Date | 说明 Description |
 |-------------|----------|-----------------|
 | 1.0 | 2025-11-21 | 初始版本 / Initial version |
+| 1.1 | 2026-04-28 | 新增h1(小时线)和d1(日线)周期 / Add h1 (hourly) and d1 (daily) intervals |
 
 ---
 
 **文档维护者 / Document Maintainer**: pinpet-server-v2 开发团队 / Development Team
 
-**最后更新 / Last Updated**: 2025-11-21
+**最后更新 / Last Updated**: 2026-04-28
