@@ -691,15 +691,7 @@ impl StorageEventHandler {
         let manager = self.orderbook_storage
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
 
-        // 合并主订单和清算订单的索引列表 / Merge main order and liquidation indices
-        let mut all_indices = vec![event.order_index];
-        all_indices.extend_from_slice(&event.liquidate_indices);
-
-        // 批量删除所有订单 / Batch remove all orders
-        // 主订单使用 UserInitiated (1), 但 batch_remove 只支持统一 close_reason
-        // 这里先统一用 UserInitiated (1), 清算订单的 close_reason 通过后续 close_record 修正
-        // Main order uses UserInitiated (1), liquidated orders should be ForcedLiquidation (2)
-        // We use UserInitiated for the main order; for separate liquidation-only removal see below
+        // 删除主订单 (用户主动平仓) / Remove main order (user initiated close)
         let main_removed = manager.batch_remove_by_indices_unsafe_with_info(
             &[event.order_index],
             1, // UserInitiated - 用户主动平仓 / User initiated close
@@ -711,16 +703,25 @@ impl StorageEventHandler {
         let mut liquidate_events = Vec::new();
         let mut all_removed_orders = main_removed;
 
-        if !event.liquidate_indices.is_empty() {
+        // 🔧 修复: 合约 FullCloseEvent.liquidate_indices 包含主订单自身 index,
+        // 必须过滤掉, 否则重复删除会导致 index 越界或删错订单
+        // 🔧 Fix: Contract FullCloseEvent.liquidate_indices includes the main order's own index,
+        // must filter it out, otherwise double-removal causes index out-of-bounds or wrong order deletion
+        let actual_liquidate_indices: Vec<u16> = event.liquidate_indices.iter()
+            .filter(|&&idx| idx != event.order_index)
+            .copied()
+            .collect();
+
+        if !actual_liquidate_indices.is_empty() {
             info!(
                 "🔥 处理 FullCloseEvent 清算 / Processing FullCloseEvent liquidations: count={}",
-                event.liquidate_indices.len()
+                actual_liquidate_indices.len()
             );
 
-            // 🔧 修复9.8: 强制清算订单使用 ForcedLiquidation (2)
-            // 🔧 Fix 9.8: Force-liquidated orders use ForcedLiquidation (2)
+            // 强制清算订单使用 ForcedLiquidation (2)
+            // Force-liquidated orders use ForcedLiquidation (2)
             let liquidated_removed = manager.batch_remove_by_indices_unsafe_with_info(
-                &event.liquidate_indices,
+                &actual_liquidate_indices,
                 2, // ForcedLiquidation
                 close_price_before,
                 close_price_after,
