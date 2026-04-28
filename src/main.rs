@@ -3,6 +3,7 @@ mod config;
 mod curve_amm;
 mod db;
 mod docs;
+mod fee;
 mod kline;
 mod markets;
 mod markets_abs;
@@ -230,6 +231,10 @@ async fn main() {
         let order_summary_storage = Arc::new(order_summary::OrderSummaryStorage::new(stats_storage.db()));
         tracing::info!("✅ 订单汇总存储初始化成功 / Order summary storage initialized successfully");
 
+        // 创建手续费存储实例（使用统计数据库）/ Create fee storage instance (using stats DB)
+        let fee_storage = Arc::new(stats_storage.create_fee_storage());
+        tracing::info!("✅ 手续费存储初始化成功 / Fee storage initialized successfully");
+
         // 创建存储事件处理器 / Create storage event handler
         let mut storage_handler = solana::StorageEventHandler::new(
             event_storage.clone(),  // 克隆一份供storage_handler使用 / Clone for storage_handler
@@ -240,6 +245,7 @@ async fn main() {
             markets_storage.clone(),
             markets_abs_storage.clone(),
             order_summary_storage.clone(),
+            fee_storage.clone(),
             price_service.clone(),
         );
 
@@ -422,6 +428,10 @@ async fn main() {
     let order_summary_storage_for_api = Arc::new(order_summary::OrderSummaryStorage::new(stats_storage.db()));
     tracing::info!("✅ 订单汇总存储初始化成功(API) / Order summary storage initialized successfully (API)");
 
+    // 创建手续费存储实例（用于API查询，使用统计数据库）/ Create fee storage instance (for API queries, using stats DB)
+    let fee_storage_for_api = Arc::new(stats_storage.create_fee_storage());
+    tracing::info!("✅ 手续费存储初始化成功(API) / Fee storage initialized successfully (API)");
+
     // 初始化 Mint 地址屏蔽服务 / Initialize blocked mints service
     let blocked_mints_service = match blocked_mints::BlockedMintsService::new("blocked_mints.json") {
         Ok(service) => {
@@ -446,6 +456,7 @@ async fn main() {
         markets_storage_for_api,
         markets_abs_storage_for_api,
         order_summary_storage_for_api,
+        fee_storage_for_api,
         price_service.clone(),
         config.clone(),
         solana_client.clone(),

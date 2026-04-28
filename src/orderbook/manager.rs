@@ -9,8 +9,8 @@ use rocksdb::{WriteBatch, DB};
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
-/// 被删除订单的信息 (用于创建 LiquidateEvent 和更新订单汇总)
-/// Information about removed order (for creating LiquidateEvent and updating order summary)
+/// 被删除订单的信息 (用于创建 LiquidateEvent、更新订单汇总和计算手续费)
+/// Information about removed order (for creating LiquidateEvent, updating order summary, and calculating fees)
 #[derive(Debug, Clone)]
 pub struct RemovedOrderInfo {
     pub index: u16,
@@ -19,6 +19,8 @@ pub struct RemovedOrderInfo {
     pub margin_sol_amount: u64,
     pub lock_lp_token_amount: u64,   // 锁定的LP代币数量 / Locked LP token amount
     pub borrow_amount: u64,          // 借入数量 / Borrowed amount
+    pub lock_lp_sol_amount: u64,     // 锁定的LP SOL数量 (用于计算强平手续费) / Locked LP SOL amount (for liquidation fee calc)
+    pub borrow_fee: u16,             // 保证金手续费费率 (用于计算强平手续费) / Margin fee rate (for liquidation fee calc)
 }
 
 /// OrderBook 数据库管理器
@@ -1088,6 +1090,8 @@ impl OrderBookDBManager {
                         margin_sol_amount: order.margin_sol_amount,
                         lock_lp_token_amount: order.lock_lp_token_amount,
                         borrow_amount: order.borrow_amount,
+                        lock_lp_sol_amount: order.lock_lp_sol_amount,
+                        borrow_fee: order.borrow_fee,
                     });
                 }
                 Err(e) => {

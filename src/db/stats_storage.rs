@@ -117,6 +117,11 @@ impl StatsStorage {
         crate::db::KlineStorage::new(Arc::clone(&self.db))
     }
 
+    /// 创建 Fee 存储实例 / Create Fee storage instance
+    pub fn create_fee_storage(&self) -> crate::fee::FeeStorage {
+        crate::fee::FeeStorage::new(Arc::clone(&self.db))
+    }
+
     /// 获取数据库统计信息 / Get database statistics
     #[allow(dead_code)]
     pub fn get_stats(&self) -> Result<String> {

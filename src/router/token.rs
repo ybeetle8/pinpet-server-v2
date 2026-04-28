@@ -17,6 +17,7 @@ use crate::db::TokenStorage;
 use crate::util::CommonResult;
 use crate::volume::{Period, VolumeStorage};
 use crate::change::{ChangeDirection, ChangeStorage};
+use crate::fee::FeeStorage;
 use crate::markets_abs::MarketsAbsStorage;
 use crate::order_summary::{OrderSummaryStorage, OrderSummaryData};
 
@@ -51,6 +52,9 @@ pub struct TokenState {
 
     // 订单汇总存储 / Order summary storage
     pub order_summary_storage: Arc<OrderSummaryStorage>,
+
+    // 手续费存储 / Fee storage
+    pub fee_storage: Arc<FeeStorage>,
 
     // Mint地址屏蔽服务 / Mint address blocking service
     pub blocked_mints_service: Arc<crate::blocked_mints::BlockedMintsService>,
@@ -1063,11 +1067,13 @@ async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::Toke
     let period = Period::TwentyFourHours;
 
     // 并发查询所有统计数据 / Query all stats concurrently
-    let (volume_result, change_result, markets_abs_result, order_summary_result) = tokio::join!(
+    let (volume_result, change_result, markets_abs_result, order_summary_result, fee_24h_result, fee_all_result) = tokio::join!(
         query_volume_stats(state, mint, period),
         query_change_stats(state, mint, period),
         query_markets_abs_stats(state, mint, period),
         query_order_summary(state, mint),
+        query_fee_24h(state, mint),
+        query_fee_all(state, mint),
     );
 
     // 附加 Volume 数据 / Attach volume data
@@ -1124,6 +1130,20 @@ async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::Toke
         token.extras.insert("short_margin_sol".into(), serde_json::json!(short_data.total_margin_sol.to_string()));
         token.extras.insert("short_sol_locked".into(), serde_json::json!(short_data.total_position_asset.to_string()));
         token.extras.insert("short_token_borrowed".into(), serde_json::json!(short_data.total_borrow.to_string()));
+    }
+
+    // 附加24h手续费数据 / Attach 24h fee data
+    if let Some(fee_data) = fee_24h_result {
+        token.extras.insert("fee_swap_24h".into(), serde_json::json!(fee_data.swap_fee_total.to_string()));
+        token.extras.insert("fee_borrow_24h".into(), serde_json::json!(fee_data.borrow_fee_total.to_string()));
+        token.extras.insert("fee_liquidate_24h".into(), serde_json::json!(fee_data.liquidate_fee_total.to_string()));
+        token.extras.insert("fee_total_24h".into(), serde_json::json!(fee_data.total_fee.to_string()));
+        token.extras.insert("fee_event_count_24h".into(), serde_json::json!(fee_data.event_count));
+    }
+
+    // 附加全量累计手续费 / Attach all-time accumulated fee
+    if let Some(fee_all_data) = fee_all_result {
+        token.extras.insert("fee_total_all".into(), serde_json::json!(fee_all_data.total_fee.to_string()));
     }
 }
 
@@ -1196,6 +1216,42 @@ async fn query_order_summary(
     })
     .await
     .ok()?
+}
+
+/// 查询24h手续费统计 / Query 24h fee statistics
+async fn query_fee_24h(
+    state: &TokenState,
+    mint: &str,
+) -> Option<crate::fee::FeeData> {
+    use tracing::warn;
+
+    match state.fee_storage.get_fee_24h(mint) {
+        Ok(data) => {
+            if data.total_fee > 0 { Some(data) } else { None }
+        }
+        Err(e) => {
+            warn!("Failed to get 24h fee stats for {}: {}", mint, e);
+            None
+        }
+    }
+}
+
+/// 查询全量累计手续费 / Query all-time accumulated fee
+async fn query_fee_all(
+    state: &TokenState,
+    mint: &str,
+) -> Option<crate::fee::FeeData> {
+    use tracing::warn;
+
+    match state.fee_storage.get_fee_all(mint) {
+        Ok(data) => {
+            if data.total_fee > 0 { Some(data) } else { None }
+        }
+        Err(e) => {
+            warn!("Failed to get all-time fee stats for {}: {}", mint, e);
+            None
+        }
+    }
 }
 
 /// MarketsAbs 统计数据辅助结构 / MarketsAbs statistics helper struct

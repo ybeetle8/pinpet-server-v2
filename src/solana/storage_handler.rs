@@ -10,6 +10,7 @@ use crate::markets::MarketsStorage;
 use crate::markets_abs::MarketsAbsStorage;
 use crate::order_summary::{OrderSummaryStorage, PartialCloseDelta};
 use crate::orderbook::manager::RemovedOrderInfo;
+use crate::fee::{FeeStorage, FeeType};
 use super::events::PinpetEvent;
 use super::listener::EventHandler;
 use rust_decimal::Decimal;
@@ -26,6 +27,7 @@ pub struct StorageEventHandler {
     markets_storage: Arc<MarketsStorage>,
     markets_abs_storage: Arc<MarketsAbsStorage>,
     order_summary_storage: Arc<OrderSummaryStorage>,
+    fee_storage: Arc<FeeStorage>,
     sol_price_service: Arc<crate::price::SolPriceService>,
     kline_socket_service: Option<Arc<crate::kline::KlineSocketService>>,
     sync_monitor: Option<Arc<crate::orderbook_sync::OrderBookSyncMonitor>>,
@@ -42,6 +44,7 @@ impl StorageEventHandler {
         markets_storage: Arc<MarketsStorage>,
         markets_abs_storage: Arc<MarketsAbsStorage>,
         order_summary_storage: Arc<OrderSummaryStorage>,
+        fee_storage: Arc<FeeStorage>,
         sol_price_service: Arc<crate::price::SolPriceService>,
     ) -> Self {
         Self {
@@ -53,6 +56,7 @@ impl StorageEventHandler {
             markets_storage,
             markets_abs_storage,
             order_summary_storage,
+            fee_storage,
             sol_price_service,
             kline_socket_service: None,
             sync_monitor: None,
@@ -286,6 +290,13 @@ impl EventHandler for StorageEventHandler {
             this.update_change_statistics(&event_for_processing)?;
             this.update_markets_statistics(&event_for_processing)?;
             this.update_markets_abs_statistics(&event_for_processing)?;
+            this.update_fee_statistics(
+                &event_for_processing,
+                &full_close_removed,
+                &long_short_removed,
+                &buy_sell_removed,
+                &partial_close_removed,
+            )?;
 
             // ====== 第三步：更新价格（在同一个任务中串行执行）/ Step 3: Update price (execute serially in same task) ======
 
@@ -655,25 +666,20 @@ impl StorageEventHandler {
         Ok((liquidate_events, removed_orders))
     }
 
-    /// 处理 FullCloseEvent 的清算 / Handle FullCloseEvent liquidations
-    /// 返回 (LiquidateEvents, RemovedOrderInfo列表) / Returns (LiquidateEvents, RemovedOrderInfo list)
+    /// 处理 FullCloseEvent: 删除主订单 + 处理清算 / Handle FullCloseEvent: remove main order + handle liquidations
+    /// 返回 (LiquidateEvents, 所有被删除订单的RemovedOrderInfo列表) / Returns (LiquidateEvents, all removed orders RemovedOrderInfo list)
     fn handle_full_close_event(
         &self,
         event: &super::events::FullCloseEvent,
     ) -> anyhow::Result<(Vec<PinpetEvent>, Vec<RemovedOrderInfo>)> {
-        // 检查是否有需要清算的订单 / Check if there are orders to liquidate
-        if event.liquidate_indices.is_empty() {
-            return Ok((Vec::new(), Vec::new()));
-        }
-
-        // 确定清算的方向 / Determine liquidation direction
-        // is_close_long=true 删 dn 方向的订单 / is_close_long=true deletes dn direction orders
-        // is_close_long=false 删 up 方向的订单 / is_close_long=false deletes up direction orders
+        // 确定方向 / Determine direction
+        // is_close_long=true → 主订单在 dn 方向 / main order in dn direction
+        // is_close_long=false → 主订单在 up 方向 / main order in up direction
         let direction = if event.is_close_long { "dn" } else { "up" };
 
         info!(
-            "🔥 处理 FullCloseEvent 清算 / Processing FullCloseEvent liquidations: mint={}, direction={}, count={}",
-            &event.mint_account[..8], direction, event.liquidate_indices.len()
+            "🔒 处理 FullCloseEvent / Processing FullCloseEvent: mint={}, direction={}, order_index={}, liquidate_count={}",
+            &event.mint_account[..8], direction, event.order_index, event.liquidate_indices.len()
         );
 
         // ✅ 先获取平仓前的价格(上一次记录的价格)
@@ -685,40 +691,67 @@ impl StorageEventHandler {
         let manager = self.orderbook_storage
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
 
-        // 批量删除订单并获取被删除订单信息 / Batch remove orders and get removed order info
-        // 用户主动平仓,使用 CloseReason::UserInitiated (1)
-        // User initiated close, use CloseReason::UserInitiated (1)
-        let removed_orders = manager.batch_remove_by_indices_unsafe_with_info(
-            &event.liquidate_indices,
-            1, // UserInitiated
-            close_price_before,  // 平仓前价格 / Price before close
-            close_price_after,   // 平仓后价格 / Price after close
+        // 合并主订单和清算订单的索引列表 / Merge main order and liquidation indices
+        let mut all_indices = vec![event.order_index];
+        all_indices.extend_from_slice(&event.liquidate_indices);
+
+        // 批量删除所有订单 / Batch remove all orders
+        // 主订单使用 UserInitiated (1), 但 batch_remove 只支持统一 close_reason
+        // 这里先统一用 UserInitiated (1), 清算订单的 close_reason 通过后续 close_record 修正
+        // Main order uses UserInitiated (1), liquidated orders should be ForcedLiquidation (2)
+        // We use UserInitiated for the main order; for separate liquidation-only removal see below
+        let main_removed = manager.batch_remove_by_indices_unsafe_with_info(
+            &[event.order_index],
+            1, // UserInitiated - 用户主动平仓 / User initiated close
+            close_price_before,
+            close_price_after,
         )?;
 
-        // 为每个被删除的订单创建 LiquidateEvent / Create LiquidateEvent for each removed order
+        // 处理强制清算的对手方订单 / Handle forced liquidation of opposing orders
         let mut liquidate_events = Vec::new();
-        for removed_order in &removed_orders {
-            let liquidate_event = PinpetEvent::Liquidate(super::events::LiquidateEvent {
-                payer: event.payer.clone(),
-                user_sol_account: removed_order.user.clone(),
-                mint_account: event.mint_account.clone(),
-                is_close_long: direction == "dn",
-                final_token_amount: removed_order.position_asset_amount,
-                final_sol_amount: removed_order.margin_sol_amount,
-                order_index: removed_order.index,
-                timestamp: event.timestamp,
-                signature: event.signature.clone(),
-                slot: event.slot,
-            });
-            liquidate_events.push(liquidate_event);
+        let mut all_removed_orders = main_removed;
+
+        if !event.liquidate_indices.is_empty() {
+            info!(
+                "🔥 处理 FullCloseEvent 清算 / Processing FullCloseEvent liquidations: count={}",
+                event.liquidate_indices.len()
+            );
+
+            // 🔧 修复9.8: 强制清算订单使用 ForcedLiquidation (2)
+            // 🔧 Fix 9.8: Force-liquidated orders use ForcedLiquidation (2)
+            let liquidated_removed = manager.batch_remove_by_indices_unsafe_with_info(
+                &event.liquidate_indices,
+                2, // ForcedLiquidation
+                close_price_before,
+                close_price_after,
+            )?;
+
+            // 为每个被清算的订单创建 LiquidateEvent / Create LiquidateEvent for each liquidated order
+            for removed_order in &liquidated_removed {
+                let liquidate_event = PinpetEvent::Liquidate(super::events::LiquidateEvent {
+                    payer: event.payer.clone(),
+                    user_sol_account: removed_order.user.clone(),
+                    mint_account: event.mint_account.clone(),
+                    is_close_long: direction == "dn",
+                    final_token_amount: removed_order.position_asset_amount,
+                    final_sol_amount: removed_order.margin_sol_amount,
+                    order_index: removed_order.index,
+                    timestamp: event.timestamp,
+                    signature: event.signature.clone(),
+                    slot: event.slot,
+                });
+                liquidate_events.push(liquidate_event);
+            }
+
+            all_removed_orders.extend(liquidated_removed);
         }
 
         info!(
-            "✅ FullCloseEvent 清算完成 / FullCloseEvent liquidations completed: mint={}, direction={}, count={}, generated {} LiquidateEvents",
-            &event.mint_account[..8], direction, event.liquidate_indices.len(), liquidate_events.len()
+            "✅ FullCloseEvent 处理完成 / FullCloseEvent completed: mint={}, direction={}, main_order={}, liquidated={}, total_removed={}",
+            &event.mint_account[..8], direction, event.order_index, liquidate_events.len(), all_removed_orders.len()
         );
 
-        Ok((liquidate_events, removed_orders))
+        Ok((liquidate_events, all_removed_orders))
     }
 
     /// 处理 PartialCloseEvent 的更新和清算 / Handle PartialCloseEvent update and liquidations
@@ -1344,6 +1377,234 @@ impl StorageEventHandler {
                 e
             );
             // 不中断主流程 / Don't interrupt main flow
+        }
+
+        Ok(())
+    }
+
+    /// 更新手续费统计 / Update fee statistics
+    ///
+    /// 根据事件类型计算手续费并累加到 FeeStorage
+    /// Calculate fee based on event type and accumulate to FeeStorage
+    ///
+    /// # 参数 / Parameters
+    /// * `event` - 事件 / Event
+    /// * `full_close_removed` - FullClose 事件删除的订单列表(包含主订单的 borrow_fee)
+    ///   Full close removed orders list (contains main order's borrow_fee)
+    /// * `long_short_removed` - LongShort 事件删除的订单列表(被强平的对手方订单)
+    ///   LongShort removed orders list (force-liquidated opposing orders)
+    /// * `buy_sell_removed` - BuySell 事件删除的订单列表(被强平的对手方订单)
+    ///   BuySell removed orders list (force-liquidated opposing orders)
+    /// * `partial_close_removed` - PartialClose 事件删除的订单列表(被强平的对手方订单)
+    ///   PartialClose removed orders list (force-liquidated opposing orders)
+    fn update_fee_statistics(
+        &self,
+        event: &PinpetEvent,
+        full_close_removed: &[RemovedOrderInfo],
+        long_short_removed: &[RemovedOrderInfo],
+        buy_sell_removed: &[RemovedOrderInfo],
+        partial_close_removed: &[RemovedOrderInfo],
+    ) -> anyhow::Result<()> {
+        match event {
+            PinpetEvent::BuySell(e) => {
+                let timestamp = e.timestamp.timestamp() as u64;
+                // 从 TokenStorage 获取 swap_fee / Get swap_fee from TokenStorage
+                let token = self.token_storage.get_token_by_mint(&e.mint_account)
+                    .map_err(|err| anyhow::anyhow!("Failed to get token for fee calc: {}", err))?
+                    .ok_or_else(|| anyhow::anyhow!("Token not found for fee calc: {}", &e.mint_account))?;
+                let swap_fee = token.swap_fee as u64;
+
+                let fee_lamports = if e.is_buy {
+                    // 买入: fee = sol_amount * swap_fee / 100000
+                    // Buy: fee = sol_amount * swap_fee / 100000
+                    e.sol_amount.checked_mul(swap_fee).unwrap_or(0) / 100_000
+                } else {
+                    // 卖出: 原始SOL = sol_amount * 100000 / (100000 - swap_fee), fee = 原始SOL - sol_amount
+                    // Sell: original_sol = sol_amount * 100000 / (100000 - swap_fee), fee = original_sol - sol_amount
+                    let denominator = 100_000u64.saturating_sub(swap_fee);
+                    if denominator == 0 { 0 } else {
+                        let original_sol = e.sol_amount.checked_mul(100_000).unwrap_or(0) / denominator;
+                        original_sol.saturating_sub(e.sol_amount)
+                    }
+                };
+
+                if fee_lamports > 0 {
+                    if let Err(err) = self.fee_storage.update_fee(&e.mint_account, fee_lamports, FeeType::Swap, timestamp) {
+                        error!("❌ 更新手续费统计失败 (BuySell) / Failed to update fee stats (BuySell): {}", err);
+                    }
+                }
+
+                // 处理 BuySell 触发的强平手续费 / Handle liquidation fees triggered by BuySell
+                self.calculate_liquidation_fees(&e.mint_account, buy_sell_removed, e.is_buy, timestamp)?;
+            }
+
+            PinpetEvent::LongShort(e) => {
+                let timestamp = e.timestamp.timestamp() as u64;
+                let borrow_fee = e.borrow_fee as u64;
+
+                let fee_lamports = if e.order_type == 1 {
+                    // 做多: required_sol = margin_sol_amount + close_output_sol_after_fee
+                    // Long: required_sol = margin_sol_amount + close_output_sol_after_fee
+                    // close_output_sol_after_fee = lock_lp_sol_amount * (100000 - borrow_fee) / 100000
+                    // fee = required_sol * borrow_fee / 100000
+                    let close_output_sol_after_fee = e.lock_lp_sol_amount
+                        .checked_mul(100_000u64.saturating_sub(borrow_fee))
+                        .unwrap_or(0) / 100_000;
+                    let required_sol = e.margin_sol_amount.saturating_add(close_output_sol_after_fee);
+                    required_sol.checked_mul(borrow_fee).unwrap_or(0) / 100_000
+                } else {
+                    // 做空: output_sol_before_fee = position_asset_amount * 100000 / (100000 - borrow_fee)
+                    // Short: output_sol_before_fee = position_asset_amount * 100000 / (100000 - borrow_fee)
+                    // fee = output_sol_before_fee - position_asset_amount
+                    let denominator = 100_000u64.saturating_sub(borrow_fee);
+                    if denominator == 0 { 0 } else {
+                        let output_sol_before_fee = e.position_asset_amount.checked_mul(100_000).unwrap_or(0) / denominator;
+                        output_sol_before_fee.saturating_sub(e.position_asset_amount)
+                    }
+                };
+
+                if fee_lamports > 0 {
+                    if let Err(err) = self.fee_storage.update_fee(&e.mint_account, fee_lamports, FeeType::Borrow, timestamp) {
+                        error!("❌ 更新手续费统计失败 (LongShort) / Failed to update fee stats (LongShort): {}", err);
+                    }
+                }
+
+                // 处理 LongShort 触发的强平手续费 / Handle liquidation fees triggered by LongShort
+                // order_type=1 (做多) → 清算 up 方向做空订单; order_type=2 (做空) → 清算 dn 方向做多订单
+                // order_type=1 (long) → liquidate up direction short orders; order_type=2 (short) → liquidate dn direction long orders
+                let is_liquidating_short = e.order_type == 1; // 做多时清算做空 / When long, liquidate short
+                self.calculate_liquidation_fees(&e.mint_account, long_short_removed, is_liquidating_short, timestamp)?;
+            }
+
+            PinpetEvent::FullClose(e) => {
+                let timestamp = e.timestamp.timestamp() as u64;
+
+                // 从 full_close_removed 中找到主订单的 borrow_fee
+                // Find main order's borrow_fee from full_close_removed
+                let main_order_info = full_close_removed.iter()
+                    .find(|r| r.index == e.order_index);
+
+                if let Some(main_order) = main_order_info {
+                    let borrow_fee = main_order.borrow_fee as u64;
+
+                    let fee_lamports = if e.is_close_long {
+                        // 平多(close_long): 同卖出, fee = final_sol_amount * borrow_fee / (100000 - borrow_fee)
+                        // Close long: same as sell, fee = final_sol_amount * borrow_fee / (100000 - borrow_fee)
+                        let denominator = 100_000u64.saturating_sub(borrow_fee);
+                        if denominator == 0 { 0 } else {
+                            let original_sol = e.final_sol_amount.checked_mul(100_000).unwrap_or(0) / denominator;
+                            original_sol.saturating_sub(e.final_sol_amount)
+                        }
+                    } else {
+                        // 平空(close_short): 同买入, fee = final_sol_amount * borrow_fee / 100000
+                        // Close short: same as buy, fee = final_sol_amount * borrow_fee / 100000
+                        e.final_sol_amount.checked_mul(borrow_fee).unwrap_or(0) / 100_000
+                    };
+
+                    if fee_lamports > 0 {
+                        if let Err(err) = self.fee_storage.update_fee(&e.mint_account, fee_lamports, FeeType::Borrow, timestamp) {
+                            error!("❌ 更新手续费统计失败 (FullClose) / Failed to update fee stats (FullClose): {}", err);
+                        }
+                    }
+                } else {
+                    warn!("⚠️ FullClose 主订单未在 removed 列表中找到: order_index={} / Main order not found in removed list", e.order_index);
+                }
+
+                // 处理 FullClose 触发的强平手续费 / Handle liquidation fees triggered by FullClose
+                // is_close_long=true → 清算 dn 方向做多订单; is_close_long=false → 清算 up 方向做空订单
+                // 但我们需要区分主订单和被清算订单, 只对被清算订单计算手续费
+                // We need to distinguish main order from liquidated orders, only calculate fees for liquidated orders
+                let liquidated_only: Vec<&RemovedOrderInfo> = full_close_removed.iter()
+                    .filter(|r| r.index != e.order_index)
+                    .collect();
+                if !liquidated_only.is_empty() {
+                    // is_close_long=true → 平多 → 清算做多(dn) → 卖单触发的做多清算(is_buy=false for fee calc direction)
+                    // is_close_long=false → 平空 → 清算做空(up) → 买单触发的做空清算(is_buy=true for fee calc direction)
+                    let is_liquidating_short = !e.is_close_long;
+                    let liquidated_infos: Vec<RemovedOrderInfo> = liquidated_only.into_iter().cloned().collect();
+                    self.calculate_liquidation_fees(&e.mint_account, &liquidated_infos, is_liquidating_short, timestamp)?;
+                }
+            }
+
+            PinpetEvent::PartialClose(e) => {
+                let timestamp = e.timestamp.timestamp() as u64;
+                let borrow_fee = e.borrow_fee as u64;
+
+                let fee_lamports = if e.is_close_long {
+                    // 平多: fee = final_sol_amount * borrow_fee / (100000 - borrow_fee)
+                    // Close long: fee = final_sol_amount * borrow_fee / (100000 - borrow_fee)
+                    let denominator = 100_000u64.saturating_sub(borrow_fee);
+                    if denominator == 0 { 0 } else {
+                        let original_sol = e.final_sol_amount.checked_mul(100_000).unwrap_or(0) / denominator;
+                        original_sol.saturating_sub(e.final_sol_amount)
+                    }
+                } else {
+                    // 平空: fee = final_sol_amount * borrow_fee / 100000
+                    // Close short: fee = final_sol_amount * borrow_fee / 100000
+                    e.final_sol_amount.checked_mul(borrow_fee).unwrap_or(0) / 100_000
+                };
+
+                if fee_lamports > 0 {
+                    if let Err(err) = self.fee_storage.update_fee(&e.mint_account, fee_lamports, FeeType::Borrow, timestamp) {
+                        error!("❌ 更新手续费统计失败 (PartialClose) / Failed to update fee stats (PartialClose): {}", err);
+                    }
+                }
+
+                // 处理 PartialClose 触发的强平手续费 / Handle liquidation fees triggered by PartialClose
+                let is_liquidating_short = !e.is_close_long;
+                self.calculate_liquidation_fees(&e.mint_account, partial_close_removed, is_liquidating_short, timestamp)?;
+            }
+
+            // TokenCreated / MilestoneDiscount / Liquidate 不产生手续费
+            // TokenCreated / MilestoneDiscount / Liquidate don't generate fees
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// 计算强制平仓手续费 / Calculate forced liquidation fees
+    ///
+    /// # 参数 / Parameters
+    /// * `mint` - Token mint 地址 / Token mint address
+    /// * `removed_orders` - 被强制清算的订单列表 / List of force-liquidated orders
+    /// * `is_liquidating_short` - 是否在清算做空订单 (买单触发清算做空, 卖单触发清算做多)
+    ///   Whether liquidating short orders (buy triggers short liquidation, sell triggers long liquidation)
+    /// * `timestamp` - 事件时间戳 / Event timestamp
+    fn calculate_liquidation_fees(
+        &self,
+        mint: &str,
+        removed_orders: &[RemovedOrderInfo],
+        is_liquidating_short: bool,
+        timestamp: u64,
+    ) -> anyhow::Result<()> {
+        for removed in removed_orders {
+            let borrow_fee = removed.borrow_fee as u64;
+            if borrow_fee == 0 {
+                continue;
+            }
+
+            let fee_lamports = if is_liquidating_short {
+                // 买单触发的做空清算: fee = calculate_total_amount_with_fee(lock_lp_sol_amount, borrow_fee) - lock_lp_sol_amount
+                // Buy-triggered short liquidation: fee = total_with_fee - lock_lp_sol_amount
+                // total_with_fee = lock_lp_sol_amount * (100000 + borrow_fee) / 100000 (向上取整在合约中)
+                // 服务端使用普通整除 / Server uses floor division
+                removed.lock_lp_sol_amount.checked_mul(borrow_fee).unwrap_or(0) / 100_000
+            } else {
+                // 卖单触发的做多清算: fee = lock_lp_sol_amount - calculate_amount_after_fee(lock_lp_sol_amount, borrow_fee)
+                // Sell-triggered long liquidation: fee = lock_lp_sol_amount - after_fee
+                // after_fee = lock_lp_sol_amount * (100000 - borrow_fee) / 100000
+                let after_fee = removed.lock_lp_sol_amount
+                    .checked_mul(100_000u64.saturating_sub(borrow_fee))
+                    .unwrap_or(0) / 100_000;
+                removed.lock_lp_sol_amount.saturating_sub(after_fee)
+            };
+
+            if fee_lamports > 0 {
+                if let Err(err) = self.fee_storage.update_fee(mint, fee_lamports, FeeType::Liquidate, timestamp) {
+                    error!("❌ 更新强平手续费统计失败 / Failed to update liquidation fee stats: mint={}, error={}", &mint[..8.min(mint.len())], err);
+                }
+            }
         }
 
         Ok(())

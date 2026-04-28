@@ -7,6 +7,7 @@ pub mod config;
 pub mod curve_amm;
 pub mod db;
 pub mod docs;
+pub mod fee;
 pub mod kline;
 pub mod markets;
 pub mod markets_abs;
