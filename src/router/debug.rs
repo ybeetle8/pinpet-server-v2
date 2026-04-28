@@ -491,9 +491,9 @@ pub async fn trigger_manual_sync(
     Ok(Json(CommonResult::ok(result)))
 }
 
-/// 订单汇总重建请求 / Order summary rebuild request
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct RebuildOrderSummaryRequest {
+/// 订单汇总重建参数 / Order summary rebuild parameters
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct RebuildOrderSummaryParams {
     /// 可选, 不传则重建所有 mint / Optional, rebuild all mints if not provided
     pub mint: Option<String>,
 }
@@ -520,7 +520,7 @@ pub struct RebuildOrderSummaryResponse {
 #[utoipa::path(
     post,
     path = "/api/debug/order-summary/rebuild",
-    request_body = RebuildOrderSummaryRequest,
+    params(RebuildOrderSummaryParams),
     responses(
         (status = 200, description = "重建成功 / Rebuild successful", body = RebuildOrderSummaryResponse),
         (status = 500, description = "服务器错误 / Server error")
@@ -529,17 +529,17 @@ pub struct RebuildOrderSummaryResponse {
 )]
 pub async fn rebuild_order_summary(
     State(state): State<DebugState>,
-    Json(req): Json<RebuildOrderSummaryRequest>,
+    Query(params): Query<RebuildOrderSummaryParams>,
 ) -> Result<Json<CommonResult<RebuildOrderSummaryResponse>>, (StatusCode, String)> {
     info!(
         "🔄 [DEBUG] 重建订单汇总 / Rebuilding order summary: mint={:?}",
-        req.mint
+        params.mint
     );
 
     let order_summary_storage = state.order_summary_storage.clone();
     let orderbook_storage = state.orderbook_storage.clone();
     let token_storage = state.token_storage.clone();
-    let mint_filter = req.mint.clone();
+    let mint_filter = params.mint.clone();
 
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<RebuildOrderSummaryResponse> {
         let mints = if let Some(mint) = mint_filter {

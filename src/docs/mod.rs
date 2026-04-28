@@ -183,7 +183,6 @@ pub struct ErrorApiResponse {
             crate::router::debug::ChainOrderBookOrderDetail,
             crate::router::debug::ChainOrderBookQueryResponse,
             crate::router::debug::SyncParams,
-            crate::router::debug::RebuildOrderSummaryRequest,
             crate::router::debug::RebuildOrderSummaryResponse,
             crate::order_summary::OrderSummaryData,
             crate::order_summary::RebuildResult,
