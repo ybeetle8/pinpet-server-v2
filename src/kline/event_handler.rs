@@ -85,6 +85,8 @@ impl KlineEventHandler {
             "s1" => timestamp,                    // 1秒间隔-不需要对齐 / 1-second intervals - no alignment needed
             "s30" => (timestamp / 30) * 30,       // 30秒边界对齐 / align to 30-second boundary
             "m5" => (timestamp / 300) * 300,      // 5分钟边界对齐 / align to 5-minute boundary
+            "h1" => (timestamp / 3600) * 3600,    // 1小时整点对齐 / align to 1-hour boundary
+            "d1" => (timestamp / 86400) * 86400,  // 1天UTC 0点对齐 / align to UTC day boundary
             _ => timestamp,                        // 默认1秒 / default to 1-second
         }
     }
@@ -150,7 +152,7 @@ impl EventHandler for KlineEventHandler {
             let timestamp = Utc::now().timestamp() as u64;
 
             // 为每个支持的时间间隔生成K线数据 / Generate K-line data for each supported interval
-            let intervals = ["s1", "s30", "m5"];
+            let intervals = ["s1", "s30", "m5", "h1", "d1"];
             for interval in intervals {
                 // 计算对齐后的时间桶 / Calculate aligned time bucket
                 let aligned_time = Self::calculate_time_bucket(timestamp, interval);

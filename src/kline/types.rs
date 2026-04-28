@@ -33,7 +33,7 @@ pub struct KlineRealtimeData {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct KlineQuery {
     pub mint_account: String,      // mint地址 / mint address
-    pub interval: String,          // s1, s30, m5 时间间隔 / time interval
+    pub interval: String,          // s1, s30, m5, h1, d1 时间间隔 / time interval
     pub page: Option<usize>,       // 页码 / page number
     pub limit: Option<usize>,      // 每页数量 / items per page
     pub order_by: Option<String>,  // time_asc | time_desc 排序方式 / sort order
@@ -56,7 +56,7 @@ pub struct KlineQueryResponse {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct KlineUpdateMessage {
     pub symbol: String,                  // mint_account mint地址 / mint address
-    pub interval: String,                // s1, s30, m5 时间间隔 / time interval
+    pub interval: String,                // s1, s30, m5, h1, d1 时间间隔 / time interval
     pub subscription_id: Option<String>, // 客户端订阅ID / Client subscription ID
     pub data: KlineRealtimeData,         // K线数据 / K-line data
     pub timestamp: u64,                  // 推送时间戳(毫秒) / Push timestamp (ms)
@@ -94,7 +94,7 @@ pub struct EventHistoryResponse {
 #[derive(Debug, Deserialize)]
 pub struct SubscribeRequest {
     pub symbol: String,                  // mint_account mint地址 / mint address
-    pub interval: String,                // s1, s30, m5 时间间隔 / time interval
+    pub interval: String,                // s1, s30, m5, h1, d1 时间间隔 / time interval
     pub subscription_id: Option<String>, // 客户端订阅ID / Client subscription ID
     pub limit: Option<usize>,            // 历史K线数量(默认100,最大1000) / History K-line limit (default 100, max 1000)
 }

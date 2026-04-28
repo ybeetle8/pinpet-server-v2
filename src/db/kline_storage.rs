@@ -11,6 +11,8 @@ use crate::kline::types::{KlineData, KlineQuery, KlineQueryResponse};
 pub const KLINE_INTERVAL_1S: &str = "s1";   // 1秒 / 1 second
 pub const KLINE_INTERVAL_30S: &str = "s30"; // 30秒 / 30 seconds
 pub const KLINE_INTERVAL_5M: &str = "m5";   // 5分钟 / 5 minutes
+pub const KLINE_INTERVAL_1H: &str = "h1";   // 1小时 / 1 hour
+pub const KLINE_INTERVAL_1D: &str = "d1";   // 1天 / 1 day
 
 /// 价格精度常量(23位小数) / Precision constant for u128 to f64 conversion (23 decimal places)
 pub const PRICE_PRECISION: u128 = 10_u128.pow(23);
@@ -47,6 +49,8 @@ impl KlineStorage {
             KLINE_INTERVAL_1S => timestamp,        // 1秒间隔-不需要对齐 / 1-second intervals - no alignment needed
             KLINE_INTERVAL_30S => (timestamp / 30) * 30,  // 30秒边界对齐 / align to 30-second boundary
             KLINE_INTERVAL_5M => (timestamp / 300) * 300, // 5分钟边界对齐 / align to 5-minute boundary
+            KLINE_INTERVAL_1H => (timestamp / 3600) * 3600,   // 1小时整点对齐 / align to 1-hour boundary
+            KLINE_INTERVAL_1D => (timestamp / 86400) * 86400, // 1天UTC 0点对齐 / align to UTC day boundary
             _ => timestamp,  // 默认1秒 / default to 1-second
         }
     }
@@ -120,7 +124,7 @@ impl KlineStorage {
 
         let unix_timestamp = timestamp.timestamp() as u64;
 
-        let intervals = [KLINE_INTERVAL_1S, KLINE_INTERVAL_30S, KLINE_INTERVAL_5M];
+        let intervals = [KLINE_INTERVAL_1S, KLINE_INTERVAL_30S, KLINE_INTERVAL_5M, KLINE_INTERVAL_1H, KLINE_INTERVAL_1D];
 
         for interval in intervals {
             let time_bucket = self.calculate_time_bucket(unix_timestamp, interval);
@@ -210,9 +214,9 @@ impl KlineStorage {
         let order_by = query.order_by.unwrap_or_else(|| "time_desc".to_string());
 
         // 验证时间间隔 / Validate interval
-        if !matches!(interval.as_str(), "s1" | "s30" | "m5") {
+        if !matches!(interval.as_str(), "s1" | "s30" | "m5" | "h1" | "d1") {
             return Err(anyhow::anyhow!(
-                "Invalid interval: {}, must be one of: s1, s30, m5",
+                "Invalid interval: {}, must be one of: s1, s30, m5, h1, d1",
                 interval
             ));
         }

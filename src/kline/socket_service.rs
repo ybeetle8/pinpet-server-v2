@@ -95,7 +95,7 @@ impl KlineSocketService {
                     "client_id": socket_id,
                     "server_time": Utc::now().timestamp(),
                     "supported_symbols": [],
-                    "supported_intervals": ["s1", "s30", "m5"]
+                    "supported_intervals": ["s1", "s30", "m5", "h1", "d1"]
                 });
 
                 if let Err(e) = socket.emit("connection_success", &welcome_msg) {
@@ -438,7 +438,7 @@ impl KlineSocketService {
         };
 
         // 使用相同的间隔广播到所有可能的间隔 / Use same intervals as K-line push - broadcast to all possible intervals
-        let intervals = ["s1", "s30", "m5"];
+        let intervals = ["s1", "s30", "m5", "h1", "d1"];
         let mut broadcast_count = 0;
 
         for interval in intervals {
@@ -542,9 +542,9 @@ impl KlineSocketService {
 /// 验证订阅请求 / Validate subscribe request
 fn validate_subscribe_request(req: &SubscribeRequest) -> Result<()> {
     // 验证时间间隔 / Validate interval
-    if !["s1", "s30", "m5"].contains(&req.interval.as_str()) {
+    if !["s1", "s30", "m5", "h1", "d1"].contains(&req.interval.as_str()) {
         return Err(anyhow::anyhow!(
-            "Invalid interval: {}, must be one of: s1, s30, m5",
+            "Invalid interval: {}, must be one of: s1, s30, m5, h1, d1",
             req.interval
         ));
     }

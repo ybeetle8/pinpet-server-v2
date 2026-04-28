@@ -35,6 +35,8 @@ pub struct GetKlineParams {
     /// - `s1`: 1秒K线 / 1-second K-line
     /// - `s30`: 30秒K线 / 30-second K-line
     /// - `m5`: 5分钟K线 / 5-minute K-line
+    /// - `h1`: 1小时K线 / 1-hour K-line
+    /// - `d1`: 1天K线 / 1-day K-line
     pub interval: String,
 
     /// 页码(从1开始,默认1) / Page number (starts from 1, default 1)
@@ -89,12 +91,12 @@ async fn get_kline(
     Query(params): Query<GetKlineParams>,
 ) -> impl IntoResponse {
     // 验证间隔参数 / Validate interval parameter
-    if !matches!(params.interval.as_str(), "s1" | "s30" | "m5") {
+    if !matches!(params.interval.as_str(), "s1" | "s30" | "m5" | "h1" | "d1") {
         return (
             StatusCode::BAD_REQUEST,
             Json(CommonResult::<KlineQueryResponse>::error(
                 400,
-                "Invalid interval, must be one of: s1, s30, m5".to_string(),
+                "Invalid interval, must be one of: s1, s30, m5, h1, d1".to_string(),
             )),
         )
             .into_response();
