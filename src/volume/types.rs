@@ -1,5 +1,6 @@
 // 交易额统计类型定义 / Volume Statistics Type Definitions
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 /// 时间周期枚举 / Time Period Enum
@@ -130,6 +131,83 @@ pub struct TopVolumeResponse {
     pub period: Period,
     /// 时间桶 / Time bucket
     pub time_bucket: u64,
+    /// Top 列表 / Top list
+    pub items: Vec<TopVolumeItem>,
+}
+
+// ============================================================================
+// 滚动24小时窗口数据结构 / Rolling 24h Window Data Structures
+// ============================================================================
+
+/// 单个小时槽位 / Single hour slot
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeSlot {
+    /// 该小时内累计交易额 (USD) / Cumulative volume in this hour (USD)
+    pub volume: f64,
+    /// 该小时内事件数 / Event count in this hour
+    pub event_count: u64,
+}
+
+/// 滚动24h交易额数据 / Rolling 24h volume data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollingVolumeData {
+    /// 各小时槽位，key = 1h 对齐的 timestamp / Hour slots, key = 1h-aligned timestamp
+    /// 最多 25 个槽位（24h + 1 个边界桶）/ Max 25 slots (24h + 1 boundary bucket)
+    pub slots: HashMap<u64, VolumeSlot>,
+    /// 聚合缓存：总交易额 / Cached total volume
+    pub total_volume: f64,
+    /// 聚合缓存：总事件数 / Cached total event count
+    pub total_event_count: u64,
+    /// 最后更新时间 / Last update timestamp
+    pub last_update: u64,
+}
+
+impl RollingVolumeData {
+    /// 创建空的滚动数据 / Create empty rolling data
+    pub fn new() -> Self {
+        Self {
+            slots: HashMap::new(),
+            total_volume: 0.0,
+            total_event_count: 0,
+            last_update: 0,
+        }
+    }
+}
+
+impl Default for RollingVolumeData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 滚动24h交易额查询响应 / Rolling 24h volume query response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RollingVolumeResponse {
+    /// 币种 mint 地址 / Token mint address
+    pub mint: String,
+    /// 交易额 (USD) / Volume in USD
+    pub volume: f64,
+    /// 事件数量 / Event count
+    pub event_count: u64,
+    /// 最后更新时间 / Last update timestamp
+    pub last_update: u64,
+}
+
+impl RollingVolumeResponse {
+    /// 创建空响应 / Create empty response
+    pub fn empty(mint: &str) -> Self {
+        Self {
+            mint: mint.to_string(),
+            volume: 0.0,
+            event_count: 0,
+            last_update: 0,
+        }
+    }
+}
+
+/// Top 滚动交易额查询响应 / Top rolling volume query response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TopRollingVolumeResponse {
     /// Top 列表 / Top list
     pub items: Vec<TopVolumeItem>,
 }

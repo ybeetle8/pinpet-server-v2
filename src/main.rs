@@ -416,6 +416,28 @@ async fn main() {
     let change_storage_for_api = Arc::new(stats_storage.create_change_storage());
     tracing::info!("✅ 涨跌幅存储初始化成功(API) / Change storage initialized successfully (API)");
 
+    // ============================================================================
+    // 滚动24h数据启动重建与刷新 / Rolling 24h data startup rebuild and refresh
+    // ============================================================================
+
+    // ① 首次升级: 从 1h 桶重建 / First upgrade: rebuild from 1h buckets
+    if let Err(e) = volume_storage_for_api.rebuild_rolling_data_if_needed() {
+        tracing::error!("滚动24h交易额重建失败 / Failed to rebuild rolling 24h volume: {}", e);
+    }
+    if let Err(e) = change_storage_for_api.rebuild_rolling_data_if_needed() {
+        tracing::error!("滚动24h涨跌幅重建失败 / Failed to rebuild rolling 24h change: {}", e);
+    }
+
+    // ② 每次启动: 清理过期槽位 / Every startup: clean expired slots
+    if let Err(e) = volume_storage_for_api.refresh_rolling_data_on_startup() {
+        tracing::error!("滚动24h交易额刷新失败 / Failed to refresh rolling 24h volume: {}", e);
+    }
+    if let Err(e) = change_storage_for_api.refresh_rolling_data_on_startup() {
+        tracing::error!("滚动24h涨跌幅刷新失败 / Failed to refresh rolling 24h change: {}", e);
+    }
+
+    tracing::info!("✅ 滚动24h数据初始化完成 / Rolling 24h data initialization complete");
+
     // 创建钱包数存储实例（用于API查询，使用统计数据库）/ Create markets storage instance (for API queries, using stats DB)
     let markets_storage_for_api = Arc::new(markets::MarketsStorage::new(stats_storage.db()));
     tracing::info!("✅ 钱包数存储初始化成功(API) / Markets storage initialized successfully (API)");

@@ -1,5 +1,6 @@
 // 涨跌幅统计类型定义 / Change Statistics Type Definitions
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 // 复用 Volume 模块的 Period 枚举
@@ -98,6 +99,84 @@ pub struct TopChangeResponse {
     pub time_bucket: u64,
     /// 查询方向 / Query direction
     pub direction: ChangeDirection,
+    /// Top 列表 / Top list
+    pub items: Vec<TopChangeItem>,
+}
+
+// ============================================================================
+// 滚动24小时窗口数据结构 / Rolling 24h Window Data Structures
+// ============================================================================
+
+/// 单个小时槽位的价格数据 / Single hour slot price data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangeSlot {
+    /// 该小时第一个事件的价格 / First event price in this hour
+    pub open_price: f64,
+    /// 该小时最后一个事件的价格 / Last event price in this hour
+    pub close_price: f64,
+    /// 该小时第一个事件时间 / First event timestamp in this hour
+    pub first_event_time: u64,
+    /// 该小时最后一个事件时间 / Last event timestamp in this hour
+    pub last_event_time: u64,
+}
+
+/// 滚动24h涨跌幅数据 / Rolling 24h change data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollingChangeData {
+    /// 各小时槽位，key = 1h 对齐的 timestamp / Hour slots, key = 1h-aligned timestamp
+    /// 最多 25 个槽位 / Max 25 slots
+    pub slots: HashMap<u64, ChangeSlot>,
+    /// 最后更新时间 / Last update timestamp
+    pub last_update: u64,
+}
+
+impl RollingChangeData {
+    /// 创建空的滚动数据 / Create empty rolling data
+    pub fn new() -> Self {
+        Self {
+            slots: HashMap::new(),
+            last_update: 0,
+        }
+    }
+}
+
+impl Default for RollingChangeData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 滚动24h涨跌幅查询响应 / Rolling 24h change query response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RollingChangeResponse {
+    /// 币种 mint 地址 / Token mint address
+    pub mint: String,
+    /// 开盘价 / Open price
+    pub open_price: f64,
+    /// 收盘价 / Close price
+    pub close_price: f64,
+    /// 涨跌幅百分比 / Change percentage
+    pub change_percent: f64,
+    /// 最后更新时间 / Last update timestamp
+    pub last_update: u64,
+}
+
+impl RollingChangeResponse {
+    /// 创建空响应 / Create empty response
+    pub fn empty(mint: &str) -> Self {
+        Self {
+            mint: mint.to_string(),
+            open_price: 0.0,
+            close_price: 0.0,
+            change_percent: 0.0,
+            last_update: 0,
+        }
+    }
+}
+
+/// Top 滚动涨跌幅查询响应 / Top rolling change query response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TopRollingChangeResponse {
     /// Top 列表 / Top list
     pub items: Vec<TopChangeItem>,
 }

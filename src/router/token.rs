@@ -16,7 +16,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::db::TokenStorage;
 use crate::util::CommonResult;
 use crate::volume::{Period, VolumeStorage};
-use crate::change::{ChangeDirection, ChangeStorage};
+use crate::change::ChangeStorage;
 use crate::fee::FeeStorage;
 use crate::markets_abs::MarketsAbsStorage;
 use crate::order_summary::{OrderSummaryStorage, OrderSummaryData};
@@ -836,19 +836,19 @@ async fn handle_local_tokens(
     }
 }
 
-/// 处理liquid tokens (24h交易量排序) / Handle liquid tokens (24h volume sort)
+/// 处理liquid tokens (24h交易量排序,滚动窗口) / Handle liquid tokens (24h volume sort, rolling window)
 async fn handle_liquid_tokens(
     state: &TokenState,
     limit: usize,
 ) -> Result<TokenListResponse, (StatusCode, String)> {
-    // 1. 获取 Top Volume 列表 / Get top volume list
+    // 1. 获取 Top 滚动24h Volume 列表 / Get top rolling 24h volume list
     let volume_result = state
         .volume_storage
-        .get_top_volume(Period::TwentyFourHours, None, limit)
+        .get_top_rolling_volume(limit)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get volume data: {}", e),
+                format!("Failed to get rolling volume data: {}", e),
             )
         })?;
 
@@ -911,19 +911,19 @@ async fn handle_liquid_tokens(
     })
 }
 
-/// 处理rising tokens (24h涨幅排序) / Handle rising tokens (24h gain sort)
+/// 处理rising tokens (24h涨幅排序,滚动窗口) / Handle rising tokens (24h gain sort, rolling window)
 async fn handle_rising_tokens(
     state: &TokenState,
     limit: usize,
 ) -> Result<TokenListResponse, (StatusCode, String)> {
-    // 1. 获取 Top Change 列表 / Get top change list
+    // 1. 获取 Top 滚动24h涨幅列表 / Get top rolling 24h change list
     let change_result = state
         .change_storage
-        .get_top_change(Period::TwentyFourHours, None, ChangeDirection::Gain, limit)
+        .get_top_rolling_change(limit)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get change data: {}", e),
+                format!("Failed to get rolling change data: {}", e),
             )
         })?;
 
@@ -1067,16 +1067,17 @@ async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::Toke
     let period = Period::TwentyFourHours;
 
     // 并发查询所有统计数据 / Query all stats concurrently
+    // Volume 和 Change 使用滚动24h查询（替代固定桶）/ Volume and Change use rolling 24h queries (replacing fixed buckets)
     let (volume_result, change_result, markets_abs_result, order_summary_result, fee_24h_result, fee_all_result) = tokio::join!(
-        query_volume_stats(state, mint, period),
-        query_change_stats(state, mint, period),
+        query_rolling_volume_stats(state, mint),
+        query_rolling_change_stats(state, mint),
         query_markets_abs_stats(state, mint, period),
         query_order_summary(state, mint),
         query_fee_24h(state, mint),
         query_fee_all(state, mint),
     );
 
-    // 附加 Volume 数据 / Attach volume data
+    // 附加 Volume 数据 (滚动24h) / Attach volume data (rolling 24h)
     if let Some(volume_data) = volume_result {
         token.extras.insert(
             "volume_24h".to_string(),
@@ -1092,7 +1093,7 @@ async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::Toke
         );
     }
 
-    // 附加 Change 数据 / Attach change data
+    // 附加 Change 数据 (滚动24h) / Attach change data (rolling 24h)
     if let Some(change_data) = change_result {
         token.extras.insert(
             "change_percent_24h".to_string(),
@@ -1147,35 +1148,37 @@ async fn enrich_token_with_stats(state: &TokenState, token: &mut crate::db::Toke
     }
 }
 
-/// 查询 Volume 统计 / Query volume statistics
-async fn query_volume_stats(
+/// 查询滚动24h Volume 统计 / Query rolling 24h volume statistics
+async fn query_rolling_volume_stats(
     state: &TokenState,
     mint: &str,
-    period: Period,
-) -> Option<crate::volume::VolumeData> {
+) -> Option<crate::volume::RollingVolumeResponse> {
     use tracing::warn;
 
-    match state.volume_storage.get_token_volume(mint, period, None) {
-        Ok(resp) => Some(resp.data),
+    match state.volume_storage.get_rolling_volume(mint) {
+        Ok(resp) => {
+            if resp.volume > 0.0 { Some(resp) } else { None }
+        }
         Err(e) => {
-            warn!("Failed to get volume stats for {}: {}", mint, e);
+            warn!("Failed to get rolling volume stats for {}: {}", mint, e);
             None
         }
     }
 }
 
-/// 查询 Change 统计 / Query change statistics
-async fn query_change_stats(
+/// 查询滚动24h Change 统计 / Query rolling 24h change statistics
+async fn query_rolling_change_stats(
     state: &TokenState,
     mint: &str,
-    period: Period,
-) -> Option<crate::change::ChangeData> {
+) -> Option<crate::change::RollingChangeResponse> {
     use tracing::warn;
 
-    match state.change_storage.get_token_change(mint, period, None) {
-        Ok(resp) => Some(resp.data),
+    match state.change_storage.get_rolling_change(mint) {
+        Ok(resp) => {
+            if resp.last_update > 0 { Some(resp) } else { None }
+        }
         Err(e) => {
-            warn!("Failed to get change stats for {}: {}", mint, e);
+            warn!("Failed to get rolling change stats for {}: {}", mint, e);
             None
         }
     }

@@ -1,9 +1,11 @@
 // 涨跌幅统计存储模块 / Change Statistics Storage Module
 use super::types::{
-    ChangeData, ChangeDirection, Period, TokenChangeResponse, TopChangeItem, TopChangeResponse,
+    ChangeData, ChangeDirection, ChangeSlot, Period, RollingChangeData, RollingChangeResponse,
+    TokenChangeResponse, TopChangeItem, TopChangeResponse, TopRollingChangeResponse,
 };
 use anyhow::{Context, Result};
-use rocksdb::DB;
+use rocksdb::{DB, WriteBatch};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -34,12 +36,18 @@ impl ChangeStorage {
 
         // 更新所有时间周期 / Update all time periods
         for period in Period::all() {
+            if period == Period::TwentyFourHours {
+                continue; // 24h 不再写固定桶，由滚动窗口替代 / 24h no longer uses fixed buckets, replaced by rolling window
+            }
             let time_bucket = period.align_timestamp(timestamp);
             self.update_period_change(mint, period, time_bucket, price, timestamp)?;
 
             // 同时更新排序索引 / Also update ranking index
             self.update_change_rank(mint, period, time_bucket)?;
         }
+
+        // 写入滚动24h数据（替代原来的 24h 固定桶）/ Write rolling 24h data (replaces 24h fixed bucket)
+        self.update_rolling_change(mint, price, timestamp)?;
 
         Ok(())
     }
@@ -391,5 +399,347 @@ impl ChangeStorage {
         }
 
         Ok(None)
+    }
+
+    // ============================================================================
+    // 滚动24小时窗口方法 / Rolling 24h Window Methods
+    // ============================================================================
+
+    /// 更新滚动24h涨跌幅 / Update rolling 24h change
+    pub fn update_rolling_change(&self, mint: &str, price: f64, timestamp: u64) -> Result<()> {
+        let key = format!("change_rolling:{}", mint);
+        let hour_bucket = (timestamp / 3600) * 3600;
+        let cutoff = timestamp.saturating_sub(86400);
+
+        // 1. 读取现有数据 / Read existing data
+        let mut data = match self.db.get(key.as_bytes())? {
+            Some(bytes) => serde_json::from_slice::<RollingChangeData>(&bytes)
+                .context("Failed to deserialize rolling change data")?,
+            None => RollingChangeData::new(),
+        };
+
+        // 2. 清理过期槽位 / Clean expired slots
+        data.slots.retain(|&k, _| k + 3600 > cutoff);
+
+        // 3. 更新当前小时槽位 / Update current hour slot
+        let slot = data.slots.entry(hour_bucket).or_insert_with(|| ChangeSlot {
+            open_price: price,
+            close_price: price,
+            first_event_time: timestamp,
+            last_event_time: timestamp,
+        });
+        slot.close_price = price;
+        slot.last_event_time = timestamp;
+
+        data.last_update = timestamp;
+
+        // 4. 计算滚动涨跌幅 / Calculate rolling change percent
+        let (open_price, close_price) = Self::calc_rolling_change(&data);
+        let change_percent = if open_price > 0.0 {
+            ((close_price - open_price) / open_price) * 100.0
+        } else {
+            0.0
+        };
+
+        // 5. 原子写入 / Atomic write
+        let mut batch = WriteBatch::default();
+        let value = serde_json::to_vec(&data).context("Failed to serialize rolling change data")?;
+        batch.put(key.as_bytes(), &value);
+
+        self.batch_update_rolling_change_rank(&mut batch, mint, change_percent)?;
+
+        self.db.write(batch)?;
+
+        debug!(
+            "✅ 更新滚动24h涨跌幅 / Updated rolling 24h change: mint={}, change={:.2}%, slots={}",
+            &mint[..8.min(mint.len())],
+            change_percent,
+            data.slots.len()
+        );
+
+        Ok(())
+    }
+
+    /// 从滚动数据中计算开盘价和收盘价 / Calculate open and close price from rolling data
+    pub fn calc_rolling_change(data: &RollingChangeData) -> (f64, f64) {
+        if data.slots.is_empty() {
+            return (0.0, 0.0);
+        }
+        let earliest = data.slots.keys().min().unwrap();
+        let open_price = data.slots[earliest].open_price;
+
+        let latest = data.slots.keys().max().unwrap();
+        let close_price = data.slots[latest].close_price;
+
+        (open_price, close_price)
+    }
+
+    /// 批量更新滚动涨跌幅排序索引 / Batch update rolling change ranking index
+    fn batch_update_rolling_change_rank(&self, batch: &mut WriteBatch, mint: &str, change_percent: f64) -> Result<()> {
+        // 1. 通过反向索引精确删除旧 rank key / Delete old rank key via reverse index
+        let rev_key = format!("change_rank_rolling_rev:{}", mint);
+        if let Some(old_rank_key_bytes) = self.db.get(rev_key.as_bytes())? {
+            batch.delete(&old_rank_key_bytes);
+        }
+
+        // 2. 插入新 rank key / Insert new rank key
+        let change_encoded = Self::encode_change_percent(change_percent);
+        let new_rank_key = format!("change_rank_rolling:{}:{}", change_encoded, mint);
+        batch.put(new_rank_key.as_bytes(), b"");
+
+        // 3. 更新反向索引 / Update reverse index
+        batch.put(rev_key.as_bytes(), new_rank_key.as_bytes());
+
+        Ok(())
+    }
+
+    /// 查询单个 mint 的滚动24h涨跌幅 / Query rolling 24h change for a single mint
+    pub fn get_rolling_change(&self, mint: &str) -> Result<RollingChangeResponse> {
+        let key = format!("change_rolling:{}", mint);
+
+        let data = match self.db.get(key.as_bytes())? {
+            Some(bytes) => serde_json::from_slice::<RollingChangeData>(&bytes)
+                .context("Failed to deserialize rolling change data")?,
+            None => return Ok(RollingChangeResponse::empty(mint)),
+        };
+
+        // 查询时过滤过期槽位 / Filter expired slots on query
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let cutoff = now.saturating_sub(86400);
+
+        let valid_slots: BTreeMap<u64, &ChangeSlot> = data.slots.iter()
+            .filter(|(&k, _)| k + 3600 > cutoff)
+            .map(|(&k, v)| (k, v))
+            .collect();
+
+        if valid_slots.is_empty() {
+            return Ok(RollingChangeResponse::empty(mint));
+        }
+
+        let open_price = valid_slots.values().next().unwrap().open_price;
+        let close_price = valid_slots.values().last().unwrap().close_price;
+        let change_percent = if open_price > 0.0 {
+            ((close_price - open_price) / open_price) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(RollingChangeResponse {
+            mint: mint.to_string(),
+            open_price,
+            close_price,
+            change_percent,
+            last_update: data.last_update,
+        })
+    }
+
+    /// 查询 Top N 滚动24h涨幅 / Query top N rolling 24h change (gainers)
+    pub fn get_top_rolling_change(&self, limit: usize) -> Result<TopRollingChangeResponse> {
+        // 遍历 change_rank_rolling: 前缀中以 '+' 开头的键（涨幅）
+        // Iterate change_rank_rolling: prefix with '+' keys (gainers)
+        let prefix = "change_rank_rolling:+";
+
+        let mut rank_keys: Vec<(String, String)> = Vec::new(); // (rank_key, mint)
+        let iter = self.db.prefix_iterator(prefix.as_bytes());
+
+        for item in iter {
+            let (key, _) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+
+            if !key_str.starts_with(prefix) {
+                break;
+            }
+
+            // 解析: change_rank_rolling:{change_encoded}:{mint}
+            // Parse: change_rank_rolling:{change_encoded}:{mint}
+            // change_encoded 是 12 字符（+0000012345）/ change_encoded is 12 chars
+            let rest = &key_str["change_rank_rolling:".len()..];
+            if rest.len() > 12 {
+                let mint = rest[13..].to_string(); // skip encoded (12 chars) + ':' (1 char)
+                rank_keys.push((key_str.to_string(), mint));
+            }
+        }
+
+        // 从后往前取（涨幅大的在后面）/ Take from end (larger gains at the end)
+        let mut items = Vec::new();
+        for (_rank_key, mint) in rank_keys.iter().rev() {
+            // 二次验证 / Secondary validation
+            let rolling_resp = self.get_rolling_change(mint)?;
+            if rolling_resp.change_percent > 0.0 {
+                items.push(TopChangeItem {
+                    mint: mint.clone(),
+                    open_price: rolling_resp.open_price,
+                    close_price: rolling_resp.close_price,
+                    change_percent: rolling_resp.change_percent,
+                    first_event_time: 0,
+                    last_event_time: rolling_resp.last_update,
+                });
+            }
+
+            if items.len() >= limit {
+                break;
+            }
+        }
+
+        info!(
+            "📈 查询 Top {} 滚动24h涨幅 / Queried Top {} rolling 24h change: found={}",
+            limit, limit, items.len()
+        );
+
+        Ok(TopRollingChangeResponse { items })
+    }
+
+    // ============================================================================
+    // 启动时重建/刷新 / Startup Rebuild/Refresh
+    // ============================================================================
+
+    /// 检查是否需要从1h桶重建滚动数据 / Check if rebuild from 1h buckets is needed
+    pub fn rebuild_rolling_data_if_needed(&self) -> Result<()> {
+        let prefix = b"change_rolling:";
+        let has_rolling = self.db.prefix_iterator(prefix)
+            .next()
+            .and_then(|r| r.ok())
+            .map(|(k, _)| k.starts_with(prefix))
+            .unwrap_or(false);
+
+        if !has_rolling {
+            info!("首次升级，从1h桶重建滚动24h涨跌幅数据... / First upgrade, rebuilding rolling 24h change data from 1h buckets...");
+            self.rebuild_rolling_change_data()?;
+        }
+        Ok(())
+    }
+
+    /// 从1h桶重建滚动24h涨跌幅数据 / Rebuild rolling 24h change data from 1h buckets
+    fn rebuild_rolling_change_data(&self) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let cutoff = now.saturating_sub(86400);
+
+        // 在内存中按 mint 归集 / Aggregate by mint in memory
+        let mut change_map: std::collections::HashMap<String, RollingChangeData> = std::collections::HashMap::new();
+
+        let prefix = b"change:1h:";
+        let iter = self.db.prefix_iterator(prefix);
+
+        for item in iter {
+            let (key, value) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+            if !key_str.starts_with("change:1h:") { break; }
+
+            // 解析: change:1h:{mint}:{time_bucket:020}
+            let parts: Vec<&str> = key_str.split(':').collect();
+            if parts.len() < 4 { continue; }
+
+            let time_bucket: u64 = match parts.last().unwrap().parse() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            // 只取最近24小时的桶 / Only take buckets from last 24h
+            if time_bucket + 3600 <= cutoff { continue; }
+
+            let mint = parts[2..parts.len()-1].join(":");
+            let change_data: ChangeData = match serde_json::from_slice(&value) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let rolling = change_map.entry(mint).or_insert_with(RollingChangeData::new);
+            rolling.slots.insert(time_bucket, ChangeSlot {
+                open_price: change_data.open_price,
+                close_price: change_data.close_price,
+                first_event_time: change_data.first_event_time,
+                last_event_time: change_data.last_event_time,
+            });
+            rolling.last_update = rolling.last_update.max(change_data.last_event_time);
+        }
+
+        // 批量写入 / Batch write
+        let mut batch = WriteBatch::default();
+        let mut count = 0u64;
+
+        for (mint, data) in &change_map {
+            let key = format!("change_rolling:{}", mint);
+            let value = serde_json::to_vec(data)?;
+            batch.put(key.as_bytes(), &value);
+
+            // 计算涨跌幅并写排序索引 / Calculate change percent and write ranking index
+            let (open, close) = Self::calc_rolling_change(data);
+            let change_pct = if open > 0.0 { ((close - open) / open) * 100.0 } else { 0.0 };
+            let encoded = Self::encode_change_percent(change_pct);
+            let rank_key = format!("change_rank_rolling:{}:{}", encoded, mint);
+            batch.put(rank_key.as_bytes(), b"");
+            batch.put(format!("change_rank_rolling_rev:{}", mint).as_bytes(), rank_key.as_bytes());
+
+            count += 1;
+        }
+
+        self.db.write(batch)?;
+        info!("滚动24h涨跌幅数据重建完成，共 {} 个 mint / Rolling 24h change data rebuild complete, {} mints", count, count);
+        Ok(())
+    }
+
+    /// 启动时刷新过期的滚动数据 / Refresh expired rolling data on startup
+    pub fn refresh_rolling_data_on_startup(&self) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let cutoff = now.saturating_sub(86400);
+
+        let mut batch = WriteBatch::default();
+        let mut refreshed = 0u64;
+
+        let prefix = b"change_rolling:";
+        let iter = self.db.prefix_iterator(prefix);
+
+        for item in iter {
+            let (key, value) = item?;
+            let key_str = String::from_utf8_lossy(&key);
+            if !key_str.starts_with("change_rolling:") { break; }
+
+            let mut data: RollingChangeData = match serde_json::from_slice(&value) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let before = data.slots.len();
+            data.slots.retain(|&k, _| k + 3600 > cutoff);
+
+            if data.slots.len() != before {
+                let value = serde_json::to_vec(&data)?;
+                batch.put(&*key, &value);
+
+                // 同步更新排序索引 / Sync update ranking index
+                let mint = key_str.strip_prefix("change_rolling:").unwrap();
+
+                // 删除旧 rank key / Delete old rank key
+                let rev_key = format!("change_rank_rolling_rev:{}", mint);
+                if let Some(old_rank_key_bytes) = self.db.get(rev_key.as_bytes())? {
+                    batch.delete(&old_rank_key_bytes);
+                }
+
+                // 计算新涨跌幅并插入新 rank key / Calculate new change and insert new rank key
+                let (open, close) = Self::calc_rolling_change(&data);
+                let change_pct = if open > 0.0 { ((close - open) / open) * 100.0 } else { 0.0 };
+                let encoded = Self::encode_change_percent(change_pct);
+                let new_rank_key = format!("change_rank_rolling:{}:{}", encoded, mint);
+                batch.put(new_rank_key.as_bytes(), b"");
+                batch.put(rev_key.as_bytes(), new_rank_key.as_bytes());
+
+                refreshed += 1;
+            }
+        }
+
+        self.db.write(batch)?;
+        if refreshed > 0 {
+            info!("启动时刷新了 {} 个 mint 的滚动24h涨跌幅数据 / Refreshed rolling 24h change data for {} mints on startup", refreshed, refreshed);
+        }
+        Ok(())
     }
 }
