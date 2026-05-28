@@ -144,8 +144,9 @@ impl EventHandler for StorageEventHandler {
                         long_short_removed = removed;
                     },
                     Err(e) => {
-                        error!("❌ 处理 LongShortEvent 失败 / Failed to handle LongShortEvent: {}", e);
-                        // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                        error!("❌ 处理 LongShortEvent 失败, 强平手续费将丢失! / Failed to handle LongShortEvent, liquidation fees will be LOST!: {}", e);
+                        // 主订单 borrow fee 仍可从事件字段计算, 但强平手续费无法恢复
+                        // Main order borrow fee can still be calculated from event fields, but liquidation fees are irrecoverable
                     }
                 }
             }
@@ -158,8 +159,9 @@ impl EventHandler for StorageEventHandler {
                         buy_sell_removed = removed;
                     },
                     Err(e) => {
-                        error!("❌ 处理 BuySellEvent 清算失败 / Failed to handle BuySellEvent liquidations: {}", e);
-                        // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                        error!("❌ 处理 BuySellEvent 清算失败, 强平手续费将丢失! / Failed to handle BuySellEvent liquidations, liquidation fees will be LOST!: {}", e);
+                        // swap 手续费仍可正常计算, 但强平手续费无法恢复
+                        // Swap fee can still be calculated, but liquidation fees are irrecoverable
                     }
                 }
             }
@@ -172,8 +174,9 @@ impl EventHandler for StorageEventHandler {
                         full_close_removed = removed;
                     },
                     Err(e) => {
-                        error!("❌ 处理 FullCloseEvent 清算失败 / Failed to handle FullCloseEvent liquidations: {}", e);
-                        // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                        error!("❌ 处理 FullCloseEvent 清算失败, 强平手续费将丢失! / Failed to handle FullCloseEvent liquidations, liquidation fees will be LOST!: {}", e);
+                        // 主订单手续费可通过 TokenStorage 回退计算, 但强平手续费无法恢复(缺少 lock_lp_sol_amount)
+                        // Main order fee can be calculated via TokenStorage fallback, but liquidation fees are irrecoverable (missing lock_lp_sol_amount)
                     }
                 }
             }
@@ -187,8 +190,9 @@ impl EventHandler for StorageEventHandler {
                         partial_close_delta = delta;
                     },
                     Err(e) => {
-                        error!("❌ 处理 PartialCloseEvent 更新和清算失败 / Failed to handle PartialCloseEvent update and liquidations: {}", e);
-                        // 继续存储事件，不因 OrderBook 失败而中断 / Continue storing event, don't fail due to OrderBook error
+                        error!("❌ 处理 PartialCloseEvent 更新和清算失败, 强平手续费将丢失! / Failed to handle PartialCloseEvent, liquidation fees will be LOST!: {}", e);
+                        // 主订单 borrow fee 仍可从事件字段计算, 但强平手续费无法恢复
+                        // Main order borrow fee can still be calculated from event fields, but liquidation fees are irrecoverable
                     }
                 }
             }
@@ -1508,7 +1512,43 @@ impl StorageEventHandler {
                         }
                     }
                 } else {
-                    warn!("⚠️ FullClose 主订单未在 removed 列表中找到: order_index={} / Main order not found in removed list", e.order_index);
+                    // 主订单未在 removed 列表中找到, 使用 TokenStorage 的 borrow_fee 作为回退
+                    // Main order not found in removed list, use TokenStorage's borrow_fee as fallback
+                    warn!("⚠️ FullClose 主订单未在 removed 列表中找到, 尝试从 TokenStorage 获取 borrow_fee / Main order not found, trying TokenStorage fallback: order_index={}", e.order_index);
+                    match self.token_storage.get_token_by_mint(&e.mint_account) {
+                        Ok(Some(token)) if token.borrow_fee > 0 => {
+                            let borrow_fee = token.borrow_fee as u64;
+                            let fee_lamports = if e.is_close_long {
+                                // 平多(close_long): fee = final_sol_amount * 100000 / (100000 - borrow_fee) - final_sol_amount
+                                // Close long: fee = final_sol_amount * 100000 / (100000 - borrow_fee) - final_sol_amount
+                                let denominator = 100_000u64.saturating_sub(borrow_fee);
+                                if denominator == 0 { 0 } else {
+                                    let original_sol = e.final_sol_amount.checked_mul(100_000).unwrap_or(0) / denominator;
+                                    original_sol.saturating_sub(e.final_sol_amount)
+                                }
+                            } else {
+                                // 平空(close_short): fee = final_sol_amount * borrow_fee / 100000
+                                // Close short: fee = final_sol_amount * borrow_fee / 100000
+                                e.final_sol_amount.checked_mul(borrow_fee).unwrap_or(0) / 100_000
+                            };
+
+                            if fee_lamports > 0 {
+                                if let Err(err) = self.fee_storage.update_fee(&e.mint_account, fee_lamports, FeeType::Borrow, timestamp) {
+                                    error!("❌ 更新手续费统计失败 (FullClose fallback) / Failed to update fee stats (FullClose fallback): {}", err);
+                                }
+                            }
+                            info!("✅ FullClose 使用 TokenStorage borrow_fee={} 计算手续费={} / FullClose used TokenStorage fallback borrow_fee={} fee={}", borrow_fee, fee_lamports, borrow_fee, fee_lamports);
+                        }
+                        Ok(Some(_)) => {
+                            warn!("⚠️ FullClose TokenStorage 中 borrow_fee=0, 无法计算手续费 / TokenStorage borrow_fee=0, cannot calc fee: mint={}", &e.mint_account[..8.min(e.mint_account.len())]);
+                        }
+                        Ok(None) => {
+                            warn!("⚠️ FullClose Token 未在 TokenStorage 中找到 / Token not found in TokenStorage: mint={}", &e.mint_account[..8.min(e.mint_account.len())]);
+                        }
+                        Err(err) => {
+                            error!("❌ FullClose 从 TokenStorage 获取 token 失败 / Failed to get token from TokenStorage: {}", err);
+                        }
+                    }
                 }
 
                 // 处理 FullClose 触发的强平手续费 / Handle liquidation fees triggered by FullClose
@@ -1580,9 +1620,20 @@ impl StorageEventHandler {
         timestamp: u64,
     ) -> anyhow::Result<()> {
         for removed in removed_orders {
-            let borrow_fee = removed.borrow_fee as u64;
+            let mut borrow_fee = removed.borrow_fee as u64;
             if borrow_fee == 0 {
-                continue;
+                // 订单 borrow_fee 为 0, 尝试从 TokenStorage 获取当前费率作为回退
+                // Order borrow_fee is 0, try TokenStorage's current rate as fallback
+                match self.token_storage.get_token_by_mint(mint) {
+                    Ok(Some(token)) if token.borrow_fee > 0 => {
+                        borrow_fee = token.borrow_fee as u64;
+                        warn!("⚠️ 强平订单 borrow_fee=0, 使用 TokenStorage 回退值={} / Liquidation order borrow_fee=0, using TokenStorage fallback={}: index={}", borrow_fee, borrow_fee, removed.index);
+                    }
+                    _ => {
+                        warn!("⚠️ 强平订单 borrow_fee=0 且无法从 TokenStorage 获取回退值, 跳过 / Liquidation order borrow_fee=0 and no fallback available, skipping: index={}", removed.index);
+                        continue;
+                    }
+                }
             }
 
             let fee_lamports = if is_liquidating_short {
