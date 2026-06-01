@@ -11,21 +11,25 @@ use super::service::OrderBookSyncService;
 
 /// 最后事件信息 / Last event information
 #[derive(Clone, Debug)]
-struct LastEventInfo {
+pub struct LastEventInfo {
     /// 最后收到事件的时间 / Last event received time
-    last_event_time: DateTime<Utc>,
+    pub last_event_time: DateTime<Utc>,
     /// 是否正在同步 / Is syncing
-    is_syncing: bool,
+    pub is_syncing: bool,
     /// 上次同步时间 / Last sync time
-    last_sync_time: Option<DateTime<Utc>>,
+    pub last_sync_time: Option<DateTime<Utc>>,
 }
+
+/// 事件时间追踪器,在 Monitor 和 Service 之间共享
+/// Event time tracker, shared between Monitor and Service
+pub type EventTimeMap = Arc<RwLock<HashMap<String, LastEventInfo>>>;
 
 /// OrderBook 同步监控器 / OrderBook sync monitor
 pub struct OrderBookSyncMonitor {
     /// 配置 / Configuration
     config: OrderBookSyncConfig,
     /// mint -> LastEventInfo 映射 / mint -> LastEventInfo mapping
-    last_events: Arc<RwLock<HashMap<String, LastEventInfo>>>,
+    last_events: EventTimeMap,
     /// 同步服务 / Sync service
     sync_service: Arc<OrderBookSyncService>,
     /// 是否运行中 / Is running
@@ -38,9 +42,13 @@ impl OrderBookSyncMonitor {
         config: OrderBookSyncConfig,
         sync_service: Arc<OrderBookSyncService>,
     ) -> Self {
+        let last_events: EventTimeMap = Arc::new(RwLock::new(HashMap::new()));
+        // 把事件时间映射共享给 SyncService,用于 rebuild 前检查
+        // Share event time map with SyncService for pre-rebuild check
+        sync_service.set_event_time_map(last_events.clone());
         Self {
             config,
-            last_events: Arc::new(RwLock::new(HashMap::new())),
+            last_events,
             sync_service,
             is_running: Arc::new(RwLock::new(false)),
         }

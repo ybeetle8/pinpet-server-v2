@@ -4,11 +4,13 @@ use std::sync::Arc;
 use tracing::{info, warn, error};
 use serde::{Serialize, Deserialize};
 use utoipa::ToSchema;
+use chrono::{DateTime, Utc};
 
 use crate::config::OrderBookSyncConfig;
 use crate::db::OrderBookStorage;
 use crate::solana::orderbook_reader::OrderBookReader;
 use crate::solana::orderbook_comparator::{OrderBookComparator, ComparisonResult, OrderBookComparison};
+use super::monitor::EventTimeMap;
 
 /// 同步结果 / Sync result
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -33,6 +35,8 @@ pub struct OrderBookSyncService {
     orderbook_storage: Arc<OrderBookStorage>,
     /// 配置 / Configuration
     config: OrderBookSyncConfig,
+    /// 事件时间映射(由 Monitor 设置) / Event time map (set by Monitor)
+    event_time_map: std::sync::RwLock<Option<EventTimeMap>>,
 }
 
 impl OrderBookSyncService {
@@ -48,7 +52,29 @@ impl OrderBookSyncService {
             comparator,
             orderbook_storage,
             config,
+            event_time_map: std::sync::RwLock::new(None),
         }
+    }
+
+    /// 设置事件时间映射(由 Monitor 调用) / Set event time map (called by Monitor)
+    pub fn set_event_time_map(&self, map: EventTimeMap) {
+        *self.event_time_map.write().unwrap() = Some(map);
+    }
+
+    /// 检查指定 mint 在给定时间之后是否有新事件到达
+    /// Check if new events arrived for specified mint after the given time
+    async fn has_new_events_since(&self, mint: &str, since: DateTime<Utc>) -> bool {
+        let map = {
+            let guard = self.event_time_map.read().unwrap();
+            guard.clone()
+        };
+        if let Some(map) = map {
+            let events = map.read().await;
+            if let Some(info) = events.get(mint) {
+                return info.last_event_time > since;
+            }
+        }
+        false
     }
 
     /// 同步指定 mint 的 OrderBook / Sync OrderBook for specified mint
@@ -176,10 +202,26 @@ impl OrderBookSyncService {
     ) -> Result<()> {
         let mint_short = if mint.len() > 8 { &mint[..8] } else { mint };
 
+        // 🔧 记录读取链上数据前的时间,用于检测竞态
+        // 🔧 Record time before reading chain data, used to detect race condition
+        let read_start = Utc::now();
+
         // 获取链上完整数据 / Get complete chain data
         let (chain_header, chain_orders) = self.reader
             .get_orderbook_from_chain(mint, direction)
             .await?;
+
+        // 🔧 检查读取链上数据期间是否有新事件到达
+        // 如果有,说明本地数据已变化,链上快照可能已过时,放弃本次 rebuild
+        // 🔧 Check if new events arrived during chain data reading
+        // If so, local data has changed, chain snapshot may be stale, abort this rebuild
+        if self.has_new_events_since(mint, read_start).await {
+            warn!(
+                "⚠️ rebuild 期间检测到新事件,放弃本次修复 / New events detected during rebuild, aborting repair: mint={}, direction={}",
+                mint_short, direction
+            );
+            return Ok(());
+        }
 
         // 获取管理器 / Get manager
         let manager = self.orderbook_storage

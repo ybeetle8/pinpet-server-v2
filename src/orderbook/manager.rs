@@ -5,7 +5,7 @@ use crate::orderbook::{
     errors::{OrderBookError, Result},
     types::{MarginOrder, MarginOrderUpdateData, OrderBookHeader, TraversalResult},
 };
-use rocksdb::{WriteBatch, DB};
+use rocksdb::{IteratorMode, WriteBatch, DB};
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
@@ -1708,45 +1708,47 @@ impl OrderBookDBManager {
     }
 
     /// 清空所有数据（内部使用）/ Clear all data (internal use)
+    ///
+    /// 使用前缀扫描物理 slot 键,不依赖链表指针,即使链表损坏也能完整清理
+    /// Uses prefix scan on physical slot keys, does not rely on linked list pointers,
+    /// can clean up completely even if the linked list is corrupted
     fn clear_all_data(&self, batch: &mut WriteBatch) -> Result<()> {
-        // 清空 header / Clear header
+        // 1. 删除 header / Delete header
         let header_key = self.header_key();
         batch.delete(header_key.as_bytes());
 
-        // 读取现有 header 以获取订单信息
-        if let Ok(header) = self.load_header() {
-            // 清空所有订单槽位 / Clear all order slots
-            for i in 0..header.total_capacity {
-                let slot_key = self.slot_key(i as u16);
-                batch.delete(slot_key.as_bytes());
+        // 2. 前缀扫描 orderbook_slot:{mint}:{direction}: 获取所有物理存在的订单
+        // 2. Prefix scan orderbook_slot:{mint}:{direction}: to get all physically existing orders
+        let slot_prefix = format!("orderbook_slot:{}:{}:", self.mint, self.direction);
+        let iter = self.db.iterator(IteratorMode::From(
+            slot_prefix.as_bytes(),
+            rocksdb::Direction::Forward,
+        ));
+
+        for item in iter {
+            let (key, value) = item?;
+            let key_str = String::from_utf8_lossy(&key).to_string();
+
+            if !key_str.starts_with(&slot_prefix) {
+                break;
             }
 
-            // 遍历并清空所有订单相关数据
-            if header.total > 0 {
-                // 使用遍历来获取所有订单
-                let mut orders = Vec::new();
-                let _ = self.traverse(
-                    u16::MAX,
-                    0,
-                    |_index, order| {
-                        orders.push(order.clone());
-                        Ok(true)
-                    },
-                );
+            // 删除 slot 键 / Delete slot key
+            batch.delete(&key);
 
-                // 清空 ID 映射和用户索引
-                for order in orders {
-                    // 清空 ID 映射
-                    let id_map_key = self.id_map_key(order.order_id);
-                    batch.delete(id_map_key.as_bytes());
+            // 反序列化订单,提取 user/start_time/order_id 来删除关联索引
+            // Deserialize order to extract user/start_time/order_id for deleting associated indexes
+            if let Ok(order) = MarginOrder::from_bytes(&value) {
+                // 删除 ID 映射 / Delete ID mapping
+                let id_map_key = self.id_map_key(order.order_id);
+                batch.delete(id_map_key.as_bytes());
 
-                    // 清空用户活跃订单索引
-                    self.remove_user_active_index(batch, &order.user, order.start_time, order.order_id);
-                }
+                // 删除用户活跃订单索引 / Delete user active order index
+                self.remove_user_active_index(batch, &order.user, order.start_time, order.order_id);
             }
         }
 
-        // 清空活跃索引列表 / Clear active indices list
+        // 3. 删除活跃索引列表 / Delete active indices list
         let active_key = self.active_indices_key();
         batch.delete(active_key.as_bytes());
 

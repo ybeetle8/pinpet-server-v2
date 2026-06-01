@@ -695,60 +695,48 @@ impl StorageEventHandler {
         let manager = self.orderbook_storage
             .get_or_create_manager(event.mint_account.clone(), direction.to_string())?;
 
-        // 删除主订单 (用户主动平仓) / Remove main order (user initiated close)
-        let main_removed = manager.batch_remove_by_indices_unsafe_with_info(
-            &[event.order_index],
-            1, // UserInitiated - 用户主动平仓 / User initiated close
+        // 🔧 合并主订单和清算订单为一次 batch_remove 调用
+        // 避免两次调用之间 move-tail 策略导致索引错乱
+        // 🔧 Merge main order and liquidation orders into a single batch_remove call
+        // Avoids index corruption caused by move-tail strategy between two calls
+        let mut all_indices = vec![event.order_index];
+        for &idx in &event.liquidate_indices {
+            if idx != event.order_index {
+                all_indices.push(idx);
+            }
+        }
+
+        let all_removed = manager.batch_remove_by_indices_unsafe_with_info(
+            &all_indices,
+            2, // close_reason 统一用 ForcedLiquidation, 主订单在下面单独标记
             close_price_before,
             close_price_after,
         )?;
 
-        // 处理强制清算的对手方订单 / Handle forced liquidation of opposing orders
+        // 从结果中区分主订单和清算订单
+        // Separate main order and liquidated orders from result
         let mut liquidate_events = Vec::new();
-        let mut all_removed_orders = main_removed;
+        let mut all_removed_orders = Vec::new();
 
-        // 🔧 修复: 合约 FullCloseEvent.liquidate_indices 包含主订单自身 index,
-        // 必须过滤掉, 否则重复删除会导致 index 越界或删错订单
-        // 🔧 Fix: Contract FullCloseEvent.liquidate_indices includes the main order's own index,
-        // must filter it out, otherwise double-removal causes index out-of-bounds or wrong order deletion
-        let actual_liquidate_indices: Vec<u16> = event.liquidate_indices.iter()
-            .filter(|&&idx| idx != event.order_index)
-            .copied()
-            .collect();
-
-        if !actual_liquidate_indices.is_empty() {
-            info!(
-                "🔥 处理 FullCloseEvent 清算 / Processing FullCloseEvent liquidations: count={}",
-                actual_liquidate_indices.len()
-            );
-
-            // 强制清算订单使用 ForcedLiquidation (2)
-            // Force-liquidated orders use ForcedLiquidation (2)
-            let liquidated_removed = manager.batch_remove_by_indices_unsafe_with_info(
-                &actual_liquidate_indices,
-                2, // ForcedLiquidation
-                close_price_before,
-                close_price_after,
-            )?;
-
-            // 为每个被清算的订单创建 LiquidateEvent / Create LiquidateEvent for each liquidated order
-            for removed_order in &liquidated_removed {
+        for removed in all_removed {
+            all_removed_orders.push(removed.clone());
+            // 非主订单的都是清算订单,生成 LiquidateEvent
+            // Non-main orders are liquidated orders, generate LiquidateEvent
+            if removed.index != event.order_index {
                 let liquidate_event = PinpetEvent::Liquidate(super::events::LiquidateEvent {
                     payer: event.payer.clone(),
-                    user_sol_account: removed_order.user.clone(),
+                    user_sol_account: removed.user.clone(),
                     mint_account: event.mint_account.clone(),
                     is_close_long: direction == "dn",
-                    final_token_amount: removed_order.position_asset_amount,
-                    final_sol_amount: removed_order.margin_sol_amount,
-                    order_index: removed_order.index,
+                    final_token_amount: removed.position_asset_amount,
+                    final_sol_amount: removed.margin_sol_amount,
+                    order_index: removed.index,
                     timestamp: event.timestamp,
                     signature: event.signature.clone(),
                     slot: event.slot,
                 });
                 liquidate_events.push(liquidate_event);
             }
-
-            all_removed_orders.extend(liquidated_removed);
         }
 
         info!(
@@ -928,10 +916,18 @@ impl StorageEventHandler {
         // 2. 再删除清算的订单 / Then delete liquidated orders
         let mut liquidate_events = Vec::new();
         let mut all_removed_orders: Vec<RemovedOrderInfo> = Vec::new();
-        if !event.liquidate_indices.is_empty() {
+
+        // 🔧 过滤掉主订单 index, 避免删除刚更新的订单
+        // 🔧 Filter out main order index to avoid deleting the just-updated order
+        let actual_liquidate_indices: Vec<u16> = event.liquidate_indices.iter()
+            .filter(|&&idx| idx != event.order_index)
+            .copied()
+            .collect();
+
+        if !actual_liquidate_indices.is_empty() {
             info!(
                 "🔥 处理 PartialCloseEvent 清算 / Processing PartialCloseEvent liquidations: count={}",
-                event.liquidate_indices.len()
+                actual_liquidate_indices.len()
             );
 
             // ✅ 先获取平仓前的价格(上一次记录的价格)
@@ -942,7 +938,7 @@ impl StorageEventHandler {
             // 强制清算,使用 CloseReason::ForcedLiquidation (2)
             // Forced liquidation, use CloseReason::ForcedLiquidation (2)
             let removed_orders = manager.batch_remove_by_indices_unsafe_with_info(
-                &event.liquidate_indices,
+                &actual_liquidate_indices,
                 2, // ForcedLiquidation
                 close_price_before,  // 平仓前价格 / Price before close
                 close_price_after,   // 平仓后价格 / Price after close
